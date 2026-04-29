@@ -111,13 +111,21 @@
         transform: translateY(-2px);
         box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
       }
+
+      .error-message {
+        margin-top: 14px;
+        min-height: 20px;
+        color: #ff8da1;
+        font-size: 14px;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
     <main class="login-card">
       <h1 class="logo">Paletlist</h1>
       <p class="subtitle">Вход в личный кабинет</p>
-      <form>
+      <form id="login-form">
         <div class="field">
           <label for="login">Логин</label>
           <input id="login" name="login" type="text" placeholder="Введите логин" required />
@@ -133,7 +141,26 @@
           />
         </div>
         <button type="submit">Войти</button>
+        <p id="error-message" class="error-message"></p>
       </form>
     </main>
+    <script>
+      const form = document.getElementById("login-form");
+      const errorMessage = document.getElementById("error-message");
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const login = document.getElementById("login").value.trim();
+        const password = document.getElementById("password").value.trim();
+
+        if (login === "admin" && password === "1241") {
+          window.location.href = "admin.html";
+          return;
+        }
+
+        errorMessage.textContent = "Неверный логин или пароль";
+      });
+    </script>
   </body>
 </html>

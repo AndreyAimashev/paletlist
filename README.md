@@ -1,0 +1,3 @@
+# paletlist
+
+Initial project setup.

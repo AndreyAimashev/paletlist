@@ -36,6 +36,8 @@
         backdrop-filter: blur(8px);
         padding: 28px;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        transform-origin: top center;
+        animation: unfoldMenu 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
       }
 
       h1 {
@@ -49,12 +51,46 @@
       .muted {
         color: var(--text-muted);
       }
+
+      .menu-button {
+        display: inline-block;
+        margin-top: 18px;
+        border: none;
+        border-radius: 30px;
+        padding: 12px 18px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        text-decoration: none;
+        color: #09111e;
+        background: linear-gradient(45deg, var(--accent-teal), var(--accent-purple));
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .menu-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
+      }
+
+      @keyframes unfoldMenu {
+        0% {
+          opacity: 0;
+          transform: perspective(700px) rotateX(-25deg) scaleY(0.65);
+        }
+        100% {
+          opacity: 1;
+          transform: perspective(700px) rotateX(0deg) scaleY(1);
+        }
+      }
     </style>
   </head>
   <body>
     <section class="panel">
-      <h1>Админ</h1>
-      <p class="muted">Вы вошли в панель администратора.</p>
+      <h1>Главное меню</h1>
+      <p class="muted">Вы вошли как администратор.</p>
+      <a class="menu-button" href="#">Паллетные листы</a>
     </section>
 
     <script>

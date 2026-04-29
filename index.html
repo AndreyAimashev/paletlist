@@ -140,34 +140,23 @@
             required
           />
         </div>
-        <button type="button" id="login-button">Войти</button>
+        <button type="submit">Войти</button>
         <p id="error-message" class="error-message"></p>
       </form>
     </main>
     <script>
       const form = document.getElementById("login-form");
-      const loginButton = document.getElementById("login-button");
       const errorMessage = document.getElementById("error-message");
-      const tryLogin = () => {
+      form.addEventListener("submit", (event) => {
         const login = document.getElementById("login").value.trim();
         const password = document.getElementById("password").value.trim();
 
         if (login === "admin" && password === "1241") {
-          window.location.href = "admin.html";
-          return true;
+          return;
         }
 
-        errorMessage.textContent = "Неверный логин или пароль";
-        return false;
-      };
-
-      loginButton.addEventListener("click", () => {
-        tryLogin();
-      });
-
-      form.addEventListener("submit", (event) => {
         event.preventDefault();
-        tryLogin();
+        errorMessage.textContent = "Неверный логин или пароль";
       });
     </script>
   </body>

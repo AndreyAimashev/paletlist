@@ -58,6 +58,10 @@
         animation: unfoldMenu 1.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
       }
 
+      .panel.wide {
+        width: min(980px, 94vw);
+      }
+
       .panel.transitioning {
         animation: panelPulse 320ms ease;
       }
@@ -211,7 +215,7 @@
         border-radius: 12px;
         padding: 16px;
         background: rgba(10, 14, 23, 0.55);
-        max-height: 56vh;
+        max-height: 68vh;
         overflow: auto;
       }
 
@@ -633,6 +637,7 @@
         }
 
         menuTitle.textContent = "Главное меню";
+        panel.classList.remove("wide");
         palletListButton.style.display = "inline-block";
         ordersButton.style.display = "inline-block";
         nomenclatureButton.style.display = "inline-block";
@@ -688,6 +693,7 @@
 
         if (stage === "nomenclature") {
           menuTitle.textContent = "Номенклатура";
+          panel.classList.add("wide");
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";

@@ -250,6 +250,36 @@
         padding: 24px 20px;
       }
 
+      .sidebar.collapsed {
+        width: 0 !important;
+        min-width: 0;
+        max-width: 0;
+        padding: 0;
+        border-left: none;
+        overflow: hidden;
+      }
+
+      .sidebar-toggle {
+        position: absolute;
+        left: -26px;
+        top: 14px;
+        width: 22px;
+        height: 22px;
+        border: 1px solid rgba(0, 200, 160, 0.45);
+        border-radius: 6px;
+        background: rgba(12, 16, 28, 0.95);
+        color: var(--text-main);
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+        display: grid;
+        place-items: center;
+      }
+
+      .sidebar.collapsed .sidebar-toggle {
+        left: 8px;
+      }
+
       .resize-handle {
         position: absolute;
         left: -4px;
@@ -520,6 +550,9 @@
       </main>
 
       <aside class="sidebar" id="sidebar">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="Свернуть/развернуть">
+          ◀
+        </button>
         <div class="resize-handle" id="resize-handle" aria-hidden="true"></div>
         <h2 class="sidebar-title">Быстрая навигация</h2>
         <p class="sidebar-note">Переход к любому этапу меню</p>
@@ -569,6 +602,7 @@
       const buildSheetButton = document.getElementById("build-sheet");
       const quickNav = document.querySelector(".quick-nav");
       const sidebar = document.getElementById("sidebar");
+      const sidebarToggle = document.getElementById("sidebar-toggle");
       const panel = document.querySelector(".panel");
       const resizeHandle = document.getElementById("resize-handle");
       const navButtons = {
@@ -584,6 +618,7 @@
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
+      let sidebarCollapsed = false;
 
       const savedOrder = localStorage.getItem(navOrderStorageKey);
       if (savedOrder) {
@@ -628,6 +663,12 @@
         void panel.offsetWidth;
         panel.classList.add("transitioning");
         menuTitle.classList.add("title-swap");
+      }
+
+      function setSidebarCollapsed(nextCollapsed) {
+        sidebarCollapsed = nextCollapsed;
+        sidebar.classList.toggle("collapsed", sidebarCollapsed);
+        sidebarToggle.textContent = sidebarCollapsed ? "▶" : "◀";
       }
 
       function setStage(stage, recordVisit = true) {
@@ -939,6 +980,10 @@
         document.body.classList.remove("resizing");
       });
 
+      sidebarToggle.addEventListener("click", () => {
+        setSidebarCollapsed(!sidebarCollapsed);
+      });
+
       buildSheetButton.addEventListener("click", async () => {
         try {
           const data = buildSheetPreview();
@@ -950,6 +995,7 @@
 
       renderNavOrder();
       setStage("main", false);
+      setSidebarCollapsed(false);
       buildSheetPreview();
       loadNomenclature();
     </script>

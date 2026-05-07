@@ -16,16 +16,32 @@
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
+        --sidebar-width: 360px;
       }
 
       body {
         margin: 0;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
         background: linear-gradient(135deg, var(--bg-primary), var(--bg-secondary));
         color: var(--text-main);
         font-family: "Roboto", sans-serif;
+      }
+
+      body.resizing {
+        cursor: col-resize;
+        user-select: none;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: flex;
+      }
+
+      .main-area {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 24px;
       }
 
       .panel {
@@ -97,6 +113,69 @@
         display: inline-block;
       }
 
+      .sidebar {
+        position: relative;
+        width: var(--sidebar-width);
+        min-width: 260px;
+        max-width: 620px;
+        border-left: 1px solid rgba(0, 200, 160, 0.2);
+        background: rgba(12, 16, 28, 0.96);
+        display: flex;
+        flex-direction: column;
+        padding: 24px 20px;
+      }
+
+      .resize-handle {
+        position: absolute;
+        left: -4px;
+        top: 0;
+        width: 8px;
+        height: 100%;
+        cursor: col-resize;
+      }
+
+      .resize-handle::before {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 0;
+        width: 2px;
+        height: 100%;
+        background: rgba(0, 200, 160, 0.25);
+      }
+
+      .sidebar-title {
+        margin: 0 0 8px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 18px;
+      }
+
+      .sidebar-note {
+        margin: 0 0 16px;
+        color: var(--text-muted);
+      }
+
+      .quick-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .quick-nav button {
+        border: 1px solid rgba(0, 200, 160, 0.3);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(10, 14, 23, 0.75);
+        color: var(--text-main);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .quick-nav button.active {
+        border-color: var(--accent-teal);
+        box-shadow: 0 0 0 2px rgba(0, 200, 160, 0.2);
+      }
+
       @keyframes unfoldMenu {
         0% {
           opacity: 0;
@@ -110,23 +189,39 @@
     </style>
   </head>
   <body>
-    <section class="panel">
-      <h1 id="menu-title">Главное меню</h1>
-      <p class="muted">Вы вошли как администратор.</p>
-      <div class="menu-items">
-        <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
-        <button id="create-pallet-button" class="menu-button menu-step" type="button">
-          Создать паллетные листы
-        </button>
-        <button id="back-to-main-button" class="menu-button menu-step back-button" type="button">
-          Назад
-        </button>
-        <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
-        <button id="back-to-pallet-button" class="menu-button menu-step back-button" type="button">
-          Назад
-        </button>
-      </div>
-    </section>
+    <div class="app">
+      <main class="main-area">
+        <section class="panel">
+          <h1 id="menu-title">Главное меню</h1>
+          <p class="muted">Вы вошли как администратор.</p>
+          <div class="menu-items">
+            <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
+            <button id="create-pallet-button" class="menu-button menu-step" type="button">
+              Создать паллетные листы
+            </button>
+            <button id="back-to-main-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
+            <button id="back-to-pallet-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+          </div>
+        </section>
+      </main>
+
+      <aside class="sidebar" id="sidebar">
+        <div class="resize-handle" id="resize-handle" aria-hidden="true"></div>
+        <h2 class="sidebar-title">Быстрая навигация</h2>
+        <p class="sidebar-note">Переход к любому этапу меню</p>
+        <nav class="quick-nav">
+          <button id="nav-main" type="button">Главное меню</button>
+          <button id="nav-pallet" type="button">Паллетные листы</button>
+          <button id="nav-create" type="button">Создание паллетных листов</button>
+          <button id="nav-arnest" type="button">Арнест Юнирусь</button>
+        </nav>
+      </aside>
+    </div>
 
     <script>
       const params = new URLSearchParams(window.location.search);
@@ -143,40 +238,73 @@
       const backToMainButton = document.getElementById("back-to-main-button");
       const arnestButton = document.getElementById("arnest-button");
       const backToPalletButton = document.getElementById("back-to-pallet-button");
+      const navMain = document.getElementById("nav-main");
+      const navPallet = document.getElementById("nav-pallet");
+      const navCreate = document.getElementById("nav-create");
+      const navArnest = document.getElementById("nav-arnest");
+      const sidebar = document.getElementById("sidebar");
+      const resizeHandle = document.getElementById("resize-handle");
 
-      palletListButton.addEventListener("click", () => {
-        palletListButton.style.display = "none";
-        menuTitle.textContent = "Паллетные листы";
-        createPalletButton.classList.add("visible");
-        arnestButton.classList.remove("visible");
-        backToPalletButton.classList.remove("visible");
-        backToMainButton.classList.add("visible");
-      });
-
-      createPalletButton.addEventListener("click", () => {
-        menuTitle.textContent = "Создание паллетных листов";
-        createPalletButton.classList.remove("visible");
-        backToMainButton.classList.remove("visible");
-        arnestButton.classList.add("visible");
-        backToPalletButton.classList.add("visible");
-      });
-
-      backToMainButton.addEventListener("click", () => {
+      function setStage(stage) {
         menuTitle.textContent = "Главное меню";
-        backToMainButton.classList.remove("visible");
+        palletListButton.style.display = "inline-block";
         createPalletButton.classList.remove("visible");
+        backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
         backToPalletButton.classList.remove("visible");
-        palletListButton.style.display = "inline-block";
+
+        if (stage === "pallet") {
+          menuTitle.textContent = "Паллетные листы";
+          palletListButton.style.display = "none";
+          createPalletButton.classList.add("visible");
+          backToMainButton.classList.add("visible");
+        }
+
+        if (stage === "create" || stage === "arnest") {
+          menuTitle.textContent = "Создание паллетных листов";
+          palletListButton.style.display = "none";
+          arnestButton.classList.add("visible");
+          backToPalletButton.classList.add("visible");
+        }
+
+        navMain.classList.toggle("active", stage === "main");
+        navPallet.classList.toggle("active", stage === "pallet");
+        navCreate.classList.toggle("active", stage === "create");
+        navArnest.classList.toggle("active", stage === "arnest");
+      }
+
+      palletListButton.addEventListener("click", () => setStage("pallet"));
+      createPalletButton.addEventListener("click", () => setStage("create"));
+      backToMainButton.addEventListener("click", () => setStage("main"));
+      backToPalletButton.addEventListener("click", () => setStage("pallet"));
+      navMain.addEventListener("click", () => setStage("main"));
+      navPallet.addEventListener("click", () => setStage("pallet"));
+      navCreate.addEventListener("click", () => setStage("create"));
+      navArnest.addEventListener("click", () => setStage("arnest"));
+
+      let isResizing = false;
+
+      resizeHandle.addEventListener("mousedown", () => {
+        isResizing = true;
+        document.body.classList.add("resizing");
       });
 
-      backToPalletButton.addEventListener("click", () => {
-        menuTitle.textContent = "Паллетные листы";
-        arnestButton.classList.remove("visible");
-        backToPalletButton.classList.remove("visible");
-        createPalletButton.classList.add("visible");
-        backToMainButton.classList.add("visible");
+      window.addEventListener("mousemove", (event) => {
+        if (!isResizing) {
+          return;
+        }
+
+        const nextWidth = window.innerWidth - event.clientX;
+        const boundedWidth = Math.max(260, Math.min(620, nextWidth));
+        sidebar.style.width = `${boundedWidth}px`;
       });
+
+      window.addEventListener("mouseup", () => {
+        isResizing = false;
+        document.body.classList.remove("resizing");
+      });
+
+      setStage("main");
     </script>
   </body>
 </html>

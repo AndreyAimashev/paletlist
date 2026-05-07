@@ -495,6 +495,15 @@
         return next;
       }
 
+      function escapeXml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&apos;");
+      }
+
       function dataUrlToUint8Array(dataUrl) {
         const base64 = dataUrl.split(",")[1];
         const binary = atob(base64);
@@ -536,7 +545,7 @@
         if (runRegex.test(xmlContent)) {
           return xmlContent.replace(runRegex, replacementRunXml);
         }
-        return xmlContent.split(placeholder).join(replacementRunXml);
+        return xmlContent;
       }
 
       async function downloadPalletSheetDocm(data) {
@@ -548,24 +557,33 @@
         const templateBuffer = await response.arrayBuffer();
         const zip = await JSZip.loadAsync(templateBuffer);
         const replacements = {
-          "###АРТИКУЛ###": data.article,
-          "###НАИМЕНОВАНИЕ###": data.name,
-          "###ДАТА_ИЗГОТОВЛЕНИЯ###": data.productionDateUI,
-          "###ДАТА_ГОДНОСТИ###": data.expiryDateUI,
-          "###ВЕС_ПАЛЛЕТА###": data.palletWeight.toFixed(2),
-          "###ВСЕГО_КОРОБОК###": data.totalBoxes,
-          "###КОРОБОК_В_РЯДАХ###": data.boxesPerRow,
-          "###ПОЛНЫХ_РЯДОВ###": data.fullRows,
-          "###КОРОБОК_СВЕРХ###": data.extraBoxes,
-          "###ВСЕГО_ШТУК###": data.totalPieces,
-          "###НОМЕР_ПАРТИИ###": data.batch,
-          "###СЛОЖНЫЙ_ШТРИХКОД###": data.complexBarcode,
-          "###ШТРИХКОД_КОРОБОК###": data.boxesBarcode,
-          "###ШТРИХКОД_ПАЛЛЕТА###": data.palletBarcode,
+          "###АРТИКУЛ###": escapeXml(data.article),
+          "###НАИМЕНОВАНИЕ###": escapeXml(data.name),
+          "###ДАТА_ИЗГОТОВЛЕНИЯ###": escapeXml(data.productionDateUI),
+          "###ДАТА_ГОДНОСТИ###": escapeXml(data.expiryDateUI),
+          "###ВЕС_ПАЛЛЕТА###": escapeXml(data.palletWeight.toFixed(2)),
+          "###ВСЕГО_КОРОБОК###": escapeXml(data.totalBoxes),
+          "###КОРОБОК_В_РЯДАХ###": escapeXml(data.boxesPerRow),
+          "###ПОЛНЫХ_РЯДОВ###": escapeXml(data.fullRows),
+          "###КОРОБОК_СВЕРХ###": escapeXml(data.extraBoxes),
+          "###ВСЕГО_ШТУК###": escapeXml(data.totalPieces),
+          "###НОМЕР_ПАРТИИ###": escapeXml(data.batch),
+          "###СЛОЖНЫЙ_ШТРИХКОД###": escapeXml(data.complexBarcode),
+          "###ШТРИХКОД_КОРОБОК###": escapeXml(data.boxesBarcode),
+          "###ШТРИХКОД_ПАЛЛЕТА###": escapeXml(data.palletBarcode),
         };
 
         let documentXml = await zip.file("word/document.xml").async("string");
         let relsXml = await zip.file("word/_rels/document.xml.rels").async("string");
+        let contentTypesXml = await zip.file("[Content_Types].xml").async("string");
+
+        if (!contentTypesXml.includes('Extension="png"')) {
+          contentTypesXml = contentTypesXml.replace(
+            "</Types>",
+            '<Default Extension="png" ContentType="image/png"/></Types>',
+          );
+          zip.file("[Content_Types].xml", contentTypesXml);
+        }
 
         const barcodeSpecs = [
           {

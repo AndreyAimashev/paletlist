@@ -9,6 +9,7 @@
       href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto:wght@300;400;500&display=swap"
     />
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
     <style>
       :root {
         --bg-primary: #0a0e17;
@@ -494,6 +495,50 @@
         return next;
       }
 
+      function dataUrlToUint8Array(dataUrl) {
+        const base64 = dataUrl.split(",")[1];
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      function createBarcodePngBytes(value, widthPx = 2, heightPx = 80) {
+        const canvas = document.createElement("canvas");
+        JsBarcode(canvas, value, {
+          format: "CODE128",
+          displayValue: true,
+          fontSize: 14,
+          margin: 8,
+          width: widthPx,
+          height: heightPx,
+        });
+        return dataUrlToUint8Array(canvas.toDataURL("image/png"));
+      }
+
+      function nextRelId(relsXml) {
+        const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((match) => Number(match[1]));
+        const maxId = ids.length ? Math.max(...ids) : 0;
+        return maxId + 1;
+      }
+
+      function buildDrawingRunXml(relId, imageName, widthInches, heightInches, docPrId) {
+        const cx = Math.round(widthInches * 914400);
+        const cy = Math.round(heightInches * 914400);
+        return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docPrId}" name="${imageName}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="${imageName}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+      }
+
+      function replacePlaceholderRun(xmlContent, placeholder, replacementRunXml) {
+        const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const runRegex = new RegExp(`<w:r[^>]*>[\\s\\S]*?${escapedPlaceholder}[\\s\\S]*?<\\/w:r>`, "g");
+        if (runRegex.test(xmlContent)) {
+          return xmlContent.replace(runRegex, replacementRunXml);
+        }
+        return xmlContent.split(placeholder).join(replacementRunXml);
+      }
+
       async function downloadPalletSheetDocm(data) {
         const response = await fetch("template.docm");
         if (!response.ok) {
@@ -519,15 +564,61 @@
           "###ШТРИХКОД_ПАЛЛЕТА###": data.palletBarcode,
         };
 
-        const xmlFiles = Object.keys(zip.files).filter(
-          (path) => path.startsWith("word/") && path.endsWith(".xml"),
-        );
+        let documentXml = await zip.file("word/document.xml").async("string");
+        let relsXml = await zip.file("word/_rels/document.xml.rels").async("string");
 
-        for (const path of xmlFiles) {
-          const original = await zip.file(path).async("string");
-          const updated = replaceAllPlaceholders(original, replacements);
-          zip.file(path, updated);
+        const barcodeSpecs = [
+          {
+            placeholder: "###СЛОЖНЫЙ_ШТРИХКОД###",
+            value: data.complexBarcode,
+            widthInches: 6.5,
+            heightInches: 1.0,
+            moduleWidth: 1.8,
+          },
+          {
+            placeholder: "###ШТРИХКОД_КОРОБОК###",
+            value: data.boxesBarcode,
+            widthInches: 2.0,
+            heightInches: 0.9,
+            moduleWidth: 2.2,
+          },
+          {
+            placeholder: "###ШТРИХКОД_ПАЛЛЕТА###",
+            value: data.palletBarcode,
+            widthInches: 2.0,
+            heightInches: 0.9,
+            moduleWidth: 2.2,
+          },
+        ];
+
+        let relIdNumber = nextRelId(relsXml);
+        let docPrId = 1000;
+
+        for (const spec of barcodeSpecs) {
+          const relId = `rId${relIdNumber}`;
+          relIdNumber += 1;
+          const imageName = `barcode_${Date.now()}_${docPrId}.png`;
+          const imagePath = `word/media/${imageName}`;
+          const pngBytes = createBarcodePngBytes(spec.value, spec.moduleWidth, 90);
+          zip.file(imagePath, pngBytes, { binary: true });
+
+          const relationship = `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${imageName}"/>`;
+          relsXml = relsXml.replace("</Relationships>", `${relationship}</Relationships>`);
+
+          const drawingRunXml = buildDrawingRunXml(
+            relId,
+            imageName,
+            spec.widthInches,
+            spec.heightInches,
+            docPrId,
+          );
+          docPrId += 1;
+          documentXml = replacePlaceholderRun(documentXml, spec.placeholder, drawingRunXml);
         }
+
+        documentXml = replaceAllPlaceholders(documentXml, replacements);
+        zip.file("word/document.xml", documentXml);
+        zip.file("word/_rels/document.xml.rels", relsXml);
 
         const outputBlob = await zip.generateAsync({
           type: "blob",

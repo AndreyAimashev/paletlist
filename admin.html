@@ -74,12 +74,6 @@
         box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
       }
 
-      .menu-path {
-        margin-top: 18px;
-        color: var(--text-main);
-        font-size: 16px;
-      }
-
       .menu-items {
         margin-top: 18px;
         display: flex;
@@ -92,6 +86,14 @@
       }
 
       .menu-step.visible {
+        display: inline-block;
+      }
+
+      .back-button {
+        display: none;
+      }
+
+      .back-button.visible {
         display: inline-block;
       }
 
@@ -113,12 +115,12 @@
       <p class="muted">Вы вошли как администратор.</p>
       <div class="menu-items">
         <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
+        <button id="back-button" class="menu-button menu-step back-button" type="button">Назад</button>
         <button id="create-pallet-button" class="menu-button menu-step" type="button">
           Создать паллетный лист
         </button>
         <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
       </div>
-      <p id="menu-path" class="menu-path">Паллетные листы</p>
     </section>
 
     <script>
@@ -131,23 +133,26 @@
       }
 
       const palletListButton = document.getElementById("pallet-list-button");
+      const backButton = document.getElementById("back-button");
       const createPalletButton = document.getElementById("create-pallet-button");
       const arnestButton = document.getElementById("arnest-button");
-      const menuPath = document.getElementById("menu-path");
 
       palletListButton.addEventListener("click", () => {
+        palletListButton.style.display = "none";
+        backButton.classList.add("visible");
         createPalletButton.classList.add("visible");
         arnestButton.classList.remove("visible");
-        menuPath.textContent = "Паллетные листы";
       });
 
       createPalletButton.addEventListener("click", () => {
         arnestButton.classList.add("visible");
-        menuPath.textContent = "Паллетные листы -> Создать паллетный лист";
       });
 
-      arnestButton.addEventListener("click", () => {
-        menuPath.textContent = "Паллетные листы -> Создать паллетный лист -> Арнест Юнирусь";
+      backButton.addEventListener("click", () => {
+        backButton.classList.remove("visible");
+        createPalletButton.classList.remove("visible");
+        arnestButton.classList.remove("visible");
+        palletListButton.style.display = "inline-block";
       });
     </script>
   </body>

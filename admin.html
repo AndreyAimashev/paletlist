@@ -242,10 +242,47 @@
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
       const navArnest = document.getElementById("nav-arnest");
+      const quickNav = document.querySelector(".quick-nav");
       const sidebar = document.getElementById("sidebar");
       const resizeHandle = document.getElementById("resize-handle");
+      const navButtons = {
+        main: navMain,
+        pallet: navPallet,
+        create: navCreate,
+        arnest: navArnest,
+      };
+      const defaultNavOrder = ["main", "pallet", "create", "arnest"];
+      const navOrderStorageKey = "paletlist-last-nav-order";
+      let navOrder = [...defaultNavOrder];
 
-      function setStage(stage) {
+      const savedOrder = localStorage.getItem(navOrderStorageKey);
+      if (savedOrder) {
+        try {
+          const parsed = JSON.parse(savedOrder);
+          if (Array.isArray(parsed)) {
+            navOrder = [
+              ...parsed.filter((stage) => defaultNavOrder.includes(stage)),
+              ...defaultNavOrder.filter((stage) => !parsed.includes(stage)),
+            ];
+          }
+        } catch (error) {
+          navOrder = [...defaultNavOrder];
+        }
+      }
+
+      function renderNavOrder() {
+        navOrder.forEach((stage) => {
+          quickNav.appendChild(navButtons[stage]);
+        });
+      }
+
+      function updateVisitedOrder(stage) {
+        navOrder = [stage, ...navOrder.filter((item) => item !== stage)];
+        localStorage.setItem(navOrderStorageKey, JSON.stringify(navOrder));
+        renderNavOrder();
+      }
+
+      function setStage(stage, recordVisit = true) {
         menuTitle.textContent = "Главное меню";
         palletListButton.style.display = "inline-block";
         createPalletButton.classList.remove("visible");
@@ -271,6 +308,10 @@
         navPallet.classList.toggle("active", stage === "pallet");
         navCreate.classList.toggle("active", stage === "create");
         navArnest.classList.toggle("active", stage === "arnest");
+
+        if (recordVisit) {
+          updateVisitedOrder(stage);
+        }
       }
 
       palletListButton.addEventListener("click", () => setStage("pallet"));
@@ -304,7 +345,8 @@
         document.body.classList.remove("resizing");
       });
 
-      setStage("main");
+      renderNavOrder();
+      setStage("main", false);
     </script>
   </body>
 </html>

@@ -8,8 +8,8 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto:wght@300;400;500&display=swap"
     />
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
     <style>
       :root {
         --bg-primary: #0a0e17;
@@ -487,14 +487,6 @@
         };
       }
 
-      function replaceAllPlaceholders(content, replacements) {
-        let next = content;
-        Object.entries(replacements).forEach(([placeholder, value]) => {
-          next = next.split(placeholder).join(String(value));
-        });
-        return next;
-      }
-
       function escapeXml(value) {
         return String(value)
           .replace(/&/g, "&amp;")
@@ -527,144 +519,55 @@
         return dataUrlToUint8Array(canvas.toDataURL("image/png"));
       }
 
-      function nextRelId(relsXml) {
-        const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((match) => Number(match[1]));
-        const maxId = ids.length ? Math.max(...ids) : 0;
-        return maxId + 1;
-      }
-
-      function buildDrawingRunXml(relId, imageName, widthInches, heightInches, docPrId) {
-        const cx = Math.round(widthInches * 914400);
-        const cy = Math.round(heightInches * 914400);
-        return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docPrId}" name="${imageName}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="${imageName}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
-      }
-
-      function replacePlaceholderRun(xmlContent, placeholder, replacementRunXml) {
-        const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const runRegex = new RegExp(`<w:r[^>]*>[\\s\\S]*?${escapedPlaceholder}[\\s\\S]*?<\\/w:r>`, "g");
-        if (runRegex.test(xmlContent)) {
-          return xmlContent.replace(runRegex, replacementRunXml);
-        }
-        return xmlContent;
-      }
-
       async function downloadPalletSheetDocm(data) {
-        const response = await fetch("template.docm");
-        if (!response.ok) {
-          throw new Error("Не удалось загрузить template.docm");
-        }
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = docx;
 
-        const templateBuffer = await response.arrayBuffer();
-        const zip = await JSZip.loadAsync(templateBuffer);
-        const replacements = {
-          "###АРТИКУЛ###": escapeXml(data.article),
-          "###НАИМЕНОВАНИЕ###": escapeXml(data.name),
-          "###ДАТА_ИЗГОТОВЛЕНИЯ###": escapeXml(data.productionDateUI),
-          "###ДАТА_ГОДНОСТИ###": escapeXml(data.expiryDateUI),
-          "###ВЕС_ПАЛЛЕТА###": escapeXml(data.palletWeight.toFixed(2)),
-          "###ВСЕГО_КОРОБОК###": escapeXml(data.totalBoxes),
-          "###КОРОБОК_В_РЯДАХ###": escapeXml(data.boxesPerRow),
-          "###ПОЛНЫХ_РЯДОВ###": escapeXml(data.fullRows),
-          "###КОРОБОК_СВЕРХ###": escapeXml(data.extraBoxes),
-          "###ВСЕГО_ШТУК###": escapeXml(data.totalPieces),
-          "###НОМЕР_ПАРТИИ###": escapeXml(data.batch),
-          "###СЛОЖНЫЙ_ШТРИХКОД###": escapeXml(data.complexBarcode),
-          "###ШТРИХКОД_КОРОБОК###": escapeXml(data.boxesBarcode),
-          "###ШТРИХКОД_ПАЛЛЕТА###": escapeXml(data.palletBarcode),
-        };
+        const complexBarcodePng = createBarcodePngBytes(data.complexBarcode, 1.8, 90);
+        const boxesBarcodePng = createBarcodePngBytes(data.boxesBarcode, 2.2, 90);
+        const palletBarcodePng = createBarcodePngBytes(data.palletBarcode, 2.2, 90);
 
-        let documentXml = await zip.file("word/document.xml").async("string");
-        let relsXml = await zip.file("word/_rels/document.xml.rels").async("string");
-        let contentTypesXml = await zip.file("[Content_Types].xml").async("string");
-
-        if (!contentTypesXml.includes('Extension="png"')) {
-          contentTypesXml = contentTypesXml.replace(
-            "</Types>",
-            '<Default Extension="png" ContentType="image/png"/></Types>',
-          );
-          zip.file("[Content_Types].xml", contentTypesXml);
-        }
-
-        const barcodeSpecs = [
-          {
-            placeholder: "###СЛОЖНЫЙ_ШТРИХКОД###",
-            value: data.complexBarcode,
-            widthInches: 6.5,
-            heightInches: 1.0,
-            moduleWidth: 1.8,
-          },
-          {
-            placeholder: "###ШТРИХКОД_КОРОБОК###",
-            value: data.boxesBarcode,
-            widthInches: 2.0,
-            heightInches: 0.9,
-            moduleWidth: 2.2,
-          },
-          {
-            placeholder: "###ШТРИХКОД_ПАЛЛЕТА###",
-            value: data.palletBarcode,
-            widthInches: 2.0,
-            heightInches: 0.9,
-            moduleWidth: 2.2,
-          },
-        ];
-
-        let relIdNumber = nextRelId(relsXml);
-        let docPrId = 1000;
-
-        for (const spec of barcodeSpecs) {
-          const relId = `rId${relIdNumber}`;
-          relIdNumber += 1;
-          const imageName = `barcode_${Date.now()}_${docPrId}.png`;
-          const imagePath = `word/media/${imageName}`;
-          const pngBytes = createBarcodePngBytes(spec.value, spec.moduleWidth, 90);
-          zip.file(imagePath, pngBytes, { binary: true });
-
-          const relationship = `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${imageName}"/>`;
-          relsXml = relsXml.replace("</Relationships>", `${relationship}</Relationships>`);
-
-          const drawingRunXml = buildDrawingRunXml(
-            relId,
-            imageName,
-            spec.widthInches,
-            spec.heightInches,
-            docPrId,
-          );
-          docPrId += 1;
-          documentXml = replacePlaceholderRun(documentXml, spec.placeholder, drawingRunXml);
-        }
-
-        documentXml = replaceAllPlaceholders(documentXml, replacements);
-        zip.file("word/document.xml", documentXml);
-        zip.file("word/_rels/document.xml.rels", relsXml);
-
-        if (zip.file("word/vbaProject.bin")) {
-          zip.remove("word/vbaProject.bin");
-        }
-        if (zip.file("word/_rels/vbaProject.bin.rels")) {
-          zip.remove("word/_rels/vbaProject.bin.rels");
-        }
-        if (zip.file("word/vbaData.xml")) {
-          zip.remove("word/vbaData.xml");
-        }
-
-        let relsAfterMacroCleanup = await zip.file("word/_rels/document.xml.rels").async("string");
-        relsAfterMacroCleanup = relsAfterMacroCleanup.replace(
-          /<Relationship[^>]*Type="http:\/\/schemas\.microsoft\.com\/office\/2006\/relationships\/vbaProject"[^>]*\/>/g,
-          "",
-        );
-        zip.file("word/_rels/document.xml.rels", relsAfterMacroCleanup);
-
-        let contentTypesAfterMacroCleanup = await zip.file("[Content_Types].xml").async("string");
-        contentTypesAfterMacroCleanup = contentTypesAfterMacroCleanup
-          .replace(/application\/vnd\.ms-word\.document\.macroEnabled\.main\+xml/g, "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
-          .replace(/<Override[^>]*PartName="\/word\/vbaProject\.bin"[^>]*\/>/g, "");
-        zip.file("[Content_Types].xml", contentTypesAfterMacroCleanup);
-
-        const outputBlob = await zip.generateAsync({
-          type: "blob",
-          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        const document = new Document({
+          sections: [
+            {
+              children: [
+                new Paragraph({ text: "ПАЛЛЕТНЫЙ ЛИСТ", heading: HeadingLevel.HEADING_1 }),
+                new Paragraph(`Наименование: ${data.name}`),
+                new Paragraph(`Артикул: ${data.article}`),
+                new Paragraph(`Партия: ${data.batch}`),
+                new Paragraph(`Номер паллета: ${data.palletNumber}`),
+                new Paragraph(`Дата изготовления: ${data.productionDateUI}`),
+                new Paragraph(`Срок годности до: ${data.expiryDateUI}`),
+                new Paragraph(""),
+                new Paragraph("Данные по сборке:"),
+                new Paragraph(`Коробок в ряду: ${data.boxesPerRow}`),
+                new Paragraph(`Полных рядов: ${data.fullRows}`),
+                new Paragraph(`Коробок сверх рядов: ${data.extraBoxes}`),
+                new Paragraph(`Коробок всего: ${data.totalBoxes}`),
+                new Paragraph(`Штук в коробке: ${data.piecesPerBox}`),
+                new Paragraph(`Штук всего: ${data.totalPieces}`),
+                new Paragraph(`Вес паллета (кг): ${data.palletWeight.toFixed(2)}`),
+                new Paragraph(""),
+                new Paragraph("Сложный штрихкод:"),
+                new Paragraph({
+                  children: [new ImageRun({ data: complexBarcodePng, transformation: { width: 620, height: 90 } })],
+                }),
+                new Paragraph("Штрихкод коробок:"),
+                new Paragraph({
+                  children: [new ImageRun({ data: boxesBarcodePng, transformation: { width: 320, height: 90 } })],
+                }),
+                new Paragraph("Штрихкод паллета:"),
+                new Paragraph({
+                  children: [new ImageRun({ data: palletBarcodePng, transformation: { width: 320, height: 90 } })],
+                }),
+                new Paragraph({
+                  children: [new TextRun(`Значение: ${data.palletBarcode}`)],
+                }),
+              ],
+            },
+          ],
         });
+
+        const outputBlob = await Packer.toBlob(document);
         const safeArticle = data.article ? data.article.replace(/[^\w.-]/g, "_") : "pallet";
         const link = document.createElement("a");
         link.href = URL.createObjectURL(outputBlob);

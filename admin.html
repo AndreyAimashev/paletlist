@@ -113,6 +113,57 @@
         display: inline-block;
       }
 
+      .arnest-workspace {
+        display: none;
+        margin-top: 22px;
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        border-radius: 12px;
+        padding: 16px;
+        background: rgba(10, 14, 23, 0.55);
+      }
+
+      .arnest-workspace.visible {
+        display: block;
+      }
+
+      .arnest-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .arnest-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .arnest-field label {
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+
+      .arnest-field input {
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+      }
+
+      .arnest-actions {
+        margin-top: 12px;
+      }
+
+      .arnest-output {
+        margin-top: 14px;
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        border-radius: 10px;
+        padding: 12px;
+        background: rgba(18, 24, 38, 0.75);
+        line-height: 1.45;
+      }
+
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
@@ -207,6 +258,27 @@
               Назад
             </button>
           </div>
+
+          <section id="arnest-workspace" class="arnest-workspace">
+            <p class="muted">Черновик программы создания паллетного листа</p>
+            <div class="arnest-grid">
+              <div class="arnest-field"><label for="article">Артикул</label><input id="article" value="A-100" /></div>
+              <div class="arnest-field"><label for="name">Наименование</label><input id="name" value="Товар Арнест" /></div>
+              <div class="arnest-field"><label for="batch">Партия</label><input id="batch" value="Партия-001" /></div>
+              <div class="arnest-field"><label for="pallet-number">Номер паллета</label><input id="pallet-number" value="1" /></div>
+              <div class="arnest-field"><label for="prod-date">Дата изготовления (YYMMDD)</label><input id="prod-date" value="241125" /></div>
+              <div class="arnest-field"><label for="exp-date">Дата годности (YYMMDD)</label><input id="exp-date" value="241227" /></div>
+              <div class="arnest-field"><label for="boxes-row">Коробок в ряду</label><input id="boxes-row" value="24" /></div>
+              <div class="arnest-field"><label for="full-rows">Полных рядов</label><input id="full-rows" value="5" /></div>
+              <div class="arnest-field"><label for="extra-boxes">Коробок сверх рядов</label><input id="extra-boxes" value="2" /></div>
+              <div class="arnest-field"><label for="pieces-box">Штук в коробке</label><input id="pieces-box" value="12" /></div>
+              <div class="arnest-field"><label for="box-weight">Вес коробки (кг)</label><input id="box-weight" value="0.45" /></div>
+            </div>
+            <div class="arnest-actions">
+              <button id="build-sheet" class="menu-button" type="button">Сформировать паллетный лист</button>
+            </div>
+            <div id="arnest-output" class="arnest-output"></div>
+          </section>
         </section>
       </main>
 
@@ -242,6 +314,9 @@
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
       const navArnest = document.getElementById("nav-arnest");
+      const arnestWorkspace = document.getElementById("arnest-workspace");
+      const output = document.getElementById("arnest-output");
+      const buildSheetButton = document.getElementById("build-sheet");
       const quickNav = document.querySelector(".quick-nav");
       const sidebar = document.getElementById("sidebar");
       const resizeHandle = document.getElementById("resize-handle");
@@ -289,6 +364,7 @@
         backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
         backToPalletButton.classList.remove("visible");
+        arnestWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
@@ -302,6 +378,12 @@
           palletListButton.style.display = "none";
           arnestButton.classList.add("visible");
           backToPalletButton.classList.add("visible");
+        }
+
+        if (stage === "arnest") {
+          menuTitle.textContent = "Арнест Юнирусь";
+          arnestButton.classList.remove("visible");
+          arnestWorkspace.classList.add("visible");
         }
 
         navMain.classList.toggle("active", stage === "main");
@@ -325,6 +407,64 @@
 
       let isResizing = false;
 
+      function formatDateYYMMDD(dateStr) {
+        if (/^\d{6}$/.test(dateStr)) {
+          return `${dateStr.slice(0, 2)}.${dateStr.slice(2, 4)}.${dateStr.slice(4, 6)}`;
+        }
+        return dateStr;
+      }
+
+      function formatDateForBarcode(dateStr) {
+        if (/^\d{6}$/.test(dateStr)) {
+          return `${dateStr.slice(4, 6)}${dateStr.slice(2, 4)}${dateStr.slice(0, 2)}`;
+        }
+        return dateStr;
+      }
+
+      function toNumber(value) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+
+      function buildSheetPreview() {
+        const article = document.getElementById("article").value.trim();
+        const name = document.getElementById("name").value.trim();
+        const batch = document.getElementById("batch").value.trim();
+        const palletNumber = toNumber(document.getElementById("pallet-number").value);
+        const productionDate = document.getElementById("prod-date").value.trim();
+        const expiryDate = document.getElementById("exp-date").value.trim();
+        const boxesPerRow = toNumber(document.getElementById("boxes-row").value);
+        const fullRows = toNumber(document.getElementById("full-rows").value);
+        const extraBoxes = toNumber(document.getElementById("extra-boxes").value);
+        const piecesPerBox = toNumber(document.getElementById("pieces-box").value);
+        const boxWeight = toNumber(document.getElementById("box-weight").value);
+
+        const totalBoxes = boxesPerRow * fullRows + extraBoxes;
+        const totalPieces = totalBoxes * piecesPerBox;
+        const palletWeight = totalBoxes * boxWeight;
+        const productionDateUI = formatDateYYMMDD(productionDate);
+        const expiryDateUI = formatDateYYMMDD(expiryDate);
+        const complexBarcode = `${article} ${batch} ${formatDateForBarcode(productionDate)} ${formatDateForBarcode(expiryDate)}`;
+        const boxesBarcode = String(totalBoxes);
+        const palletBarcode = `15000000${String(Math.max(0, palletNumber)).padStart(2, "0")}`;
+
+        output.innerHTML = `
+          <strong>Предпросмотр паллетного листа</strong><br />
+          Наименование: ${name}<br />
+          Артикул: ${article}<br />
+          Партия: ${batch}<br />
+          Дата изготовления: ${productionDateUI}<br />
+          Срок годности до: ${expiryDateUI}<br />
+          Коробок всего: ${totalBoxes}<br />
+          Штук всего: ${totalPieces}<br />
+          Вес паллета: ${palletWeight.toFixed(2)} кг<br />
+          <br />
+          Сложный штрихкод: ${complexBarcode}<br />
+          Штрихкод коробок: ${boxesBarcode}<br />
+          Штрихкод паллета: ${palletBarcode}
+        `;
+      }
+
       resizeHandle.addEventListener("mousedown", () => {
         isResizing = true;
         document.body.classList.add("resizing");
@@ -345,8 +485,11 @@
         document.body.classList.remove("resizing");
       });
 
+      buildSheetButton.addEventListener("click", buildSheetPreview);
+
       renderNavOrder();
       setStage("main", false);
+      buildSheetPreview();
     </script>
   </body>
 </html>

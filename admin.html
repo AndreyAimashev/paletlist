@@ -116,10 +116,15 @@
       <div class="menu-items">
         <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
         <button id="create-pallet-button" class="menu-button menu-step" type="button">
-          Создать паллетный лист
+          Создать паллетные листы
+        </button>
+        <button id="back-to-main-button" class="menu-button menu-step back-button" type="button">
+          Назад
         </button>
         <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
-        <button id="back-button" class="menu-button menu-step back-button" type="button">Назад</button>
+        <button id="back-to-pallet-button" class="menu-button menu-step back-button" type="button">
+          Назад
+        </button>
       </div>
     </section>
 
@@ -134,28 +139,43 @@
 
       const palletListButton = document.getElementById("pallet-list-button");
       const menuTitle = document.getElementById("menu-title");
-      const backButton = document.getElementById("back-button");
       const createPalletButton = document.getElementById("create-pallet-button");
+      const backToMainButton = document.getElementById("back-to-main-button");
       const arnestButton = document.getElementById("arnest-button");
+      const backToPalletButton = document.getElementById("back-to-pallet-button");
 
       palletListButton.addEventListener("click", () => {
         palletListButton.style.display = "none";
         menuTitle.textContent = "Паллетные листы";
-        backButton.classList.add("visible");
         createPalletButton.classList.add("visible");
         arnestButton.classList.remove("visible");
+        backToPalletButton.classList.remove("visible");
+        backToMainButton.classList.add("visible");
       });
 
       createPalletButton.addEventListener("click", () => {
+        menuTitle.textContent = "Создание паллетных листов";
+        createPalletButton.classList.remove("visible");
+        backToMainButton.classList.remove("visible");
         arnestButton.classList.add("visible");
+        backToPalletButton.classList.add("visible");
       });
 
-      backButton.addEventListener("click", () => {
+      backToMainButton.addEventListener("click", () => {
         menuTitle.textContent = "Главное меню";
-        backButton.classList.remove("visible");
+        backToMainButton.classList.remove("visible");
         createPalletButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
+        backToPalletButton.classList.remove("visible");
         palletListButton.style.display = "inline-block";
+      });
+
+      backToPalletButton.addEventListener("click", () => {
+        menuTitle.textContent = "Паллетные листы";
+        arnestButton.classList.remove("visible");
+        backToPalletButton.classList.remove("visible");
+        createPalletButton.classList.add("visible");
+        backToMainButton.classList.add("visible");
       });
     </script>
   </body>

@@ -249,6 +249,7 @@
           <p class="muted">Вы вошли как администратор.</p>
           <div class="menu-items">
             <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
+            <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
             </button>
@@ -257,6 +258,12 @@
             </button>
             <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
             <button id="back-to-pallet-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button id="assemble-order-button" class="menu-button menu-step" type="button">
+              Сборка заказа
+            </button>
+            <button id="back-to-main-orders-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
           </div>
@@ -293,6 +300,8 @@
           <button id="nav-pallet" type="button">Паллетные листы</button>
           <button id="nav-create" type="button">Создание паллетных листов</button>
           <button id="nav-arnest" type="button">Арнест Юнирусь</button>
+          <button id="nav-orders" type="button">Заказы</button>
+          <button id="nav-assemble" type="button">Сборка заказа</button>
         </nav>
       </aside>
     </div>
@@ -307,15 +316,20 @@
       }
 
       const palletListButton = document.getElementById("pallet-list-button");
+      const ordersButton = document.getElementById("orders-button");
       const menuTitle = document.getElementById("menu-title");
       const createPalletButton = document.getElementById("create-pallet-button");
       const backToMainButton = document.getElementById("back-to-main-button");
       const arnestButton = document.getElementById("arnest-button");
       const backToPalletButton = document.getElementById("back-to-pallet-button");
+      const assembleOrderButton = document.getElementById("assemble-order-button");
+      const backToMainOrdersButton = document.getElementById("back-to-main-orders-button");
       const navMain = document.getElementById("nav-main");
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
       const navArnest = document.getElementById("nav-arnest");
+      const navOrders = document.getElementById("nav-orders");
+      const navAssemble = document.getElementById("nav-assemble");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const output = document.getElementById("arnest-output");
       const buildSheetButton = document.getElementById("build-sheet");
@@ -327,8 +341,10 @@
         pallet: navPallet,
         create: navCreate,
         arnest: navArnest,
+        orders: navOrders,
+        assemble: navAssemble,
       };
-      const defaultNavOrder = ["main", "pallet", "create", "arnest"];
+      const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble"];
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
 
@@ -362,15 +378,19 @@
       function setStage(stage, recordVisit = true) {
         menuTitle.textContent = "Главное меню";
         palletListButton.style.display = "inline-block";
+        ordersButton.style.display = "inline-block";
         createPalletButton.classList.remove("visible");
         backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
         backToPalletButton.classList.remove("visible");
+        assembleOrderButton.classList.remove("visible");
+        backToMainOrdersButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
           palletListButton.style.display = "none";
+          ordersButton.style.display = "none";
           createPalletButton.classList.add("visible");
           backToMainButton.classList.add("visible");
         }
@@ -388,10 +408,28 @@
           arnestWorkspace.classList.add("visible");
         }
 
+        if (stage === "orders") {
+          menuTitle.textContent = "Заказы";
+          palletListButton.style.display = "none";
+          ordersButton.style.display = "none";
+          assembleOrderButton.classList.add("visible");
+          backToMainOrdersButton.classList.add("visible");
+        }
+
+        if (stage === "assemble") {
+          menuTitle.textContent = "Сборка заказа";
+          palletListButton.style.display = "none";
+          ordersButton.style.display = "none";
+          assembleOrderButton.classList.add("visible");
+          backToMainOrdersButton.classList.add("visible");
+        }
+
         navMain.classList.toggle("active", stage === "main");
         navPallet.classList.toggle("active", stage === "pallet");
         navCreate.classList.toggle("active", stage === "create");
         navArnest.classList.toggle("active", stage === "arnest");
+        navOrders.classList.toggle("active", stage === "orders");
+        navAssemble.classList.toggle("active", stage === "assemble");
 
         if (recordVisit) {
           updateVisitedOrder(stage);
@@ -399,13 +437,18 @@
       }
 
       palletListButton.addEventListener("click", () => setStage("pallet"));
+      ordersButton.addEventListener("click", () => setStage("orders"));
       createPalletButton.addEventListener("click", () => setStage("create"));
       backToMainButton.addEventListener("click", () => setStage("main"));
       backToPalletButton.addEventListener("click", () => setStage("pallet"));
+      assembleOrderButton.addEventListener("click", () => setStage("assemble"));
+      backToMainOrdersButton.addEventListener("click", () => setStage("main"));
       navMain.addEventListener("click", () => setStage("main"));
       navPallet.addEventListener("click", () => setStage("pallet"));
       navCreate.addEventListener("click", () => setStage("create"));
       navArnest.addEventListener("click", () => setStage("arnest"));
+      navOrders.addEventListener("click", () => setStage("orders"));
+      navAssemble.addEventListener("click", () => setStage("assemble"));
 
       let isResizing = false;
 

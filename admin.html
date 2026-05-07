@@ -227,6 +227,10 @@
       .nomenclature-item {
         padding: 10px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
       }
 
       .nomenclature-item:last-child {
@@ -236,6 +240,30 @@
       .nomenclature-item .article {
         color: var(--accent-teal);
         font-weight: 700;
+      }
+
+      .nomenclature-meta {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .nomenclature-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .icon-btn {
+        width: 28px;
+        height: 28px;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 8px;
+        background: rgba(18, 24, 38, 0.85);
+        color: var(--text-main);
+        cursor: pointer;
+      }
+
+      .icon-btn:hover {
+        border-color: var(--accent-teal);
       }
 
       .nomenclature-search {
@@ -637,6 +665,7 @@
       };
       const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble", "nomenclature"];
       const navOrderStorageKey = "paletlist-last-nav-order";
+      const nomenclatureStorageKey = "paletlist-nomenclature-overrides";
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
       let sidebarCollapsed = false;
@@ -799,7 +828,28 @@
       async function loadNomenclature() {
         try {
           const res = await fetch("nomenclature.json");
-          nomenclatureItems = await res.json();
+          const baseItems = await res.json();
+          const overridesRaw = localStorage.getItem(nomenclatureStorageKey);
+          let overrides = {};
+          if (overridesRaw) {
+            try {
+              overrides = JSON.parse(overridesRaw);
+            } catch (error) {
+              overrides = {};
+            }
+          }
+
+          nomenclatureItems = baseItems.map((item) => {
+            const override = overrides[item.id];
+            if (!override) {
+              return item;
+            }
+            return {
+              ...item,
+              article: override.article ?? item.article,
+              name: override.name ?? item.name,
+            };
+          });
           renderNomenclatureList(nomenclatureItems);
         } catch (error) {
           nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
@@ -815,9 +865,29 @@
         nomenclatureList.innerHTML = items
             .map(
               (item) =>
-                `<div class="nomenclature-item"><div class="article">${escapeXml(item.article || "—")}</div><div>${escapeXml(item.name || "Без названия")}</div></div>`,
+                `<div class="nomenclature-item">
+                  <div class="nomenclature-meta">
+                    <div class="article">${escapeXml(item.article || "—")}</div>
+                    <div>${escapeXml(item.name || "Без названия")}</div>
+                  </div>
+                  <div class="nomenclature-actions">
+                    <button class="icon-btn" data-action="edit" data-id="${item.id}" title="Редактировать">✏️</button>
+                    <button class="icon-btn" data-action="delete" data-id="${item.id}" title="Удалить">🗑️</button>
+                  </div>
+                </div>`,
             )
             .join("");
+      }
+
+      function saveNomenclatureOverrides() {
+        const overrides = {};
+        nomenclatureItems.forEach((item) => {
+          overrides[item.id] = {
+            article: item.article ?? "",
+            name: item.name ?? "",
+          };
+        });
+        localStorage.setItem(nomenclatureStorageKey, JSON.stringify(overrides));
       }
 
       let isResizing = false;
@@ -1037,6 +1107,66 @@
           return article.includes(query) || name.includes(query);
         });
         renderNomenclatureList(filtered);
+      });
+
+      nomenclatureList.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) {
+          return;
+        }
+        const action = button.dataset.action;
+        const id = Number(button.dataset.id);
+        const item = nomenclatureItems.find((entry) => entry.id === id);
+        if (!item) {
+          return;
+        }
+
+        if (action === "edit") {
+          const nextArticle = prompt("Новый артикул:", item.article || "");
+          if (nextArticle === null) {
+            return;
+          }
+          const nextName = prompt("Новое наименование:", item.name || "");
+          if (nextName === null) {
+            return;
+          }
+          item.article = nextArticle.trim();
+          item.name = nextName.trim();
+          saveNomenclatureOverrides();
+          const query = nomenclatureSearch.value.trim().toLowerCase();
+          if (!query) {
+            renderNomenclatureList(nomenclatureItems);
+          } else {
+            const filtered = nomenclatureItems.filter((entry) => {
+              const article = (entry.article || "").toLowerCase();
+              const name = (entry.name || "").toLowerCase();
+              return article.includes(query) || name.includes(query);
+            });
+            renderNomenclatureList(filtered);
+          }
+          return;
+        }
+
+        if (action === "delete") {
+          const confirmed = confirm("Удалить номенклатуру? Поля будут очищены, id останется.");
+          if (!confirmed) {
+            return;
+          }
+          item.article = "";
+          item.name = "";
+          saveNomenclatureOverrides();
+          const query = nomenclatureSearch.value.trim().toLowerCase();
+          if (!query) {
+            renderNomenclatureList(nomenclatureItems);
+          } else {
+            const filtered = nomenclatureItems.filter((entry) => {
+              const article = (entry.article || "").toLowerCase();
+              const name = (entry.name || "").toLowerCase();
+              return article.includes(query) || name.includes(query);
+            });
+            renderNomenclatureList(filtered);
+          }
+        }
       });
 
       renderNavOrder();

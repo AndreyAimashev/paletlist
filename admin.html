@@ -526,7 +526,7 @@
         const boxesBarcodePng = createBarcodePngBytes(data.boxesBarcode, 2.2, 90);
         const palletBarcodePng = createBarcodePngBytes(data.palletBarcode, 2.2, 90);
 
-        const document = new Document({
+        const wordDocument = new Document({
           sections: [
             {
               children: [
@@ -567,7 +567,7 @@
           ],
         });
 
-        const outputBlob = await Packer.toBlob(document);
+        const outputBlob = await Packer.toBlob(wordDocument);
         const safeArticle = data.article ? data.article.replace(/[^\w.-]/g, "_") : "pallet";
         const link = document.createElement("a");
         link.href = URL.createObjectURL(outputBlob);

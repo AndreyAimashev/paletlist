@@ -638,14 +638,37 @@
         zip.file("word/document.xml", documentXml);
         zip.file("word/_rels/document.xml.rels", relsXml);
 
+        if (zip.file("word/vbaProject.bin")) {
+          zip.remove("word/vbaProject.bin");
+        }
+        if (zip.file("word/_rels/vbaProject.bin.rels")) {
+          zip.remove("word/_rels/vbaProject.bin.rels");
+        }
+        if (zip.file("word/vbaData.xml")) {
+          zip.remove("word/vbaData.xml");
+        }
+
+        let relsAfterMacroCleanup = await zip.file("word/_rels/document.xml.rels").async("string");
+        relsAfterMacroCleanup = relsAfterMacroCleanup.replace(
+          /<Relationship[^>]*Type="http:\/\/schemas\.microsoft\.com\/office\/2006\/relationships\/vbaProject"[^>]*\/>/g,
+          "",
+        );
+        zip.file("word/_rels/document.xml.rels", relsAfterMacroCleanup);
+
+        let contentTypesAfterMacroCleanup = await zip.file("[Content_Types].xml").async("string");
+        contentTypesAfterMacroCleanup = contentTypesAfterMacroCleanup
+          .replace(/application\/vnd\.ms-word\.document\.macroEnabled\.main\+xml/g, "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
+          .replace(/<Override[^>]*PartName="\/word\/vbaProject\.bin"[^>]*\/>/g, "");
+        zip.file("[Content_Types].xml", contentTypesAfterMacroCleanup);
+
         const outputBlob = await zip.generateAsync({
           type: "blob",
-          mimeType: "application/vnd.ms-word.document.macroEnabled.12",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         });
         const safeArticle = data.article ? data.article.replace(/[^\w.-]/g, "_") : "pallet";
         const link = document.createElement("a");
         link.href = URL.createObjectURL(outputBlob);
-        link.download = `pallet_sheet_${safeArticle}_${Date.now()}.docm`;
+        link.download = `pallet_sheet_${safeArticle}_${Date.now()}.docx`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

@@ -111,15 +111,15 @@
   </head>
   <body>
     <section class="panel">
-      <h1>Главное меню</h1>
+      <h1 id="menu-title">Главное меню</h1>
       <p class="muted">Вы вошли как администратор.</p>
       <div class="menu-items">
         <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
-        <button id="back-button" class="menu-button menu-step back-button" type="button">Назад</button>
         <button id="create-pallet-button" class="menu-button menu-step" type="button">
           Создать паллетный лист
         </button>
         <button id="arnest-button" class="menu-button menu-step" type="button">Арнест Юнирусь</button>
+        <button id="back-button" class="menu-button menu-step back-button" type="button">Назад</button>
       </div>
     </section>
 
@@ -133,12 +133,14 @@
       }
 
       const palletListButton = document.getElementById("pallet-list-button");
+      const menuTitle = document.getElementById("menu-title");
       const backButton = document.getElementById("back-button");
       const createPalletButton = document.getElementById("create-pallet-button");
       const arnestButton = document.getElementById("arnest-button");
 
       palletListButton.addEventListener("click", () => {
         palletListButton.style.display = "none";
+        menuTitle.textContent = "Паллетные листы";
         backButton.classList.add("visible");
         createPalletButton.classList.add("visible");
         arnestButton.classList.remove("visible");
@@ -149,6 +151,7 @@
       });
 
       backButton.addEventListener("click", () => {
+        menuTitle.textContent = "Главное меню";
         backButton.classList.remove("visible");
         createPalletButton.classList.remove("visible");
         arnestButton.classList.remove("visible");

@@ -463,6 +463,64 @@
           Штрихкод коробок: ${boxesBarcode}<br />
           Штрихкод паллета: ${palletBarcode}
         `;
+
+        return {
+          article,
+          name,
+          batch,
+          palletNumber,
+          productionDateUI,
+          expiryDateUI,
+          boxesPerRow,
+          fullRows,
+          extraBoxes,
+          totalBoxes,
+          piecesPerBox,
+          totalPieces,
+          boxWeight,
+          palletWeight,
+          complexBarcode,
+          boxesBarcode,
+          palletBarcode,
+        };
+      }
+
+      function downloadPalletSheetDoc(data) {
+        const docContent = [
+          "ПАЛЛЕТНЫЙ ЛИСТ",
+          "",
+          `Наименование: ${data.name}`,
+          `Артикул: ${data.article}`,
+          `Партия: ${data.batch}`,
+          `Номер паллета: ${data.palletNumber}`,
+          `Дата изготовления: ${data.productionDateUI}`,
+          `Срок годности до: ${data.expiryDateUI}`,
+          "",
+          "Данные по сборке:",
+          `Коробок в ряду: ${data.boxesPerRow}`,
+          `Полных рядов: ${data.fullRows}`,
+          `Коробок сверх рядов: ${data.extraBoxes}`,
+          `Коробок всего: ${data.totalBoxes}`,
+          `Штук в коробке: ${data.piecesPerBox}`,
+          `Штук всего: ${data.totalPieces}`,
+          `Вес коробки (кг): ${data.boxWeight}`,
+          `Вес паллета (кг): ${data.palletWeight.toFixed(2)}`,
+          "",
+          "Штрихкоды:",
+          `Сложный: ${data.complexBarcode}`,
+          `Коробок: ${data.boxesBarcode}`,
+          `Паллета: ${data.palletBarcode}`,
+        ].join("\n");
+
+        const blob = new Blob(["\ufeff", docContent], { type: "application/msword;charset=utf-8" });
+        const link = document.createElement("a");
+        const safeArticle = data.article ? data.article.replace(/[^\w.-]/g, "_") : "pallet";
+        link.href = URL.createObjectURL(blob);
+        link.download = `pallet_sheet_${safeArticle}_${Date.now()}.doc`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
       }
 
       resizeHandle.addEventListener("mousedown", () => {
@@ -485,7 +543,10 @@
         document.body.classList.remove("resizing");
       });
 
-      buildSheetButton.addEventListener("click", buildSheetPreview);
+      buildSheetButton.addEventListener("click", () => {
+        const data = buildSheetPreview();
+        downloadPalletSheetDoc(data);
+      });
 
       renderNavOrder();
       setStage("main", false);

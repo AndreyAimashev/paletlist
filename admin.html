@@ -166,6 +166,35 @@
         line-height: 1.45;
       }
 
+      .nomenclature-workspace {
+        display: none;
+        margin-top: 22px;
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        border-radius: 12px;
+        padding: 16px;
+        background: rgba(10, 14, 23, 0.55);
+        max-height: 56vh;
+        overflow: auto;
+      }
+
+      .nomenclature-workspace.visible {
+        display: block;
+      }
+
+      .nomenclature-item {
+        padding: 10px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.15);
+      }
+
+      .nomenclature-item:last-child {
+        border-bottom: none;
+      }
+
+      .nomenclature-item .article {
+        color: var(--accent-teal);
+        font-weight: 700;
+      }
+
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
@@ -250,6 +279,7 @@
           <div class="menu-items">
             <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
+            <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
             </button>
@@ -264,6 +294,9 @@
               Сборка заказа
             </button>
             <button id="back-to-main-orders-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button id="back-to-main-nomenclature-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
           </div>
@@ -288,6 +321,11 @@
             </div>
             <div id="arnest-output" class="arnest-output"></div>
           </section>
+
+          <section id="nomenclature-workspace" class="nomenclature-workspace">
+            <p class="muted">Список наименований и артикулов</p>
+            <div id="nomenclature-list"></div>
+          </section>
         </section>
       </main>
 
@@ -302,6 +340,7 @@
           <button id="nav-arnest" type="button">Арнест Юнирусь</button>
           <button id="nav-orders" type="button">Заказы</button>
           <button id="nav-assemble" type="button">Сборка заказа</button>
+          <button id="nav-nomenclature" type="button">Номенклатура</button>
         </nav>
       </aside>
     </div>
@@ -317,6 +356,7 @@
 
       const palletListButton = document.getElementById("pallet-list-button");
       const ordersButton = document.getElementById("orders-button");
+      const nomenclatureButton = document.getElementById("nomenclature-button");
       const menuTitle = document.getElementById("menu-title");
       const createPalletButton = document.getElementById("create-pallet-button");
       const backToMainButton = document.getElementById("back-to-main-button");
@@ -324,13 +364,17 @@
       const backToPalletButton = document.getElementById("back-to-pallet-button");
       const assembleOrderButton = document.getElementById("assemble-order-button");
       const backToMainOrdersButton = document.getElementById("back-to-main-orders-button");
+      const backToMainNomenclatureButton = document.getElementById("back-to-main-nomenclature-button");
       const navMain = document.getElementById("nav-main");
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
       const navArnest = document.getElementById("nav-arnest");
       const navOrders = document.getElementById("nav-orders");
       const navAssemble = document.getElementById("nav-assemble");
+      const navNomenclature = document.getElementById("nav-nomenclature");
       const arnestWorkspace = document.getElementById("arnest-workspace");
+      const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
+      const nomenclatureList = document.getElementById("nomenclature-list");
       const output = document.getElementById("arnest-output");
       const buildSheetButton = document.getElementById("build-sheet");
       const quickNav = document.querySelector(".quick-nav");
@@ -343,8 +387,9 @@
         arnest: navArnest,
         orders: navOrders,
         assemble: navAssemble,
+        nomenclature: navNomenclature,
       };
-      const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble"];
+      const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble", "nomenclature"];
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
 
@@ -379,18 +424,22 @@
         menuTitle.textContent = "Главное меню";
         palletListButton.style.display = "inline-block";
         ordersButton.style.display = "inline-block";
+        nomenclatureButton.style.display = "inline-block";
         createPalletButton.classList.remove("visible");
         backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
         backToPalletButton.classList.remove("visible");
         assembleOrderButton.classList.remove("visible");
         backToMainOrdersButton.classList.remove("visible");
+        backToMainNomenclatureButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
+        nomenclatureWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
           createPalletButton.classList.add("visible");
           backToMainButton.classList.add("visible");
         }
@@ -412,6 +461,7 @@
           menuTitle.textContent = "Заказы";
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
         }
@@ -420,8 +470,18 @@
           menuTitle.textContent = "Сборка заказа";
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
+        }
+
+        if (stage === "nomenclature") {
+          menuTitle.textContent = "Номенклатура";
+          palletListButton.style.display = "none";
+          ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
+          backToMainNomenclatureButton.classList.add("visible");
+          nomenclatureWorkspace.classList.add("visible");
         }
 
         navMain.classList.toggle("active", stage === "main");
@@ -430,6 +490,7 @@
         navArnest.classList.toggle("active", stage === "arnest");
         navOrders.classList.toggle("active", stage === "orders");
         navAssemble.classList.toggle("active", stage === "assemble");
+        navNomenclature.classList.toggle("active", stage === "nomenclature");
 
         if (recordVisit) {
           updateVisitedOrder(stage);
@@ -438,17 +499,35 @@
 
       palletListButton.addEventListener("click", () => setStage("pallet"));
       ordersButton.addEventListener("click", () => setStage("orders"));
+      nomenclatureButton.addEventListener("click", () => setStage("nomenclature"));
       createPalletButton.addEventListener("click", () => setStage("create"));
       backToMainButton.addEventListener("click", () => setStage("main"));
       backToPalletButton.addEventListener("click", () => setStage("pallet"));
       assembleOrderButton.addEventListener("click", () => setStage("assemble"));
       backToMainOrdersButton.addEventListener("click", () => setStage("main"));
+      backToMainNomenclatureButton.addEventListener("click", () => setStage("main"));
       navMain.addEventListener("click", () => setStage("main"));
       navPallet.addEventListener("click", () => setStage("pallet"));
       navCreate.addEventListener("click", () => setStage("create"));
       navArnest.addEventListener("click", () => setStage("arnest"));
       navOrders.addEventListener("click", () => setStage("orders"));
       navAssemble.addEventListener("click", () => setStage("assemble"));
+      navNomenclature.addEventListener("click", () => setStage("nomenclature"));
+
+      async function loadNomenclature() {
+        try {
+          const res = await fetch("nomenclature.json");
+          const items = await res.json();
+          nomenclatureList.innerHTML = items
+            .map(
+              (item) =>
+                `<div class="nomenclature-item"><div class="article">${escapeXml(item.article || "—")}</div><div>${escapeXml(item.name || "Без названия")}</div></div>`,
+            )
+            .join("");
+        } catch (error) {
+          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
+        }
+      }
 
       let isResizing = false;
 
@@ -653,6 +732,7 @@
       renderNavOrder();
       setStage("main", false);
       buildSheetPreview();
+      loadNomenclature();
     </script>
   </body>
 </html>

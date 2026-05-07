@@ -665,7 +665,6 @@
       };
       const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble", "nomenclature"];
       const navOrderStorageKey = "paletlist-last-nav-order";
-      const nomenclatureStorageKey = "paletlist-nomenclature-overrides";
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
       let sidebarCollapsed = false;
@@ -827,29 +826,11 @@
 
       async function loadNomenclature() {
         try {
-          const res = await fetch("nomenclature.json");
-          const baseItems = await res.json();
-          const overridesRaw = localStorage.getItem(nomenclatureStorageKey);
-          let overrides = {};
-          if (overridesRaw) {
-            try {
-              overrides = JSON.parse(overridesRaw);
-            } catch (error) {
-              overrides = {};
-            }
+          const res = await fetch("/api/nomenclature");
+          if (!res.ok) {
+            throw new Error("API error");
           }
-
-          nomenclatureItems = baseItems.map((item) => {
-            const override = overrides[item.id];
-            if (!override) {
-              return item;
-            }
-            return {
-              ...item,
-              article: override.article ?? item.article,
-              name: override.name ?? item.name,
-            };
-          });
+          nomenclatureItems = await res.json();
           renderNomenclatureList(nomenclatureItems);
         } catch (error) {
           nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
@@ -877,17 +858,6 @@
                 </div>`,
             )
             .join("");
-      }
-
-      function saveNomenclatureOverrides() {
-        const overrides = {};
-        nomenclatureItems.forEach((item) => {
-          overrides[item.id] = {
-            article: item.article ?? "",
-            name: item.name ?? "",
-          };
-        });
-        localStorage.setItem(nomenclatureStorageKey, JSON.stringify(overrides));
       }
 
       let isResizing = false;
@@ -1109,7 +1079,7 @@
         renderNomenclatureList(filtered);
       });
 
-      nomenclatureList.addEventListener("click", (event) => {
+      nomenclatureList.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         if (!button) {
           return;
@@ -1130,9 +1100,19 @@
           if (nextName === null) {
             return;
           }
-          item.article = nextArticle.trim();
-          item.name = nextName.trim();
-          saveNomenclatureOverrides();
+          const response = await fetch(`/api/nomenclature/${item.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              article: nextArticle.trim(),
+              name: nextName.trim(),
+            }),
+          });
+          if (!response.ok) {
+            alert("Не удалось обновить номенклатуру в БД.");
+            return;
+          }
+          await loadNomenclature();
           const query = nomenclatureSearch.value.trim().toLowerCase();
           if (!query) {
             renderNomenclatureList(nomenclatureItems);
@@ -1152,9 +1132,14 @@
           if (!confirmed) {
             return;
           }
-          item.article = "";
-          item.name = "";
-          saveNomenclatureOverrides();
+          const response = await fetch(`/api/nomenclature/${item.id}`, {
+            method: "DELETE",
+          });
+          if (!response.ok) {
+            alert("Не удалось удалить номенклатуру из БД.");
+            return;
+          }
+          await loadNomenclature();
           const query = nomenclatureSearch.value.trim().toLowerCase();
           if (!query) {
             renderNomenclatureList(nomenclatureItems);

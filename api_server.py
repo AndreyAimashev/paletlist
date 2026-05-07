@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+import json
+import sqlite3
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "warehouse.db"
+JSON_SEED_PATH = BASE_DIR / "nomenclature.json"
+HOST = "127.0.0.1"
+PORT = 8081
+DB_LOCK = threading.Lock()
+
+
+def get_connection():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def init_db():
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS products (
+              id INTEGER PRIMARY KEY,
+              article TEXT NOT NULL DEFAULT '',
+              name TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        count = cur.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        if count == 0 and JSON_SEED_PATH.exists():
+            seed_items = json.loads(JSON_SEED_PATH.read_text(encoding="utf-8"))
+            rows = []
+            for item in seed_items:
+                try:
+                    rows.append(
+                        (
+                            int(item.get("id")),
+                            (item.get("article") or "").strip(),
+                            (item.get("name") or "").strip(),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    continue
+            if rows:
+                cur.executemany(
+                    "INSERT INTO products (id, article, name) VALUES (?, ?, ?)",
+                    rows,
+                )
+        con.commit()
+        con.close()
+
+
+def fetch_nomenclature():
+    with DB_LOCK:
+        con = get_connection()
+        rows = con.execute(
+            "SELECT id, article, name FROM products ORDER BY id"
+        ).fetchall()
+        con.close()
+    return [
+        {
+            "id": row["id"],
+            "article": row["article"] or "",
+            "name": row["name"] or "",
+        }
+        for row in rows
+    ]
+
+
+def update_nomenclature_row(row_id: int, article: str, name: str):
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE products SET article = ?, name = ? WHERE id = ?",
+            (article.strip(), name.strip(), row_id),
+        )
+        affected = cur.rowcount
+        con.commit()
+        con.close()
+    return affected > 0
+
+
+def soft_delete_row(row_id: int):
+    return update_nomenclature_row(row_id, "", "")
+
+
+class ApiHandler(BaseHTTPRequestHandler):
+    def _send_json(self, status: int, data):
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/nomenclature":
+            self._send_json(404, {"error": "Not found"})
+            return
+        items = fetch_nomenclature()
+        query = (parse_qs(parsed.query).get("q", [""])[0] or "").strip().lower()
+        if query:
+            items = [
+                item
+                for item in items
+                if query in item["article"].lower() or query in item["name"].lower()
+            ]
+        self._send_json(200, items)
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/nomenclature/"):
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            row_id = int(parsed.path.rsplit("/", 1)[-1])
+        except ValueError:
+            self._send_json(400, {"error": "Invalid id"})
+            return
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+        ok = update_nomenclature_row(row_id, body.get("article", ""), body.get("name", ""))
+        if not ok:
+            self._send_json(404, {"error": "Item not found"})
+            return
+        self._send_json(200, {"ok": True})
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/nomenclature/"):
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            row_id = int(parsed.path.rsplit("/", 1)[-1])
+        except ValueError:
+            self._send_json(400, {"error": "Invalid id"})
+            return
+        ok = soft_delete_row(row_id)
+        if not ok:
+            self._send_json(404, {"error": "Item not found"})
+            return
+        self._send_json(200, {"ok": True})
+
+    def log_message(self, format, *args):
+        return
+
+
+def main():
+    init_db()
+    server = ThreadingHTTPServer((HOST, PORT), ApiHandler)
+    print(f"API server listening on http://{HOST}:{PORT}")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -62,6 +62,34 @@
         animation: panelPulse 320ms ease;
       }
 
+      .panel.fx-main {
+        animation: fxMain 340ms ease;
+      }
+
+      .panel.fx-pallet {
+        animation: fxPallet 340ms ease;
+      }
+
+      .panel.fx-create {
+        animation: fxCreate 340ms ease;
+      }
+
+      .panel.fx-arnest {
+        animation: fxArnest 360ms ease;
+      }
+
+      .panel.fx-orders {
+        animation: fxOrders 340ms ease;
+      }
+
+      .panel.fx-assemble {
+        animation: fxAssemble 340ms ease;
+      }
+
+      .panel.fx-nomenclature {
+        animation: fxNomenclature 360ms ease;
+      }
+
       h1 {
         margin: 0 0 10px;
         font-family: "Orbitron", sans-serif;
@@ -349,6 +377,83 @@
           transform: translateX(0);
         }
       }
+
+      @keyframes fxMain {
+        0% {
+          transform: translateY(10px);
+          opacity: 0.72;
+        }
+        100% {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes fxPallet {
+        0% {
+          transform: translateX(-10px);
+          filter: hue-rotate(-8deg);
+        }
+        100% {
+          transform: translateX(0);
+          filter: hue-rotate(0deg);
+        }
+      }
+
+      @keyframes fxCreate {
+        0% {
+          transform: scale(0.985);
+          opacity: 0.7;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes fxArnest {
+        0% {
+          transform: perspective(700px) rotateX(-6deg);
+          filter: saturate(0.8);
+        }
+        100% {
+          transform: perspective(700px) rotateX(0deg);
+          filter: saturate(1);
+        }
+      }
+
+      @keyframes fxOrders {
+        0% {
+          transform: translateX(10px);
+          opacity: 0.72;
+        }
+        100% {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes fxAssemble {
+        0% {
+          transform: translateY(-8px) scale(0.99);
+          opacity: 0.75;
+        }
+        100% {
+          transform: translateY(0) scale(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes fxNomenclature {
+        0% {
+          transform: perspective(800px) rotateY(4deg);
+          filter: brightness(0.9);
+        }
+        100% {
+          transform: perspective(800px) rotateY(0deg);
+          filter: brightness(1);
+        }
+      }
     </style>
   </head>
   <body>
@@ -504,7 +609,17 @@
       }
 
       function runTransitionEffects() {
+        const effectClasses = [
+          "fx-main",
+          "fx-pallet",
+          "fx-create",
+          "fx-arnest",
+          "fx-orders",
+          "fx-assemble",
+          "fx-nomenclature",
+        ];
         panel.classList.remove("transitioning");
+        effectClasses.forEach((className) => panel.classList.remove(className));
         menuTitle.classList.remove("title-swap");
         void panel.offsetWidth;
         panel.classList.add("transitioning");
@@ -514,6 +629,7 @@
       function setStage(stage, recordVisit = true) {
         if (stage !== currentStage) {
           runTransitionEffects();
+          panel.classList.add(`fx-${stage}`);
         }
 
         menuTitle.textContent = "Главное меню";

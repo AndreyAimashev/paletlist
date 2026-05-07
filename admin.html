@@ -8,6 +8,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto:wght@300;400;500&display=swap"
     />
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
       :root {
         --bg-primary: #0a0e17;
@@ -485,38 +486,57 @@
         };
       }
 
-      function downloadPalletSheetDoc(data) {
-        const docContent = [
-          "ПАЛЛЕТНЫЙ ЛИСТ",
-          "",
-          `Наименование: ${data.name}`,
-          `Артикул: ${data.article}`,
-          `Партия: ${data.batch}`,
-          `Номер паллета: ${data.palletNumber}`,
-          `Дата изготовления: ${data.productionDateUI}`,
-          `Срок годности до: ${data.expiryDateUI}`,
-          "",
-          "Данные по сборке:",
-          `Коробок в ряду: ${data.boxesPerRow}`,
-          `Полных рядов: ${data.fullRows}`,
-          `Коробок сверх рядов: ${data.extraBoxes}`,
-          `Коробок всего: ${data.totalBoxes}`,
-          `Штук в коробке: ${data.piecesPerBox}`,
-          `Штук всего: ${data.totalPieces}`,
-          `Вес коробки (кг): ${data.boxWeight}`,
-          `Вес паллета (кг): ${data.palletWeight.toFixed(2)}`,
-          "",
-          "Штрихкоды:",
-          `Сложный: ${data.complexBarcode}`,
-          `Коробок: ${data.boxesBarcode}`,
-          `Паллета: ${data.palletBarcode}`,
-        ].join("\n");
+      function replaceAllPlaceholders(content, replacements) {
+        let next = content;
+        Object.entries(replacements).forEach(([placeholder, value]) => {
+          next = next.split(placeholder).join(String(value));
+        });
+        return next;
+      }
 
-        const blob = new Blob(["\ufeff", docContent], { type: "application/msword;charset=utf-8" });
-        const link = document.createElement("a");
+      async function downloadPalletSheetDocm(data) {
+        const response = await fetch("template.docm");
+        if (!response.ok) {
+          throw new Error("Не удалось загрузить template.docm");
+        }
+
+        const templateBuffer = await response.arrayBuffer();
+        const zip = await JSZip.loadAsync(templateBuffer);
+        const replacements = {
+          "###АРТИКУЛ###": data.article,
+          "###НАИМЕНОВАНИЕ###": data.name,
+          "###ДАТА_ИЗГОТОВЛЕНИЯ###": data.productionDateUI,
+          "###ДАТА_ГОДНОСТИ###": data.expiryDateUI,
+          "###ВЕС_ПАЛЛЕТА###": data.palletWeight.toFixed(2),
+          "###ВСЕГО_КОРОБОК###": data.totalBoxes,
+          "###КОРОБОК_В_РЯДАХ###": data.boxesPerRow,
+          "###ПОЛНЫХ_РЯДОВ###": data.fullRows,
+          "###КОРОБОК_СВЕРХ###": data.extraBoxes,
+          "###ВСЕГО_ШТУК###": data.totalPieces,
+          "###НОМЕР_ПАРТИИ###": data.batch,
+          "###СЛОЖНЫЙ_ШТРИХКОД###": data.complexBarcode,
+          "###ШТРИХКОД_КОРОБОК###": data.boxesBarcode,
+          "###ШТРИХКОД_ПАЛЛЕТА###": data.palletBarcode,
+        };
+
+        const xmlFiles = Object.keys(zip.files).filter(
+          (path) => path.startsWith("word/") && path.endsWith(".xml"),
+        );
+
+        for (const path of xmlFiles) {
+          const original = await zip.file(path).async("string");
+          const updated = replaceAllPlaceholders(original, replacements);
+          zip.file(path, updated);
+        }
+
+        const outputBlob = await zip.generateAsync({
+          type: "blob",
+          mimeType: "application/vnd.ms-word.document.macroEnabled.12",
+        });
         const safeArticle = data.article ? data.article.replace(/[^\w.-]/g, "_") : "pallet";
-        link.href = URL.createObjectURL(blob);
-        link.download = `pallet_sheet_${safeArticle}_${Date.now()}.doc`;
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(outputBlob);
+        link.download = `pallet_sheet_${safeArticle}_${Date.now()}.docm`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -543,9 +563,13 @@
         document.body.classList.remove("resizing");
       });
 
-      buildSheetButton.addEventListener("click", () => {
-        const data = buildSheetPreview();
-        downloadPalletSheetDoc(data);
+      buildSheetButton.addEventListener("click", async () => {
+        try {
+          const data = buildSheetPreview();
+          await downloadPalletSheetDocm(data);
+        } catch (error) {
+          output.innerHTML = `<strong>Ошибка:</strong> ${error.message}`;
+        }
       });
 
       renderNavOrder();

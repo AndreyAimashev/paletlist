@@ -238,6 +238,16 @@
         font-weight: 700;
       }
 
+      .nomenclature-search {
+        width: 100%;
+        margin: 8px 0 14px;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+      }
+
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
@@ -548,6 +558,12 @@
 
           <section id="nomenclature-workspace" class="nomenclature-workspace">
             <p class="muted">Список наименований и артикулов</p>
+            <input
+              id="nomenclature-search"
+              class="nomenclature-search"
+              type="text"
+              placeholder="Поиск по артикулу или наименованию..."
+            />
             <div id="nomenclature-list"></div>
           </section>
         </section>
@@ -602,6 +618,7 @@
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
+      const nomenclatureSearch = document.getElementById("nomenclature-search");
       const output = document.getElementById("arnest-output");
       const buildSheetButton = document.getElementById("build-sheet");
       const quickNav = document.querySelector(".quick-nav");
@@ -623,6 +640,7 @@
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
       let sidebarCollapsed = false;
+      let nomenclatureItems = [];
 
       const savedOrder = localStorage.getItem(navOrderStorageKey);
       if (savedOrder) {
@@ -781,16 +799,25 @@
       async function loadNomenclature() {
         try {
           const res = await fetch("nomenclature.json");
-          const items = await res.json();
-          nomenclatureList.innerHTML = items
+          nomenclatureItems = await res.json();
+          renderNomenclatureList(nomenclatureItems);
+        } catch (error) {
+          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
+        }
+      }
+
+      function renderNomenclatureList(items) {
+        if (!items.length) {
+          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Ничего не найдено.</div>";
+          return;
+        }
+
+        nomenclatureList.innerHTML = items
             .map(
               (item) =>
                 `<div class="nomenclature-item"><div class="article">${escapeXml(item.article || "—")}</div><div>${escapeXml(item.name || "Без названия")}</div></div>`,
             )
             .join("");
-        } catch (error) {
-          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
-        }
       }
 
       let isResizing = false;
@@ -995,6 +1022,21 @@
         } catch (error) {
           output.innerHTML = `<strong>Ошибка:</strong> ${error.message}`;
         }
+      });
+
+      nomenclatureSearch.addEventListener("input", () => {
+        const query = nomenclatureSearch.value.trim().toLowerCase();
+        if (!query) {
+          renderNomenclatureList(nomenclatureItems);
+          return;
+        }
+
+        const filtered = nomenclatureItems.filter((item) => {
+          const article = (item.article || "").toLowerCase();
+          const name = (item.name || "").toLowerCase();
+          return article.includes(query) || name.includes(query);
+        });
+        renderNomenclatureList(filtered);
       });
 
       renderNavOrder();

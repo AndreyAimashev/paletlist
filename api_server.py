@@ -15,8 +15,17 @@ PORT = 8081
 DB_LOCK = threading.Lock()
 
 
+def _norm_api_path(path: str) -> str:
+    p = (path or "").rstrip("/")
+    return p if p else "/"
+
+
 def _is_nomenclature_list_path(path: str) -> bool:
-    return (path or "").rstrip("/") == "/api/nomenclature"
+    return _norm_api_path(path) == "/api/nomenclature"
+
+
+def _is_orders_list_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/orders"
 
 
 def get_connection():
@@ -94,8 +103,80 @@ def init_db():
                     """,
                     rows,
                 )
+        _init_orders_table(cur)
         con.commit()
         con.close()
+
+
+def _init_orders_table(cur):
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ship_date TEXT NOT NULL DEFAULT '',
+          client TEXT NOT NULL DEFAULT '',
+          assembled_percent INTEGER NOT NULL DEFAULT 0,
+          names TEXT NOT NULL DEFAULT '',
+          extra_info TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    n = cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    if n == 0:
+        samples = [
+            (
+                "15.05.2026",
+                "ООО «Розница Юг»",
+                72,
+                "Салфетки САЛДЕЗ; Aqua Joy гель Mango 1 л",
+                "Паллеты в зоне Б, проверить маркировку",
+            ),
+            (
+                "18.05.2026",
+                "ИП Ким А.С.",
+                35,
+                "Спрей Шаума Kids; Bambolina масло 250 мл",
+                "Частичная отгрузка, звонок за 2 ч",
+            ),
+            (
+                "22.05.2026",
+                "Сеть «Косметика Плюс»",
+                0,
+                "Adaly двухфазное средство 120 мл (×24 короба)",
+                "Новый заказ, сбор не начат",
+            ),
+        ]
+        cur.executemany(
+            """
+            INSERT INTO orders (
+              ship_date, client, assembled_percent, names, extra_info
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            samples,
+        )
+
+
+def fetch_orders():
+    with DB_LOCK:
+        con = get_connection()
+        rows = con.execute(
+            """
+            SELECT id, ship_date, client, assembled_percent, names, extra_info
+            FROM orders ORDER BY id DESC
+            """
+        ).fetchall()
+        con.close()
+    return [
+        {
+            "id": row["id"],
+            "ship_date": row["ship_date"] or "",
+            "client": row["client"] or "",
+            "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+            "names": row["names"] or "",
+            "extra_info": row["extra_info"] or "",
+        }
+        for row in rows
+    ]
 
 
 def fetch_nomenclature():
@@ -265,7 +346,11 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if not _is_nomenclature_list_path(parsed.path):
+        path = parsed.path
+        if _is_orders_list_path(path):
+            self._send_json(200, fetch_orders())
+            return
+        if not _is_nomenclature_list_path(path):
             self._send_json(404, {"error": "Not found"})
             return
         items = fetch_nomenclature()

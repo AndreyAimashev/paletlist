@@ -211,6 +211,82 @@
         line-height: 1.45;
       }
 
+      .orders-workspace {
+        display: none;
+        margin-top: 20px;
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        border-radius: 12px;
+        padding: 14px 16px 16px;
+        background: rgba(10, 14, 23, 0.55);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .orders-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .orders-list-caption {
+        margin: 0 0 12px;
+      }
+
+      .orders-table-wrap {
+        overflow-x: auto;
+        max-height: min(52vh, 560px);
+        overflow-y: auto;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 200, 160, 0.18);
+      }
+
+      .orders-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .orders-table th,
+      .orders-table td {
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      .orders-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(14, 20, 32, 0.98);
+        color: var(--accent-teal);
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+
+      .orders-table tbody tr:hover td {
+        background: rgba(0, 200, 160, 0.06);
+      }
+
+      .orders-table td {
+        color: var(--text-main);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .orders-table .col-pct {
+        white-space: nowrap;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .orders-table .col-date {
+        white-space: nowrap;
+      }
+
       .nomenclature-workspace {
         display: none;
         margin-top: 22px;
@@ -716,6 +792,24 @@
             </button>
           </div>
 
+          <section id="orders-workspace" class="orders-workspace" aria-label="Список заказов">
+            <p class="muted orders-list-caption">Существующие заказы</p>
+            <div class="orders-table-wrap">
+              <table class="orders-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Дата отгрузки</th>
+                    <th scope="col">Клиент</th>
+                    <th scope="col">Собран (%)</th>
+                    <th scope="col">Наименования</th>
+                    <th scope="col">Доп. информация</th>
+                  </tr>
+                </thead>
+                <tbody id="orders-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+
           <section id="arnest-workspace" class="arnest-workspace">
             <p class="muted">Черновик программы создания паллетного листа</p>
             <div class="arnest-grid">
@@ -897,6 +991,8 @@
       const navAssemble = document.getElementById("nav-assemble");
       const navNomenclature = document.getElementById("nav-nomenclature");
       const arnestWorkspace = document.getElementById("arnest-workspace");
+      const ordersWorkspace = document.getElementById("orders-workspace");
+      const ordersTableBody = document.getElementById("orders-table-body");
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -1005,6 +1101,7 @@
         backToMainNomenclatureButton.classList.remove("visible");
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
+        ordersWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
@@ -1031,11 +1128,14 @@
 
         if (stage === "orders") {
           menuTitle.textContent = "Заказы";
+          panel.classList.add("wide");
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
+          ordersWorkspace.classList.add("visible");
+          loadOrders();
         }
 
         if (stage === "assemble") {
@@ -1239,6 +1339,45 @@
           renderNomenclatureList(nomenclatureItems);
         } catch (error) {
           nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
+        }
+      }
+
+      function formatOrderPct(value) {
+        const n = Number(value);
+        return String(Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0);
+      }
+
+      function renderOrdersTable(rows) {
+        if (!rows.length) {
+          ordersTableBody.innerHTML =
+            "<tr><td colspan=\"5\" class=\"muted\">Заказов пока нет.</td></tr>";
+          return;
+        }
+        ordersTableBody.innerHTML = rows
+            .map(
+              (o) =>
+                `<tr>
+                  <td class="col-date">${escapeXml(o.ship_date || "—")}</td>
+                  <td>${escapeXml(o.client || "—")}</td>
+                  <td class="col-pct">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
+                  <td>${escapeXml(o.names || "—")}</td>
+                  <td>${escapeXml(o.extra_info || "—")}</td>
+                </tr>`,
+            )
+            .join("");
+      }
+
+      async function loadOrders() {
+        try {
+          const res = await fetch("/api/orders");
+          if (!res.ok) {
+            throw new Error("API error");
+          }
+          const rows = await res.json();
+          renderOrdersTable(Array.isArray(rows) ? rows : []);
+        } catch (error) {
+          ordersTableBody.innerHTML =
+            "<tr><td colspan=\"5\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
         }
       }
 

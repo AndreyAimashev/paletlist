@@ -21,6 +21,28 @@ def get_connection():
     return con
 
 
+def _table_columns(cur, table: str):
+    return {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate_products(cur):
+    cols = _table_columns(cur, "products")
+    if "pieces_in_box" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN pieces_in_box INTEGER NOT NULL DEFAULT 0"
+        )
+    if "row_layout" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN row_layout INTEGER NOT NULL DEFAULT 0"
+        )
+    if "max_rows" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN max_rows INTEGER NOT NULL DEFAULT 0")
+    if "box_weight" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN box_weight REAL NOT NULL DEFAULT 0"
+        )
+
+
 def init_db():
     with DB_LOCK:
         con = get_connection()
@@ -30,10 +52,15 @@ def init_db():
             CREATE TABLE IF NOT EXISTS products (
               id INTEGER PRIMARY KEY,
               article TEXT NOT NULL DEFAULT '',
-              name TEXT NOT NULL DEFAULT ''
+              name TEXT NOT NULL DEFAULT '',
+              pieces_in_box INTEGER NOT NULL DEFAULT 0,
+              row_layout INTEGER NOT NULL DEFAULT 0,
+              max_rows INTEGER NOT NULL DEFAULT 0,
+              box_weight REAL NOT NULL DEFAULT 0
             )
             """
         )
+        _migrate_products(cur)
         count = cur.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if count == 0 and JSON_SEED_PATH.exists():
             seed_items = json.loads(JSON_SEED_PATH.read_text(encoding="utf-8"))
@@ -45,13 +72,22 @@ def init_db():
                             int(item.get("id")),
                             (item.get("article") or "").strip(),
                             (item.get("name") or "").strip(),
+                            int(item.get("pieces_in_box") or 0),
+                            int(item.get("row_layout") or 0),
+                            int(item.get("max_rows") or 0),
+                            float(item.get("box_weight") or 0),
                         )
                     )
                 except (TypeError, ValueError):
                     continue
             if rows:
                 cur.executemany(
-                    "INSERT INTO products (id, article, name) VALUES (?, ?, ?)",
+                    """
+                    INSERT INTO products (
+                      id, article, name,
+                      pieces_in_box, row_layout, max_rows, box_weight
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
                     rows,
                 )
         con.commit()
@@ -62,7 +98,11 @@ def fetch_nomenclature():
     with DB_LOCK:
         con = get_connection()
         rows = con.execute(
-            "SELECT id, article, name FROM products ORDER BY id"
+            """
+            SELECT id, article, name,
+                   pieces_in_box, row_layout, max_rows, box_weight
+            FROM products ORDER BY id
+            """
         ).fetchall()
         con.close()
     return [
@@ -70,18 +110,43 @@ def fetch_nomenclature():
             "id": row["id"],
             "article": row["article"] or "",
             "name": row["name"] or "",
+            "pieces_in_box": int(row["pieces_in_box"] or 0),
+            "row_layout": int(row["row_layout"] or 0),
+            "max_rows": int(row["max_rows"] or 0),
+            "box_weight": float(row["box_weight"] or 0),
         }
         for row in rows
     ]
 
 
-def update_nomenclature_row(row_id: int, article: str, name: str):
+def update_nomenclature_row(
+    row_id: int,
+    article: str,
+    name: str,
+    pieces_in_box: int = 0,
+    row_layout: int = 0,
+    max_rows: int = 0,
+    box_weight: float = 0,
+):
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         cur.execute(
-            "UPDATE products SET article = ?, name = ? WHERE id = ?",
-            (article.strip(), name.strip(), row_id),
+            """
+            UPDATE products SET
+              article = ?, name = ?,
+              pieces_in_box = ?, row_layout = ?, max_rows = ?, box_weight = ?
+            WHERE id = ?
+            """,
+            (
+                article.strip(),
+                name.strip(),
+                int(pieces_in_box),
+                int(row_layout),
+                int(max_rows),
+                float(box_weight),
+                row_id,
+            ),
         )
         affected = cur.rowcount
         con.commit()
@@ -90,7 +155,7 @@ def update_nomenclature_row(row_id: int, article: str, name: str):
 
 
 def soft_delete_row(row_id: int):
-    return update_nomenclature_row(row_id, "", "")
+    return update_nomenclature_row(row_id, "", "", 0, 0, 0, 0)
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -139,7 +204,27 @@ class ApiHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Invalid JSON"})
             return
-        ok = update_nomenclature_row(row_id, body.get("article", ""), body.get("name", ""))
+        def _int_body(key: str) -> int:
+            try:
+                return int(body.get(key, 0))
+            except (TypeError, ValueError):
+                return 0
+
+        def _float_body(key: str) -> float:
+            try:
+                return float(body.get(key, 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        ok = update_nomenclature_row(
+            row_id,
+            body.get("article", ""),
+            body.get("name", ""),
+            _int_body("pieces_in_box"),
+            _int_body("row_layout"),
+            _int_body("max_rows"),
+            _float_body("box_weight"),
+        )
         if not ok:
             self._send_json(404, {"error": "Item not found"})
             return

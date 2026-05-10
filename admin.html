@@ -247,6 +247,31 @@
         flex: 1;
       }
 
+      .nomenclature-pack-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 14px;
+        margin-top: 6px;
+        font-size: 0.88rem;
+        color: rgba(220, 230, 245, 0.88);
+      }
+
+      .nomenclature-pack-line .pack-stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+
+      .pack-icon {
+        width: 17px;
+        height: 17px;
+        flex-shrink: 0;
+        color: var(--accent-teal);
+        opacity: 0.92;
+      }
+
       .nomenclature-actions {
         display: flex;
         gap: 6px;
@@ -585,7 +610,7 @@
           </section>
 
           <section id="nomenclature-workspace" class="nomenclature-workspace">
-            <p class="muted">Список наименований и артикулов</p>
+            <p class="muted">Список товаров</p>
             <input
               id="nomenclature-search"
               class="nomenclature-search"
@@ -824,6 +849,40 @@
       navAssemble.addEventListener("click", () => setStage("assemble"));
       navNomenclature.addEventListener("click", () => setStage("nomenclature"));
 
+      const NOMENCLATURE_PACK_ICONS = {
+        pieces: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h3M13 9h3M8 13h3M13 13h3"/></svg>`,
+        row: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="5" height="6" rx="1"/><rect x="9.5" y="9" width="5" height="6" rx="1"/><rect x="17" y="9" width="5" height="6" rx="1"/></svg>`,
+        layers: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 8l8-3 8 3-8 3-8-3z"/><path d="M4 12l8 3 8-3"/><path d="M4 16l8 3 8-3"/></svg>`,
+        weight: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M12 3v4"/><circle cx="12" cy="13" r="6"/><path d="M9 7h6"/></svg>`,
+      };
+
+      function formatPackInt(value) {
+        const n = Number(value);
+        return String(Number.isFinite(n) ? Math.trunc(n) : 0);
+      }
+
+      function formatPackWeight(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return "0";
+        }
+        const r = Math.round(n * 100) / 100;
+        return String(r);
+      }
+
+      function nomenclaturePackRowHtml(item) {
+        const p = formatPackInt(item.pieces_in_box);
+        const row = formatPackInt(item.row_layout);
+        const maxR = formatPackInt(item.max_rows);
+        const w = formatPackWeight(item.box_weight);
+        return `<div class="nomenclature-pack-line">
+          <span class="pack-stat" title="Штук в коробке">${NOMENCLATURE_PACK_ICONS.pieces}<span>${escapeXml(p)}</span></span>
+          <span class="pack-stat" title="Укладка ряда (коробок в ряду)">${NOMENCLATURE_PACK_ICONS.row}<span>${escapeXml(row)}</span></span>
+          <span class="pack-stat" title="Максимум рядов">${NOMENCLATURE_PACK_ICONS.layers}<span>${escapeXml(maxR)}</span></span>
+          <span class="pack-stat" title="Вес коробки, кг">${NOMENCLATURE_PACK_ICONS.weight}<span>${escapeXml(w)}</span></span>
+        </div>`;
+      }
+
       async function loadNomenclature() {
         try {
           const res = await fetch("/api/nomenclature");
@@ -850,6 +909,7 @@
                   <div class="nomenclature-meta">
                     <div class="article">${escapeXml(item.article || "—")}</div>
                     <div>${escapeXml(item.name || "Без названия")}</div>
+                    ${nomenclaturePackRowHtml(item)}
                   </div>
                   <div class="nomenclature-actions">
                     <button class="icon-btn" data-action="edit" data-id="${item.id}" title="Редактировать">✏️</button>
@@ -1100,12 +1160,37 @@
           if (nextName === null) {
             return;
           }
+          const nextPieces = prompt("Штук в коробке:", formatPackInt(item.pieces_in_box));
+          if (nextPieces === null) {
+            return;
+          }
+          const nextRowLayout = prompt("Укладка ряда (коробок в ряду):", formatPackInt(item.row_layout));
+          if (nextRowLayout === null) {
+            return;
+          }
+          const nextMaxRows = prompt("Максимум рядов:", formatPackInt(item.max_rows));
+          if (nextMaxRows === null) {
+            return;
+          }
+          const nextBoxWeight = prompt("Вес коробки (кг):", formatPackWeight(item.box_weight));
+          if (nextBoxWeight === null) {
+            return;
+          }
+          const parsedPieces = Math.trunc(Number(nextPieces)) || 0;
+          const parsedRowLayout = Math.trunc(Number(nextRowLayout)) || 0;
+          const parsedMaxRows = Math.trunc(Number(nextMaxRows)) || 0;
+          const parsedWeight = Number(String(nextBoxWeight).replace(",", "."));
+          const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
           const response = await fetch(`/api/nomenclature/${item.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               article: nextArticle.trim(),
               name: nextName.trim(),
+              pieces_in_box: parsedPieces,
+              row_layout: parsedRowLayout,
+              max_rows: parsedMaxRows,
+              box_weight: parsedBoxWeight,
             }),
           });
           if (!response.ok) {

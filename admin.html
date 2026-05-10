@@ -43,49 +43,29 @@
         flex: 1;
         min-width: 0;
         display: grid;
-        place-items: center;
-        padding: 24px;
-        overflow-x: auto;
-      }
-
-      /* Заказы: вся колонка под контент — без отступов и без «карточки» на градиенте; сдвиг только от сайдбара (flex). */
-      .main-area.main-area--orders {
-        padding: 0;
         place-items: stretch;
         align-content: stretch;
+        padding: 0;
+        overflow-x: auto;
         background: linear-gradient(160deg, rgba(10, 14, 22, 0.99) 0%, rgba(14, 18, 30, 0.99) 100%);
       }
 
+      /* Вся колонка под контент; ширина задаётся flex относительно сайдбара (без «карточки» на фоне страницы). */
       .panel {
-        /* 100% от .main-area, не vw — иначе панель шире контентной колонки и уходит под сайдбар; клики попадают в «Сборка заказа». */
-        width: min(560px, 100%);
+        width: 100%;
         max-width: 100%;
         min-width: 0;
         box-sizing: border-box;
-        border: 1px solid rgba(0, 200, 160, 0.25);
-        border-radius: 16px;
-        background: rgba(18, 24, 38, 0.82);
-        backdrop-filter: blur(8px);
-        padding: 28px;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-        transform-origin: top center;
-        animation: unfoldMenu 1.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-      }
-
-      .panel.wide {
-        width: min(980px, 100%);
-      }
-
-      .panel.panel--full-bleed {
-        width: 100%;
-        max-width: 100%;
         min-height: 100vh;
         min-height: 100dvh;
-        border-radius: 0;
         border: none;
-        box-shadow: none;
+        border-radius: 0;
+        background: transparent;
         backdrop-filter: none;
         padding: 24px 28px 28px;
+        box-shadow: none;
+        transform-origin: top center;
+        animation: unfoldMenu 1.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
       }
 
       .panel.transitioning {
@@ -184,11 +164,11 @@
 
       .arnest-workspace {
         display: none;
-        margin-top: 22px;
-        border: 1px solid rgba(0, 200, 160, 0.2);
-        border-radius: 12px;
-        padding: 16px;
-        background: rgba(10, 14, 23, 0.55);
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+        min-width: 0;
+        max-width: 100%;
       }
 
       .arnest-workspace.visible {
@@ -310,14 +290,12 @@
 
       .nomenclature-workspace {
         display: none;
-        margin-top: 22px;
-        border: 1px solid rgba(0, 200, 160, 0.2);
-        border-radius: 12px;
-        padding: 0;
-        background: rgba(10, 14, 23, 0.55);
-        overflow: hidden;
+        margin-top: 20px;
+        padding-top: 4px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
         min-width: 0;
         max-width: 100%;
+        overflow: hidden;
       }
 
       .nomenclature-workspace.visible {
@@ -1281,7 +1259,6 @@
       const quickNav = document.querySelector(".quick-nav");
       const sidebar = document.getElementById("sidebar");
       const sidebarToggle = document.getElementById("sidebar-toggle");
-      const mainArea = document.querySelector(".main-area");
       const panel = document.querySelector(".panel");
       const resizeHandle = document.getElementById("resize-handle");
       const navButtons = {
@@ -1358,8 +1335,6 @@
         }
 
         menuTitle.textContent = "Главное меню";
-        panel.classList.remove("wide", "panel--full-bleed");
-        mainArea.classList.remove("main-area--orders");
         palletListButton.style.display = "inline-block";
         ordersButton.style.display = "inline-block";
         nomenclatureButton.style.display = "inline-block";
@@ -1399,8 +1374,6 @@
 
         if (stage === "orders") {
           menuTitle.textContent = "Заказы";
-          panel.classList.add("panel--full-bleed");
-          mainArea.classList.add("main-area--orders");
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
@@ -1421,7 +1394,6 @@
 
         if (stage === "nomenclature") {
           menuTitle.textContent = "Номенклатура";
-          panel.classList.add("wide");
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";

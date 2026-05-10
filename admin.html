@@ -294,6 +294,10 @@
         vertical-align: middle;
       }
 
+      .stage-order-context {
+        margin: 0 0 10px;
+      }
+
       .nomenclature-workspace {
         display: none;
         margin-top: 20px;
@@ -448,6 +452,14 @@
 
       .icon-btn:hover {
         border-color: var(--accent-teal);
+      }
+
+      .icon-btn.icon-btn-danger {
+        border-color: rgba(255, 100, 100, 0.4);
+      }
+
+      .icon-btn.icon-btn-danger:hover {
+        border-color: rgba(255, 130, 130, 0.75);
       }
 
       .nomenclature-search {
@@ -917,6 +929,7 @@
       <main class="main-area">
         <section class="panel">
           <h1 id="menu-title">Главное меню</h1>
+          <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p class="muted">Вы вошли как администратор.</p>
           <div class="menu-items">
             <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
@@ -1263,12 +1276,15 @@
       const newOrderCancel = document.getElementById("new-order-cancel");
       const newOrderTitle = document.getElementById("new-order-title");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
+      const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
-      let focusedOrderIdFromTable = null;
+      /** Номер заказа при переходе из строки таблицы в «Сборка» / «Паллетные листы»; иначе null. */
+      let activeStageOrderId = null;
 
       const ORDER_ROW_ICON_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
       const ORDER_ROW_ICON_ASSEMBLE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7.7 12 12.5l8.7-4.8"/><path d="M12 22.5V12.5"/></svg>`;
       const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v2"/><path d="M7 10v10"/><path d="M17 10v10"/><path d="M7 10h10"/><path d="M12 15v7"/></svg>`;
+      const ORDER_ROW_ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -1359,7 +1375,21 @@
         sidebarToggle.textContent = sidebarCollapsed ? "▶" : "◀";
       }
 
-      function setStage(stage, recordVisit = true) {
+      function setStage(stage, recordVisit = true, orderContextForStage = undefined) {
+        const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
+        const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
+
+        if (isAssembleOrPallet) {
+          if (orderContextForStage !== undefined) {
+            const n = Number(orderContextForStage);
+            activeStageOrderId = Number.isFinite(n) ? n : null;
+          } else {
+            activeStageOrderId = null;
+          }
+        } else if (wasAssembleOrPallet) {
+          activeStageOrderId = null;
+        }
+
         if (stage !== currentStage) {
           runTransitionEffects();
           panel.classList.add(`fx-${stage}`);
@@ -1446,6 +1476,16 @@
         }
 
         currentStage = stage;
+
+        if (stageOrderContextEl) {
+          if (isAssembleOrPallet && activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
+            stageOrderContextEl.hidden = false;
+            stageOrderContextEl.textContent = `Выбран заказ №${activeStageOrderId}.`;
+          } else {
+            stageOrderContextEl.hidden = true;
+            stageOrderContextEl.textContent = "";
+          }
+        }
       }
 
       palletListButton.addEventListener("click", () => setStage("pallet"));
@@ -1690,6 +1730,7 @@
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактирование">${ORDER_ROW_ICON_EDIT}</button>
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка">${ORDER_ROW_ICON_ASSEMBLE}</button>
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Паллетные листы">${ORDER_ROW_ICON_PALLET}</button>
+            <button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>
           </div>`;
       }
 
@@ -2008,11 +2049,42 @@
         if (act === "edit") {
           openEditOrderModal(id);
         } else if (act === "assemble") {
-          focusedOrderIdFromTable = id;
-          setStage("assemble");
+          setStage("assemble", true, id);
         } else if (act === "pallet") {
-          focusedOrderIdFromTable = id;
-          setStage("pallet");
+          setStage("pallet", true, id);
+        } else if (act === "delete") {
+          if (!window.confirm(`Удалить заказ №${id}? Действие нельзя отменить.`)) {
+            return;
+          }
+          void (async () => {
+            let res;
+            try {
+              res = await fetch(`/api/orders/${id}`, { method: "DELETE" });
+            } catch (err) {
+              window.alert("Нет связи с сервером.");
+              return;
+            }
+            if (res.status === 404) {
+              window.alert("Заказ не найден.");
+              await loadOrders();
+              return;
+            }
+            if (!res.ok) {
+              window.alert("Не удалось удалить заказ.");
+              return;
+            }
+            if (editingOrderId === id && !newOrderOverlay.hidden) {
+              closeNewOrderModal();
+            }
+            if (activeStageOrderId === id) {
+              activeStageOrderId = null;
+              if (stageOrderContextEl && (currentStage === "assemble" || currentStage === "pallet")) {
+                stageOrderContextEl.hidden = true;
+                stageOrderContextEl.textContent = "";
+              }
+            }
+            await loadOrders();
+          })();
         }
       });
 

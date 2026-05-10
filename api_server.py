@@ -469,6 +469,18 @@ def fetch_order_detail(order_id: int):
     }
 
 
+def delete_order(order_id: int) -> bool:
+    """Удаляет заказ; позиции order_items удаляются каскадом."""
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        n = cur.rowcount
+        con.commit()
+        con.close()
+    return n > 0
+
+
 def fetch_orders():
     with DB_LOCK:
         con = get_connection()
@@ -858,6 +870,19 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         parsed = urlparse(self.path)
+        path = parsed.path
+        oid = _parse_orders_detail_id(path)
+        if oid is not None:
+            try:
+                ok = delete_order(oid)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            if not ok:
+                self._send_json(404, {"error": "not_found", "message": "Заказ не найден."})
+                return
+            self._send_json(200, {"ok": True})
+            return
         if not parsed.path.startswith("/api/nomenclature/"):
             self._send_json(404, {"error": "Not found"})
             return

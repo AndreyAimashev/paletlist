@@ -28,6 +28,21 @@ def _is_orders_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders"
 
 
+def _parse_orders_detail_id(path: str):
+    """Для /api/orders/12 возвращает 12; для списка или чужих путей — None."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    if not p.startswith(prefix):
+        return None
+    tail = p[len(prefix) :]
+    if not tail or "/" in tail:
+        return None
+    try:
+        return int(tail)
+    except ValueError:
+        return None
+
+
 def get_connection():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -269,7 +284,8 @@ def _format_order_names_summary(items):
     return "; ".join(parts)
 
 
-def insert_order_with_items(body: dict):
+def _normalize_order_items_body(body: dict):
+    """Общая валидация позиций для создания и обновления заказа."""
     ship_raw = body.get("ship_date", "")
     client_raw = body.get("client", "")
     ship = _format_ship_date_storage(ship_raw)
@@ -327,6 +343,23 @@ def insert_order_with_items(body: dict):
             "message": "Нет корректных позиций в заказе.",
         }
     names_summary = _format_order_names_summary(normalized)
+    return {
+        "ok": True,
+        "ship": ship,
+        "client": client_n,
+        "normalized": normalized,
+        "names_summary": names_summary,
+    }
+
+
+def insert_order_with_items(body: dict):
+    pack = _normalize_order_items_body(body)
+    if pack.get("error"):
+        return pack
+    ship = pack["ship"]
+    client_n = pack["client"]
+    normalized = pack["normalized"]
+    names_summary = pack["names_summary"]
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -349,6 +382,91 @@ def insert_order_with_items(body: dict):
         con.commit()
         con.close()
     return {"ok": True, "id": int(oid)}
+
+
+def update_order_with_items(order_id: int, body: dict):
+    pack = _normalize_order_items_body(body)
+    if pack.get("error"):
+        return pack
+    ship = pack["ship"]
+    client_n = pack["client"]
+    normalized = pack["normalized"]
+    names_summary = pack["names_summary"]
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT id, assembled_percent, extra_info FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        apct = max(0, min(100, int(row["assembled_percent"] or 0)))
+        xinfo = row["extra_info"] or ""
+        cur.execute(
+            """
+            UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?, extra_info = ?
+            WHERE id = ?
+            """,
+            (ship, client_n, names_summary, apct, xinfo, order_id),
+        )
+        cur.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
+        for pid, article, name, qty, unit in normalized:
+            cur.execute(
+                """
+                INSERT INTO order_items (order_id, product_id, article, name, quantity, unit)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (order_id, pid, article, name, qty, unit),
+            )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": int(order_id)}
+
+
+def fetch_order_detail(order_id: int):
+    with DB_LOCK:
+        con = get_connection()
+        row = con.execute(
+            """
+            SELECT id, ship_date, client, assembled_percent, names, extra_info
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        if not row:
+            con.close()
+            return None
+        item_rows = con.execute(
+            """
+            SELECT product_id, article, name, quantity, unit
+            FROM order_items WHERE order_id = ? ORDER BY id
+            """,
+            (order_id,),
+        ).fetchall()
+        con.close()
+    items = []
+    for ir in item_rows:
+        pid = ir["product_id"]
+        items.append(
+            {
+                "product_id": int(pid) if pid is not None else None,
+                "article": ir["article"] or "",
+                "name": ir["name"] or "",
+                "quantity": float(ir["quantity"] or 0),
+                "unit": (ir["unit"] or "piece").strip().lower(),
+            }
+        )
+    return {
+        "id": int(row["id"]),
+        "ship_date": row["ship_date"] or "",
+        "client": row["client"] or "",
+        "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+        "names": row["names"] or "",
+        "extra_info": row["extra_info"] or "",
+        "items": items,
+    }
 
 
 def fetch_orders():
@@ -563,6 +681,14 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        oid = _parse_orders_detail_id(path)
+        if oid is not None:
+            detail = fetch_order_detail(oid)
+            if detail is None:
+                self._send_json(404, {"error": "Not found"})
+                return
+            self._send_json(200, detail)
+            return
         if _is_orders_list_path(path):
             self._send_json(200, fetch_orders())
             return
@@ -658,6 +784,28 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         parsed = urlparse(self.path)
+        path = parsed.path
+        oid = _parse_orders_detail_id(path)
+        if oid is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = update_order_with_items(oid, body)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            self._send_json(200, result)
+            return
         if not parsed.path.startswith("/api/nomenclature/"):
             self._send_json(404, {"error": "Not found"})
             return

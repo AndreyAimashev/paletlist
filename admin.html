@@ -288,6 +288,12 @@
         white-space: nowrap;
       }
 
+      .orders-table .col-actions {
+        width: 1%;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+
       .nomenclature-workspace {
         display: none;
         margin-top: 20px;
@@ -414,6 +420,7 @@
       }
 
       .icon-btn {
+        box-sizing: border-box;
         width: 28px;
         height: 28px;
         border: 1px solid rgba(0, 200, 160, 0.35);
@@ -421,6 +428,22 @@
         background: rgba(18, 24, 38, 0.85);
         color: var(--text-main);
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        flex-shrink: 0;
+      }
+
+      .icon-btn svg {
+        display: block;
+      }
+
+      .orders-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
       }
 
       .icon-btn:hover {
@@ -933,6 +956,7 @@
                     <th scope="col">Собран (%)</th>
                     <th scope="col">Наименования</th>
                     <th scope="col">Доп. информация</th>
+                    <th scope="col" class="col-actions">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="orders-table-body"></tbody>
@@ -1237,7 +1261,14 @@
       const newOrderItems = document.getElementById("new-order-items");
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
+      const newOrderTitle = document.getElementById("new-order-title");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
+      let editingOrderId = null;
+      let focusedOrderIdFromTable = null;
+
+      const ORDER_ROW_ICON_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
+      const ORDER_ROW_ICON_ASSEMBLE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7.7 12 12.5l8.7-4.8"/><path d="M12 22.5V12.5"/></svg>`;
+      const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v2"/><path d="M7 10v10"/><path d="M17 10v10"/><path d="M7 10h10"/><path d="M12 15v7"/></svg>`;
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -1652,10 +1683,20 @@
         return String(Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0);
       }
 
+      function renderOrderRowActions(orderId) {
+        const id = Number(orderId);
+        const sid = Number.isFinite(id) ? String(id) : "";
+        return `<div class="orders-row-actions">
+            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактирование">${ORDER_ROW_ICON_EDIT}</button>
+            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка">${ORDER_ROW_ICON_ASSEMBLE}</button>
+            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Паллетные листы">${ORDER_ROW_ICON_PALLET}</button>
+          </div>`;
+      }
+
       function renderOrdersTable(rows) {
         if (!rows.length) {
           ordersTableBody.innerHTML =
-            "<tr><td colspan=\"5\" class=\"muted\">Заказов пока нет.</td></tr>";
+            "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
           return;
         }
         ordersTableBody.innerHTML = rows
@@ -1667,6 +1708,7 @@
                   <td class="col-pct">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
                   <td>${escapeXml(o.names || "—")}</td>
                   <td>${escapeXml(o.extra_info || "—")}</td>
+                  <td class="col-actions">${renderOrderRowActions(o.id)}</td>
                 </tr>`,
             )
             .join("");
@@ -1682,7 +1724,7 @@
           renderOrdersTable(Array.isArray(rows) ? rows : []);
         } catch (error) {
           ordersTableBody.innerHTML =
-            "<tr><td colspan=\"5\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+            "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
         }
       }
 
@@ -1779,7 +1821,85 @@
         attachOrderItemRowListeners(row);
       }
 
+      function orderShipDateStorageToInput(ship) {
+        const s = String(ship || "").trim();
+        const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(s);
+        if (dm) {
+          return `${dm[3]}-${dm[2]}-${dm[1]}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          return s;
+        }
+        return "";
+      }
+
+      function fillOrderItemRowFromDetail(row, it) {
+        const input = row.querySelector(".order-item-search");
+        const hid = row.querySelector(".order-item-product-id");
+        const qtyEl = row.querySelector(".order-item-qty");
+        const unitEl = row.querySelector(".order-item-unit");
+        const art = it.article || "";
+        const nam = it.name || "";
+        row.dataset.article = art;
+        row.dataset.name = nam;
+        const pid = it.product_id;
+        hid.value = pid != null && String(pid).trim() !== "" ? String(pid) : "";
+        input.value = art || nam ? `${art || "—"} — ${nam || ""}` : "";
+        const q = it.quantity;
+        qtyEl.value = q != null && String(q) !== "" ? String(q) : "1";
+        const u = String(it.unit || "piece").toLowerCase();
+        unitEl.value = u === "box" || u === "set" || u === "piece" ? u : "piece";
+      }
+
+      async function openEditOrderModal(orderId) {
+        clearNewOrderError();
+        newOrderTitle.textContent = "Редактирование заказа";
+        let res;
+        try {
+          res = await fetch(`/api/orders/${orderId}`);
+        } catch (err) {
+          window.alert("Нет связи с сервером при загрузке заказа.");
+          return;
+        }
+        if (res.status === 404) {
+          window.alert("Заказ не найден.");
+          return;
+        }
+        if (!res.ok) {
+          window.alert("Не удалось загрузить заказ.");
+          return;
+        }
+        let data;
+        try {
+          data = await res.json();
+        } catch (err) {
+          window.alert("Некорректный ответ сервера.");
+          return;
+        }
+        editingOrderId = orderId;
+        newOrderTitle.textContent = "Редактирование заказа";
+        newOrderForm.reset();
+        newOrderItems.innerHTML = "";
+        const parsedDate = orderShipDateStorageToInput(data.ship_date);
+        const today = new Date().toISOString().slice(0, 10);
+        newOrderShipDate.value = parsedDate || today;
+        newOrderClient.value = data.client || "";
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (!items.length) {
+          addOrderItemRow();
+        } else {
+          for (const it of items) {
+            addOrderItemRow();
+            fillOrderItemRowFromDetail(newOrderItems.lastElementChild, it);
+          }
+        }
+        newOrderOverlay.hidden = false;
+        newOrderShipDate.focus();
+      }
+
       function openNewOrderModal() {
+        editingOrderId = null;
+        newOrderTitle.textContent = "Новый заказ";
         clearNewOrderError();
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
@@ -1795,6 +1915,8 @@
         clearNewOrderError();
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
+        editingOrderId = null;
+        newOrderTitle.textContent = "Новый заказ";
       }
 
       document.addEventListener("mousedown", (event) => {
@@ -1835,10 +1957,13 @@
           quantity: r.querySelector(".order-item-qty").value,
           unit: r.querySelector(".order-item-unit").value,
         }));
+        const isEdit = editingOrderId != null;
+        const url = isEdit ? `/api/orders/${editingOrderId}` : "/api/orders";
+        const method = isEdit ? "PUT" : "POST";
         let response;
         try {
-          response = await fetch("/api/orders", {
-            method: "POST",
+          response = await fetch(url, {
+            method,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ship_date: shipDate, client, items }),
           });
@@ -1856,6 +1981,10 @@
           showNewOrderError(payload.message);
           return;
         }
+        if (response.status === 404 && payload && payload.message) {
+          showNewOrderError(payload.message);
+          return;
+        }
         if (!response.ok) {
           showNewOrderError(`Не удалось сохранить заказ (код ${response.status}).`);
           return;
@@ -1863,6 +1992,27 @@
         closeNewOrderModal();
         if (ordersWorkspace.classList.contains("visible")) {
           await loadOrders();
+        }
+      });
+
+      ordersTableBody.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-order-action]");
+        if (!btn || !ordersTableBody.contains(btn)) {
+          return;
+        }
+        const id = Number(btn.dataset.orderId);
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        const act = btn.dataset.orderAction;
+        if (act === "edit") {
+          openEditOrderModal(id);
+        } else if (act === "assemble") {
+          focusedOrderIdFromTable = id;
+          setStage("assemble");
+        } else if (act === "pallet") {
+          focusedOrderIdFromTable = id;
+          setStage("pallet");
         }
       });
 

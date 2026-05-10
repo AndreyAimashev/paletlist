@@ -1671,7 +1671,11 @@
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
-          assembleOrderButton.classList.add("visible");
+          if (activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
+            assembleOrderButton.classList.remove("visible");
+          } else {
+            assembleOrderButton.classList.add("visible");
+          }
           backToMainOrdersButton.classList.add("visible");
           assembleWorkspace.classList.add("visible");
           refreshAssembleStage();
@@ -2460,9 +2464,7 @@
       }
 
       function refreshAssembleStage() {
-        if (currentStage !== "assemble") {
-          return;
-        }
+        /* Вызывается только при переходе на этап assemble; currentStage ещё не обновлён — не проверять его. */
         if (activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
           void loadAssembleOrderWorkspace(activeStageOrderId);
         } else {

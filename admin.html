@@ -614,8 +614,23 @@
 
       .orders-table .col-pct {
         white-space: nowrap;
-        text-align: right;
+        text-align: center;
         font-variant-numeric: tabular-nums;
+      }
+
+      .orders-table th.col-pct {
+        text-align: center;
+      }
+
+      .orders-table td.col-pct--complete {
+        color: #7ef4c8;
+        font-weight: 600;
+        text-shadow: 0 0 12px rgba(0, 220, 170, 0.22);
+      }
+
+      .orders-table td.col-pct--incomplete {
+        color: #ff9b8a;
+        font-weight: 600;
       }
 
       .orders-table .col-date {
@@ -1319,7 +1334,7 @@
                   <tr>
                     <th scope="col">Дата отгрузки</th>
                     <th scope="col">Клиент</th>
-                    <th scope="col">Собран (%)</th>
+                    <th scope="col" class="col-pct">Собран (%)</th>
                     <th scope="col">Наименования</th>
                     <th scope="col">Доп. информация</th>
                     <th scope="col" class="col-actions">Действия</th>
@@ -2170,17 +2185,22 @@
           return;
         }
         ordersTableBody.innerHTML = rows
-            .map(
-              (o) =>
-                `<tr>
+            .map((o) => {
+              const pctRounded = Math.max(
+                0,
+                Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
+              );
+              const pctCellClass =
+                pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
+              return `<tr>
                   <td class="col-date">${escapeXml(o.ship_date || "—")}</td>
                   <td>${escapeXml(o.client || "—")}</td>
-                  <td class="col-pct">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
+                  <td class="${pctCellClass}">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
                   <td>${escapeXml(o.names || "—")}</td>
                   <td>${escapeXml(o.extra_info || "—")}</td>
                   <td class="col-actions">${renderOrderRowActions(o.id)}</td>
-                </tr>`,
-            )
+                </tr>`;
+            })
             .join("");
       }
 

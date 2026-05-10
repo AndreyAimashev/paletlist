@@ -222,10 +222,8 @@
       .orders-workspace {
         display: none;
         margin-top: 20px;
-        border: 1px solid rgba(0, 200, 160, 0.2);
-        border-radius: 12px;
-        padding: 14px 16px 16px;
-        background: rgba(10, 14, 23, 0.55);
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
         min-width: 0;
         max-width: 100%;
       }
@@ -235,16 +233,11 @@
         animation: workspaceReveal 260ms ease;
       }
 
-      .orders-list-caption {
-        margin: 0 0 12px;
-      }
-
       .orders-table-wrap {
         overflow-x: auto;
         max-height: min(52vh, 560px);
         overflow-y: auto;
-        border-radius: 8px;
-        border: 1px solid rgba(0, 200, 160, 0.18);
+        margin-top: 4px;
       }
 
       .orders-table {
@@ -933,7 +926,6 @@
           </div>
 
           <section id="orders-workspace" class="orders-workspace" aria-label="Список заказов">
-            <p class="muted orders-list-caption">Существующие заказы</p>
             <div class="orders-table-wrap">
               <table class="orders-table">
                 <thead>

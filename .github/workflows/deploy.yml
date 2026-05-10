@@ -24,6 +24,10 @@ jobs:
             git checkout main
             git pull --ff-only origin main
             if [ -f requirements.txt ]; then
+              if ! python3 -m pip --version 2>/dev/null; then
+                sudo apt-get update -qq
+                sudo apt-get install -y python3-pip
+              fi
               python3 -m pip install -r requirements.txt
             fi
             if [ -f package.json ]; then

@@ -334,6 +334,16 @@
         min-width: 0;
       }
 
+      .nomenclature-suggest-hint {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        background: rgba(0, 200, 160, 0.06);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
       .nomenclature-item {
         padding: 10px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.15);
@@ -1535,7 +1545,7 @@
             throw new Error("API error");
           }
           nomenclatureItems = await res.json();
-          renderNomenclatureList(nomenclatureItems);
+          renderNomenclatureListFromSearch();
         } catch (error) {
           nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
         }
@@ -1760,16 +1770,125 @@
         }
       });
 
-      function renderNomenclatureList(items) {
+      function levenshtein(a, b) {
+        if (a === b) {
+          return 0;
+        }
+        if (!a.length) {
+          return b.length;
+        }
+        if (!b.length) {
+          return a.length;
+        }
+        const v0 = new Array(b.length + 1);
+        for (let j = 0; j <= b.length; j += 1) {
+          v0[j] = j;
+        }
+        for (let i = 0; i < a.length; i += 1) {
+          let prev = i + 1;
+          for (let j = 0; j < b.length; j += 1) {
+            const cur = Math.min(prev + 1, v0[j + 1] + 1, v0[j] + (a[i] === b[j] ? 0 : 1));
+            v0[j] = prev;
+            prev = cur;
+          }
+          v0[b.length] = prev;
+        }
+        return v0[b.length];
+      }
+
+      function nomenclatureDistanceToItem(queryLower, item) {
+        const art = (item.article || "").toLowerCase();
+        const nam = (item.name || "").toLowerCase();
+        let best = Infinity;
+        if (art) {
+          best = Math.min(best, levenshtein(queryLower, art));
+        }
+        if (nam) {
+          best = Math.min(best, levenshtein(queryLower, nam));
+          const words = nam.split(/\s+/).filter((w) => w.length >= 2);
+          for (const w of words) {
+            best = Math.min(best, levenshtein(queryLower, w));
+          }
+        }
+        return best === Infinity ? 1e9 : best;
+      }
+
+      function topNomenclatureClosest(queryLower, limit) {
+        if (!queryLower || !nomenclatureItems.length) {
+          return [];
+        }
+        const scored = nomenclatureItems.map((item) => ({
+          item,
+          d: nomenclatureDistanceToItem(queryLower, item),
+        }));
+        scored.sort((a, b) => {
+          if (a.d !== b.d) {
+            return a.d - b.d;
+          }
+          const aa = String(a.item.article || "");
+          const ba = String(b.item.article || "");
+          return aa.localeCompare(ba, "ru");
+        });
+        const out = [];
+        const seen = new Set();
+        for (const { item } of scored) {
+          if (out.length >= limit) {
+            break;
+          }
+          if (seen.has(item.id)) {
+            continue;
+          }
+          seen.add(item.id);
+          out.push(item);
+        }
+        return out;
+      }
+
+      function nomenclatureStrictFilter(queryLower) {
+        return nomenclatureItems.filter((item) => {
+          const article = (item.article || "").toLowerCase();
+          const name = (item.name || "").toLowerCase();
+          return article.includes(queryLower) || name.includes(queryLower);
+        });
+      }
+
+      function nomenclatureListForCurrentSearch() {
+        const query = nomenclatureSearch.value.trim();
+        const qLower = query.toLowerCase();
+        if (!query) {
+          return { items: nomenclatureItems, suggestHint: false };
+        }
+        const filtered = nomenclatureStrictFilter(qLower);
+        if (filtered.length) {
+          return { items: filtered, suggestHint: false };
+        }
+        const closest = topNomenclatureClosest(qLower, 10);
+        return { items: closest, suggestHint: closest.length > 0 };
+      }
+
+      function renderNomenclatureListFromSearch() {
+        const { items, suggestHint } = nomenclatureListForCurrentSearch();
+        renderNomenclatureList(items, { suggestHint });
+      }
+
+      function renderNomenclatureList(items, options = {}) {
+        const suggestHint = Boolean(options.suggestHint);
+        const hintBlock = suggestHint
+          ? `<div class="nomenclature-suggest-hint muted">Ничего не нашлось, 10 самых подходящих вариантов:</div>`
+          : "";
+
         if (!items.length) {
-          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Ничего не найдено.</div>";
+          nomenclatureList.innerHTML =
+            hintBlock + "<div class='nomenclature-item muted'>Ничего не найдено.</div>";
           return;
         }
 
-        nomenclatureList.innerHTML = items
-            .map(
-              (item) =>
-                `<div class="nomenclature-item">
+        nomenclatureList.innerHTML =
+            hintBlock +
+            items
+                .map(
+                  (item) =>
+                    `<div class="nomenclature-item">
                   <div class="nomenclature-meta">
                     <div class="article">${escapeXml(item.article || "—")}</div>
                     <div>${escapeXml(item.name || "Без названия")}</div>
@@ -1780,8 +1899,8 @@
                     <button class="icon-btn" data-action="delete" data-id="${item.id}" title="Удалить">🗑️</button>
                   </div>
                 </div>`,
-            )
-            .join("");
+                )
+                .join("");
       }
 
       let isResizing = false;
@@ -1989,18 +2108,7 @@
       });
 
       nomenclatureSearch.addEventListener("input", () => {
-        const query = nomenclatureSearch.value.trim().toLowerCase();
-        if (!query) {
-          renderNomenclatureList(nomenclatureItems);
-          return;
-        }
-
-        const filtered = nomenclatureItems.filter((item) => {
-          const article = (item.article || "").toLowerCase();
-          const name = (item.name || "").toLowerCase();
-          return article.includes(query) || name.includes(query);
-        });
-        renderNomenclatureList(filtered);
+        renderNomenclatureListFromSearch();
       });
 
       nomenclatureList.addEventListener("click", async (event) => {
@@ -2033,17 +2141,6 @@
             return;
           }
           await loadNomenclature();
-          const query = nomenclatureSearch.value.trim().toLowerCase();
-          if (!query) {
-            renderNomenclatureList(nomenclatureItems);
-          } else {
-            const filtered = nomenclatureItems.filter((entry) => {
-              const article = (entry.article || "").toLowerCase();
-              const name = (entry.name || "").toLowerCase();
-              return article.includes(query) || name.includes(query);
-            });
-            renderNomenclatureList(filtered);
-          }
         }
       });
 
@@ -2073,17 +2170,6 @@
         }
         closeNomenclatureEdit();
         await loadNomenclature();
-        const query = nomenclatureSearch.value.trim().toLowerCase();
-        if (!query) {
-          renderNomenclatureList(nomenclatureItems);
-        } else {
-          const filtered = nomenclatureItems.filter((entry) => {
-            const article = (entry.article || "").toLowerCase();
-            const name = (entry.name || "").toLowerCase();
-            return article.includes(query) || name.includes(query);
-          });
-          renderNomenclatureList(filtered);
-        }
       });
 
       nomenclatureEditCancel.addEventListener("click", () => {
@@ -2178,17 +2264,6 @@
         }
         closeNomenclatureCreate();
         await loadNomenclature();
-        const query = nomenclatureSearch.value.trim().toLowerCase();
-        if (!query) {
-          renderNomenclatureList(nomenclatureItems);
-        } else {
-          const filtered = nomenclatureItems.filter((entry) => {
-            const a = (entry.article || "").toLowerCase();
-            const n = (entry.name || "").toLowerCase();
-            return a.includes(query) || n.includes(query);
-          });
-          renderNomenclatureList(filtered);
-        }
       });
 
       nomenclatureCreateCancel.addEventListener("click", () => {

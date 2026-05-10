@@ -880,7 +880,6 @@
       const backToMainNomenclatureButton = document.getElementById("back-to-main-nomenclature-button");
       const nomenclatureCreateProductButton = document.getElementById("nomenclature-create-product-button");
       const nomenclatureCreateOverlay = document.getElementById("nomenclature-create-overlay");
-      const nomenclatureCreateDialog = document.getElementById("nomenclature-create-dialog");
       const nomenclatureCreateForm = document.getElementById("nomenclature-create-form");
       const nomenclatureCreateCancel = document.getElementById("nomenclature-create-cancel");
       const nomenclatureCreateError = document.getElementById("nomenclature-create-error");
@@ -1585,10 +1584,6 @@
         if (event.key !== "Escape") {
           return;
         }
-        if (!nomenclatureCreateOverlay.hidden) {
-          closeNomenclatureCreate();
-          return;
-        }
         if (!nomenclatureEditOverlay.hidden) {
           closeNomenclatureEdit();
         }
@@ -1657,14 +1652,6 @@
       });
 
       nomenclatureCreateCancel.addEventListener("click", () => {
-        closeNomenclatureCreate();
-      });
-
-      nomenclatureCreateDialog.addEventListener("click", (event) => {
-        event.stopPropagation();
-      });
-
-      nomenclatureCreateOverlay.addEventListener("click", () => {
         closeNomenclatureCreate();
       });
 

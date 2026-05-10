@@ -315,6 +315,11 @@ def _synthetic_items_from_order_names(names: str):
                     "name": label,
                     "quantity": qty,
                     "unit": unit,
+                    "pieces_in_box": 0,
+                    "sets_in_box": 1,
+                    "pieces_per_set": 1,
+                    "row_layout": 0,
+                    "max_rows": 0,
                 }
             )
         else:
@@ -325,6 +330,11 @@ def _synthetic_items_from_order_names(names: str):
                     "name": seg,
                     "quantity": 1.0,
                     "unit": "piece",
+                    "pieces_in_box": 0,
+                    "sets_in_box": 1,
+                    "pieces_per_set": 1,
+                    "row_layout": 0,
+                    "max_rows": 0,
                 }
             )
     return out
@@ -545,8 +555,17 @@ def fetch_order_detail(order_id: int):
             return None
         item_rows = con.execute(
             """
-            SELECT product_id, article, name, quantity, unit
-            FROM order_items WHERE order_id = ? ORDER BY id
+            SELECT oi.product_id AS product_id, oi.article AS article, oi.name AS name,
+                   oi.quantity AS quantity, oi.unit AS unit,
+                   p.pieces_in_box AS pieces_in_box,
+                   p.sets_in_box AS sets_in_box,
+                   p.pieces_per_set AS pieces_per_set,
+                   p.row_layout AS row_layout,
+                   p.max_rows AS max_rows
+            FROM order_items oi
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = ?
+            ORDER BY oi.id
             """,
             (order_id,),
         ).fetchall()
@@ -561,6 +580,11 @@ def fetch_order_detail(order_id: int):
                 "name": ir["name"] or "",
                 "quantity": float(ir["quantity"] or 0),
                 "unit": (ir["unit"] or "piece").strip().lower(),
+                "pieces_in_box": max(0, int(ir["pieces_in_box"] or 0)),
+                "sets_in_box": max(1, int(ir["sets_in_box"] or 1)),
+                "pieces_per_set": max(1, int(ir["pieces_per_set"] or 1)),
+                "row_layout": max(0, int(ir["row_layout"] or 0)),
+                "max_rows": max(0, int(ir["max_rows"] or 0)),
             }
         )
     if not items and (row["names"] or "").strip():

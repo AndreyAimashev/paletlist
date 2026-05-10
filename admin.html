@@ -233,6 +233,158 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .assemble-workspace {
+        display: none;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .assemble-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .assemble-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .assemble-title {
+        margin: 0 0 6px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 16px;
+        color: var(--accent-teal);
+      }
+
+      .assemble-pallet-card {
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+        background: rgba(14, 20, 32, 0.55);
+      }
+
+      .assemble-pallet-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.15);
+      }
+
+      .assemble-pallet-title {
+        margin: 0;
+        font-size: 14px;
+        color: var(--accent-teal);
+      }
+
+      .assemble-line-block {
+        border: 1px solid rgba(0, 200, 160, 0.12);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+        background: rgba(10, 14, 23, 0.5);
+      }
+
+      .assemble-line-title {
+        font-size: 13px;
+        margin: 0 0 8px;
+        line-height: 1.35;
+      }
+
+      .assemble-line-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+      }
+
+      .assemble-mode-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px 20px;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+
+      .assemble-mode-row label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+
+      .assemble-inputs-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 10px;
+        align-items: end;
+      }
+
+      .assemble-field label {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+
+      .assemble-field input {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 13px;
+      }
+
+      .assemble-rows-panel[hidden],
+      .assemble-direct-panel[hidden] {
+        display: none !important;
+      }
+
+      .assemble-summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin: 12px 0 16px;
+      }
+
+      .assemble-summary-table th,
+      .assemble-summary-table td {
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .assemble-summary-table th {
+        color: var(--accent-teal);
+        font-family: "Orbitron", sans-serif;
+        font-size: 10px;
+      }
+
+      .assemble-alert {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 160, 72, 0.45);
+        background: rgba(40, 28, 14, 0.55);
+        color: #ffc090;
+        font-size: 13px;
+      }
+
       .orders-table-wrap {
         overflow-x: auto;
         max-height: min(52vh, 560px);
@@ -996,6 +1148,41 @@
             </div>
           </section>
 
+          <section id="assemble-workspace" class="assemble-workspace" aria-label="Распределение заказа по паллетам">
+            <div id="assemble-empty" class="assemble-empty muted" hidden>
+              <p>Чтобы открыть сборку заказа, перейдите в «Заказы» и нажмите иконку «Сборка» в строке нужного заказа.</p>
+            </div>
+            <div id="assemble-loaded" hidden>
+              <div class="assemble-head">
+                <div>
+                  <h2 class="assemble-title" id="assemble-order-heading">Сборка заказа</h2>
+                  <p class="muted" id="assemble-order-meta"></p>
+                </div>
+                <button type="button" id="assemble-back-orders" class="menu-button">К списку заказов</button>
+              </div>
+              <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
+              <div id="assemble-lines-summary-wrap">
+                <p class="muted" style="margin: 0 0 6px; font-size: 12px">Позиции заказа и остаток к распределению</p>
+                <table class="assemble-summary-table" id="assemble-lines-summary">
+                  <thead>
+                    <tr>
+                      <th scope="col">#</th>
+                      <th scope="col">Товар</th>
+                      <th scope="col">По заказу</th>
+                      <th scope="col">Лимит (шт)</th>
+                      <th scope="col">Распределено</th>
+                      <th scope="col">Остаток</th>
+                    </tr>
+                  </thead>
+                  <tbody id="assemble-lines-summary-body"></tbody>
+                </table>
+              </div>
+              <p class="muted" style="margin: 0 0 8px; font-size: 12px">Распределение по паллетам</p>
+              <div id="assemble-pallets"></div>
+              <button type="button" id="assemble-add-pallet" class="menu-button">+ Добавить паллет</button>
+            </div>
+          </section>
+
           <section id="arnest-workspace" class="arnest-workspace">
             <p class="muted">Черновик программы создания паллетного листа</p>
             <div class="arnest-grid">
@@ -1286,6 +1473,16 @@
       const navNomenclature = document.getElementById("nav-nomenclature");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
+      const assembleWorkspace = document.getElementById("assemble-workspace");
+      const assembleEmptyEl = document.getElementById("assemble-empty");
+      const assembleLoadedEl = document.getElementById("assemble-loaded");
+      const assembleOrderHeading = document.getElementById("assemble-order-heading");
+      const assembleOrderMeta = document.getElementById("assemble-order-meta");
+      const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
+      const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
+      const assemblePalletsRoot = document.getElementById("assemble-pallets");
+      const assembleAddPalletBtn = document.getElementById("assemble-add-pallet");
+      const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
       const newOrderOverlay = document.getElementById("new-order-overlay");
       const newOrderDialog = document.getElementById("new-order-dialog");
@@ -1431,6 +1628,7 @@
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         ordersWorkspace.classList.remove("visible");
+        assembleWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
@@ -1473,6 +1671,8 @@
           nomenclatureButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
+          assembleWorkspace.classList.add("visible");
+          refreshAssembleStage();
         }
 
         if (stage === "nomenclature") {
@@ -1789,6 +1989,494 @@
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
         }
+      }
+
+      const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v1_";
+      let assembleOrderSnapshot = null;
+      let assembleAllocState = null;
+
+      function assembleStorageKey(orderId) {
+        return `${ASSEMBLE_STORAGE_PREFIX}${orderId}`;
+      }
+
+      function defaultAssembleLineAlloc() {
+        return {
+          mode: "direct",
+          directUnit: "box",
+          directQty: "",
+          fullRows: "",
+          partialBoxes: "",
+        };
+      }
+
+      function orderLineOrderedLabel(it) {
+        const u = (it.unit || "piece").toLowerCase();
+        const q = it.quantity;
+        const qs = Number.isFinite(Number(q)) ? String(q) : String(q);
+        if (u === "box") {
+          return `${qs} коробок`;
+        }
+        if (u === "set") {
+          return `${qs} наборов`;
+        }
+        return `${qs} шт`;
+      }
+
+      function orderLineMaxPieces(it) {
+        const q = Number(it.quantity);
+        if (!Number.isFinite(q) || q <= 0) {
+          return 0;
+        }
+        const u = (it.unit || "piece").toLowerCase();
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        if (u === "box") {
+          return pib > 0 ? q * pib : q;
+        }
+        if (u === "set") {
+          return q * pps;
+        }
+        return q;
+      }
+
+      function allocationToPieces(it, alloc) {
+        if (!alloc) {
+          return 0;
+        }
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const rowLay = Math.max(0, Number(it.row_layout) || 0);
+        if (alloc.mode === "rows") {
+          if (rowLay <= 0) {
+            return 0;
+          }
+          const fr = Math.max(0, parseInt(String(alloc.fullRows), 10) || 0);
+          const pb = Math.max(0, parseInt(String(alloc.partialBoxes), 10) || 0);
+          const boxes = fr * rowLay + pb;
+          return pib > 0 ? boxes * pib : 0;
+        }
+        const dq = Math.max(0, parseFloat(String(alloc.directQty).replace(",", ".")) || 0);
+        if (alloc.directUnit === "box") {
+          return pib > 0 ? dq * pib : 0;
+        }
+        return dq;
+      }
+
+      function lineAllocatedPiecesSum(lineIdx) {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return 0;
+        }
+        const it = assembleOrderSnapshot.items[lineIdx];
+        if (!it) {
+          return 0;
+        }
+        let s = 0;
+        assembleAllocState.pallets.forEach((p) => {
+          s += allocationToPieces(it, p.lines[String(lineIdx)]);
+        });
+        return s;
+      }
+
+      function ensureAssemblePalletStructure() {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return;
+        }
+        const n = assembleOrderSnapshot.items.length;
+        const items = assembleOrderSnapshot.items;
+        assembleAllocState.pallets.forEach((pal) => {
+          for (let i = 0; i < n; i += 1) {
+            const k = String(i);
+            if (!pal.lines[k]) {
+              pal.lines[k] = defaultAssembleLineAlloc();
+            }
+            const a = pal.lines[k];
+            const it = items[i];
+            const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+            const rowLay = Math.max(0, Number(it.row_layout) || 0);
+            if (a.mode === "rows" && (rowLay <= 0 || pib <= 0)) {
+              a.mode = "direct";
+            }
+            if (a.directUnit === "box" && pib <= 0) {
+              a.directUnit = "piece";
+            }
+          }
+          Object.keys(pal.lines).forEach((k) => {
+            if (Number(k) >= n || Number(k) < 0 || k !== String(Number(k))) {
+              delete pal.lines[k];
+            }
+          });
+        });
+      }
+
+      function loadAssembleDraft(orderId, lineCount) {
+        try {
+          const raw = localStorage.getItem(assembleStorageKey(orderId));
+          if (!raw) {
+            return null;
+          }
+          const data = JSON.parse(raw);
+          if (!data || !Array.isArray(data.pallets) || !data.pallets.length) {
+            return null;
+          }
+          return data;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function saveAssembleDraft() {
+        if (!assembleOrderSnapshot || !assembleAllocState) {
+          return;
+        }
+        const oid = assembleOrderSnapshot.id;
+        try {
+          localStorage.setItem(
+            assembleStorageKey(oid),
+            JSON.stringify({ version: 1, pallets: assembleAllocState.pallets }),
+          );
+        } catch (e) {
+          /* ignore quota */
+        }
+      }
+
+      function validateAssembleAllocations() {
+        const items = assembleOrderSnapshot?.items || [];
+        const msgs = [];
+        items.forEach((it, li) => {
+          const maxP = orderLineMaxPieces(it);
+          const sum = lineAllocatedPiecesSum(li);
+          if (sum > maxP + 1e-4) {
+            msgs.push(
+              `Позиция ${li + 1}: распределено ${formatAssembleNum(sum)} шт, по заказу не более ${formatAssembleNum(maxP)} шт.`,
+            );
+          }
+        });
+        return msgs;
+      }
+
+      function formatAssembleNum(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) {
+          return "0";
+        }
+        if (Math.abs(n - Math.round(n)) < 1e-6) {
+          return String(Math.round(n));
+        }
+        return String(Math.round(n * 1000) / 1000);
+      }
+
+      function renderAssembleSummary() {
+        if (!assembleLinesSummaryBody || !assembleOrderSnapshot) {
+          return;
+        }
+        const items = assembleOrderSnapshot.items;
+        assembleLinesSummaryBody.innerHTML = items
+          .map((it, li) => {
+            const maxP = orderLineMaxPieces(it);
+            const alloc = lineAllocatedPiecesSum(li);
+            const rest = maxP - alloc;
+            const bad = alloc > maxP + 1e-4;
+            const title = `${escapeXml(it.article || "")}${it.article && it.name ? " — " : ""}${escapeXml(it.name || "—")}`;
+            return `<tr>
+              <td>${li + 1}</td>
+              <td>${title}</td>
+              <td>${escapeXml(orderLineOrderedLabel(it))}</td>
+              <td>${escapeXml(formatAssembleNum(maxP))}</td>
+              <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatAssembleNum(alloc))}</td>
+              <td style="color:${rest < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatAssembleNum(rest))}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      function renderAssembleAlerts() {
+        if (!assembleAllocAlert) {
+          return;
+        }
+        const msgs = validateAssembleAllocations();
+        if (!msgs.length) {
+          assembleAllocAlert.hidden = true;
+          assembleAllocAlert.textContent = "";
+          return;
+        }
+        assembleAllocAlert.hidden = false;
+        assembleAllocAlert.textContent = msgs.join(" ");
+      }
+
+      function renderOneAssembleLineControls(pIdx, li, it) {
+        const alloc = assembleAllocState.pallets[pIdx].lines[String(li)] || defaultAssembleLineAlloc();
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const rowLay = Math.max(0, Number(it.row_layout) || 0);
+        const canRows = rowLay > 0 && pib > 0;
+        const canBoxDirect = pib > 0;
+        const modeDirect = alloc.mode !== "rows";
+        const dirBoxChecked = alloc.directUnit !== "piece" && canBoxDirect ? " checked" : "";
+        const dirPieceChecked = alloc.directUnit === "piece" || !canBoxDirect ? " checked" : "";
+        const directQtyVal = escapeXml(String(alloc.directQty ?? ""));
+        const frVal = escapeXml(String(alloc.fullRows ?? ""));
+        const pbVal = escapeXml(String(alloc.partialBoxes ?? ""));
+        const title = `${escapeXml(it.article || "")}${it.article && it.name ? " — " : ""}${escapeXml(it.name || "—")}`;
+        const packHint =
+          pib > 0
+            ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
+            : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
+        return `<div class="assemble-line-block" data-pallet-line="${pIdx}-${li}">
+          <p class="assemble-line-title">${title}</p>
+          <p class="assemble-line-meta">${escapeXml(packHint)}</p>
+          <div class="assemble-mode-row">
+            <label><input type="radio" class="assemble-mode-radio" name="amode-${pIdx}-${li}" value="direct" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="mode"${modeDirect ? " checked" : ""} /> Коробки или штуки на паллете</label>
+            <label><input type="radio" class="assemble-mode-radio" name="amode-${pIdx}-${li}" value="rows" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="mode"${!modeDirect ? " checked" : ""}${canRows ? "" : " disabled"} /> Полные ряды + неполный ряд (коробок)</label>
+          </div>
+          <div class="assemble-direct-panel"${modeDirect ? "" : " hidden"}>
+            <div class="assemble-mode-row">
+              <label><input type="radio" name="adirect-${pIdx}-${li}" value="box" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directUnit"${dirBoxChecked}${canBoxDirect ? "" : " disabled"} /> Коробок</label>
+              <label><input type="radio" name="adirect-${pIdx}-${li}" value="piece" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directUnit"${dirPieceChecked} /> Штук</label>
+            </div>
+            <div class="assemble-field" style="max-width:220px">
+              <label for="adq-${pIdx}-${li}">Количество</label>
+              <input id="adq-${pIdx}-${li}" type="number" min="0" step="any" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directQty" value="${directQtyVal}" />
+            </div>
+          </div>
+          <div class="assemble-rows-panel"${modeDirect ? " hidden" : ""}>
+            <div class="assemble-inputs-grid">
+              <div class="assemble-field">
+                <label for="afr-${pIdx}-${li}">Полных рядов коробок</label>
+                <input id="afr-${pIdx}-${li}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="fullRows" value="${frVal}" />
+              </div>
+              <div class="assemble-field">
+                <label for="apb-${pIdx}-${li}">Коробок в неполном ряду (0–${rowLay || 0})</label>
+                <input id="apb-${pIdx}-${li}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="partialBoxes" value="${pbVal}" />
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      function renderAssemblePalletCards() {
+        if (!assemblePalletsRoot || !assembleOrderSnapshot || !assembleAllocState) {
+          return;
+        }
+        const items = assembleOrderSnapshot.items;
+        assemblePalletsRoot.innerHTML = assembleAllocState.pallets
+          .map((_, pIdx) => {
+            const linesHtml = items.map((it, li) => renderOneAssembleLineControls(pIdx, li, it)).join("");
+            const removeBtn =
+              assembleAllocState.pallets.length > 1
+                ? `<button type="button" class="menu-button assemble-remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`
+                : "";
+            return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
+            <div class="assemble-pallet-head">
+              <h3 class="assemble-pallet-title">Паллета ${pIdx + 1}</h3>
+              ${removeBtn}
+            </div>
+            ${linesHtml}
+          </div>`;
+          })
+          .join("");
+      }
+
+      function syncAssembleStateFromDom() {
+        if (!assemblePalletsRoot || !assembleAllocState || !assembleOrderSnapshot) {
+          return;
+        }
+        const n = assembleOrderSnapshot.items.length;
+        assembleAllocState.pallets.forEach((pal, pIdx) => {
+          for (let li = 0; li < n; li += 1) {
+            const card = assemblePalletsRoot.querySelector(`[data-pallet-line="${pIdx}-${li}"]`);
+            if (!card) {
+              continue;
+            }
+            const k = String(li);
+            if (!pal.lines[k]) {
+              pal.lines[k] = defaultAssembleLineAlloc();
+            }
+            const a = pal.lines[k];
+            const modeChecked = card.querySelector(`input[name="amode-${pIdx}-${li}"]:checked`);
+            if (modeChecked) {
+              a.mode = modeChecked.value === "rows" ? "rows" : "direct";
+            }
+            const duChecked = card.querySelector(`input[name="adirect-${pIdx}-${li}"]:checked`);
+            if (duChecked) {
+              a.directUnit = duChecked.value === "piece" ? "piece" : "box";
+            }
+            const dq = card.querySelector(`[data-field="directQty"]`);
+            if (dq) {
+              a.directQty = dq.value;
+            }
+            const fr = card.querySelector(`[data-field="fullRows"]`);
+            if (fr) {
+              a.fullRows = fr.value;
+            }
+            const pb = card.querySelector(`[data-field="partialBoxes"]`);
+            if (pb) {
+              a.partialBoxes = pb.value;
+            }
+          }
+        });
+      }
+
+      function onAssembleFormEvent(ev) {
+        const t = ev.target;
+        if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
+          return;
+        }
+        if (t.matches("[data-remove-pallet]")) {
+          const pi = Number(t.dataset.removePallet);
+          if (assembleAllocState.pallets.length <= 1) {
+            return;
+          }
+          assembleAllocState.pallets.splice(pi, 1);
+          saveAssembleDraft();
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+          return;
+        }
+        if (t.matches("[data-assemble-input]")) {
+          if (
+            (t.dataset.field === "mode" || t.dataset.field === "directUnit") &&
+            t.type === "radio" &&
+            !t.checked
+          ) {
+            return;
+          }
+          syncAssembleStateFromDom();
+          saveAssembleDraft();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+          if (t.dataset.field === "mode") {
+            const pIdx = Number(t.dataset.pallet);
+            const li = Number(t.dataset.line);
+            const card = assemblePalletsRoot.querySelector(`[data-pallet-line="${pIdx}-${li}"]`);
+            if (card) {
+              const direct = card.querySelector(".assemble-direct-panel");
+              const rows = card.querySelector(".assemble-rows-panel");
+              const isRows = t.value === "rows";
+              if (direct) {
+                direct.hidden = isRows;
+              }
+              if (rows) {
+                rows.hidden = !isRows;
+              }
+            }
+          }
+        }
+      }
+
+      function addAssemblePallet() {
+        if (!assembleAllocState) {
+          return;
+        }
+        const nextId =
+          assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
+        assembleAllocState.pallets.push({ id: nextId, lines: {} });
+        ensureAssemblePalletStructure();
+        saveAssembleDraft();
+        renderAssemblePalletCards();
+        renderAssembleSummary();
+        renderAssembleAlerts();
+      }
+
+      async function loadAssembleOrderWorkspace(orderId) {
+        assembleOrderSnapshot = null;
+        assembleAllocState = null;
+        if (!assembleLoadedEl || !assembleEmptyEl) {
+          return;
+        }
+        let res;
+        try {
+          res = await fetch(`/api/orders/${orderId}`);
+        } catch (e) {
+          assembleEmptyEl.hidden = false;
+          assembleLoadedEl.hidden = true;
+          assembleEmptyEl.innerHTML =
+            "<p>Не удалось связаться с сервером. Проверьте API и попробуйте снова.</p>";
+          return;
+        }
+        if (!res.ok) {
+          assembleEmptyEl.hidden = false;
+          assembleLoadedEl.hidden = true;
+          assembleEmptyEl.innerHTML = "<p>Заказ не найден или недоступен.</p>";
+          return;
+        }
+        let data;
+        try {
+          data = await res.json();
+        } catch (e) {
+          assembleEmptyEl.hidden = false;
+          assembleLoadedEl.hidden = true;
+          assembleEmptyEl.innerHTML = "<p>Некорректный ответ сервера.</p>";
+          return;
+        }
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (!items.length) {
+          assembleEmptyEl.hidden = false;
+          assembleLoadedEl.hidden = true;
+          assembleEmptyEl.innerHTML =
+            "<p>В заказе нет позиций — нечего распределять по паллетам.</p>";
+          return;
+        }
+        assembleOrderSnapshot = {
+          id: data.id,
+          ship_date: data.ship_date,
+          client: data.client,
+          items,
+        };
+        const draft = loadAssembleDraft(orderId, items.length);
+        if (draft && Array.isArray(draft.pallets)) {
+          assembleAllocState = {
+            pallets: draft.pallets.map((p) => ({
+              id: p.id || 0,
+              lines: typeof p.lines === "object" && p.lines ? { ...p.lines } : {},
+            })),
+          };
+        } else {
+          assembleAllocState = { pallets: [{ id: 1, lines: {} }] };
+        }
+        ensureAssemblePalletStructure();
+        saveAssembleDraft();
+        assembleEmptyEl.hidden = true;
+        assembleLoadedEl.hidden = false;
+        assembleOrderHeading.textContent = `Сборка заказа №${data.id}`;
+        assembleOrderMeta.textContent = `Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
+        menuTitle.textContent = `Сборка заказа №${data.id}`;
+        renderAssemblePalletCards();
+        renderAssembleSummary();
+        renderAssembleAlerts();
+      }
+
+      function showAssembleEmptyNav() {
+        if (!assembleEmptyEl || !assembleLoadedEl) {
+          return;
+        }
+        assembleOrderSnapshot = null;
+        assembleAllocState = null;
+        assembleEmptyEl.hidden = false;
+        assembleLoadedEl.hidden = true;
+        assembleEmptyEl.innerHTML =
+          "<p>Чтобы открыть сборку заказа, перейдите в «Заказы» и нажмите иконку «Сборка» в строке нужного заказа.</p>";
+        menuTitle.textContent = "Сборка заказа";
+      }
+
+      function refreshAssembleStage() {
+        if (currentStage !== "assemble") {
+          return;
+        }
+        if (activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
+          void loadAssembleOrderWorkspace(activeStageOrderId);
+        } else {
+          showAssembleEmptyNav();
+        }
+      }
+
+      if (assemblePalletsRoot) {
+        assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
+        assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
+      }
+      if (assembleAddPalletBtn) {
+        assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());
+      }
+      if (assembleBackOrdersBtn) {
+        assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
 
       const orderSearchDebounce = new Map();

@@ -308,6 +308,26 @@
         background: transparent;
       }
 
+      .pallet-sheet-card {
+        margin-bottom: 22px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.15);
+      }
+
+      .pallet-sheet-card:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+      }
+
+      .pallet-sheet-card-title {
+        font-family: "Orbitron", sans-serif;
+        font-size: 12px;
+        color: var(--accent-teal);
+        margin: 0 0 10px;
+        letter-spacing: 0.04em;
+      }
+
       .assemble-workspace {
         display: none;
         margin-top: 20px;
@@ -1496,6 +1516,7 @@
                 </button>
               </div>
             </div>
+            <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
             <p id="pallet-sheets-loading" class="muted" hidden>Загрузка шаблона…</p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
             <div id="pallet-sheets-unirus-wrap" class="docx-preview-shell" hidden>
@@ -1856,6 +1877,7 @@
       const unirusDocxContainer = document.getElementById("unirus-docx-container");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
+      const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
       const palletSheetsError = document.getElementById("pallet-sheets-error");
       const assembleWorkspace = document.getElementById("assemble-workspace");
       const assembleEmptyEl = document.getElementById("assemble-empty");
@@ -1937,6 +1959,11 @@
         return n === "арнест юнирусь";
       }
 
+      function sanitizePalletFilenamePart(s, fallback) {
+        const t = String(s ?? "").trim().replace(/[/\\?%*:|"<>]/g, "_");
+        return t || fallback;
+      }
+
       async function refreshPalletSheetsPanel() {
         const oid = activeStageOrderId;
         if (!palletSheetsWorkspace || oid == null || !Number.isFinite(oid)) {
@@ -1948,6 +1975,10 @@
         palletSheetsUnirusWrap.hidden = true;
         palletSheetsOtherClient.hidden = true;
         palletSheetsLoading.hidden = false;
+        if (palletSheetsDraftHint) {
+          palletSheetsDraftHint.hidden = true;
+          palletSheetsDraftHint.textContent = "";
+        }
         unirusDocxContainer.innerHTML = "";
         palletSheetsOrderMeta.textContent = "";
         if (palletSheetsDownloadBtn) {
@@ -1974,13 +2005,26 @@
           return;
         }
 
-        palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"}`;
+        const assemblePallets = tryGetAssembleDraftPallets(oid);
+        const palletCount = assemblePallets ? assemblePallets.length : 0;
+
+        palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"} · листов (паллет): ${palletCount}`;
 
         if (!isArnestUnirusClient(order.client)) {
           palletSheetsLoading.hidden = true;
           palletSheetsOtherClient.hidden = false;
           if (palletSheetsDownloadBtn) {
             palletSheetsDownloadBtn.hidden = true;
+          }
+          return;
+        }
+
+        if (palletCount === 0) {
+          palletSheetsLoading.hidden = true;
+          if (palletSheetsDraftHint) {
+            palletSheetsDraftHint.hidden = false;
+            palletSheetsDraftHint.textContent =
+              "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число паллетных листов совпадает с числом паллет.";
           }
           return;
         }
@@ -1996,10 +2040,30 @@
           }
           unirusDocxContainer.innerHTML = "";
           if (typeof docx !== "undefined" && typeof docx.renderAsync === "function") {
-            await docx.renderAsync(buf, unirusDocxContainer, undefined, { inWrapper: true });
+            for (let i = 0; i < palletCount; i += 1) {
+              const slotBuf = buf.slice(0);
+              const pal = assemblePallets[i];
+              const numLabel = String(pal.palletNumber ?? "").trim();
+              const card = document.createElement("article");
+              card.className = "pallet-sheet-card";
+              const title = document.createElement("div");
+              title.className = "pallet-sheet-card-title";
+              title.textContent = numLabel
+                ? `Паллетный лист · паллет «${numLabel}»`
+                : `Паллетный лист · паллет ${i + 1}`;
+              const inner = document.createElement("div");
+              inner.className = "docx-preview-root";
+              card.appendChild(title);
+              card.appendChild(inner);
+              unirusDocxContainer.appendChild(card);
+              await docx.renderAsync(slotBuf, inner, undefined, { inWrapper: true });
+              if (token !== palletSheetsLoadToken) {
+                return;
+              }
+            }
           } else {
             unirusDocxContainer.innerHTML =
-              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. <a href="/templates/Unirus.docx">Скачать Unirus.docx</a></p>';
+              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. Используйте «Скачать паллетные листы» или <a href="/templates/Unirus.docx">файл шаблона</a>.</p>';
           }
           palletSheetsUnirusWrap.hidden = false;
           if (palletSheetsDownloadBtn) {
@@ -2211,18 +2275,79 @@
       }
 
       if (palletSheetsDownloadBtn) {
-        palletSheetsDownloadBtn.addEventListener("click", () => {
+        palletSheetsDownloadBtn.addEventListener("click", async () => {
           const oid = activeStageOrderId;
           if (oid == null || !Number.isFinite(oid)) {
             return;
           }
-          const a = document.createElement("a");
-          a.href = "/templates/Unirus.docx";
-          a.download = `Паллетные_листы_заказ_${oid}_Unirus.docx`;
-          a.rel = "noopener";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          const pallets = tryGetAssembleDraftPallets(oid);
+          if (!pallets || !pallets.length) {
+            window.alert(
+              "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
+            );
+            return;
+          }
+          let res;
+          try {
+            res = await fetch("/templates/Unirus.docx");
+          } catch (e) {
+            window.alert("Не удалось загрузить шаблон с сервера.");
+            return;
+          }
+          if (!res.ok) {
+            window.alert("Шаблон Unirus недоступен на сервере.");
+            return;
+          }
+          const buf = await res.arrayBuffer();
+          const n = pallets.length;
+
+          const triggerDownload = (blob, filename) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            a.rel = "noopener";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          };
+
+          if (n === 1) {
+            const suffix = sanitizePalletFilenamePart(pallets[0].palletNumber, "1");
+            triggerDownload(
+              new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              }),
+              `Паллет_${suffix}_заказ_${oid}_Unirus.docx`,
+            );
+            return;
+          }
+
+          if (typeof JSZip !== "undefined") {
+            try {
+              const zip = new JSZip();
+              pallets.forEach((pal, i) => {
+                const suffix = sanitizePalletFilenamePart(pal.palletNumber, String(i + 1));
+                zip.file(`Паллет_${suffix}_заказ_${oid}.docx`, buf.slice(0));
+              });
+              const blob = await zip.generateAsync({ type: "blob" });
+              triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_шт.zip`);
+            } catch (e) {
+              window.alert("Не удалось сформировать архив. Попробуйте ещё раз.");
+            }
+            return;
+          }
+
+          for (let i = 0; i < n; i += 1) {
+            const suffix = sanitizePalletFilenamePart(pallets[i].palletNumber, String(i + 1));
+            triggerDownload(
+              new Blob([buf.slice(0)], {
+                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              }),
+              `Паллет_${suffix}_заказ_${oid}.docx`,
+            );
+          }
         });
       }
 

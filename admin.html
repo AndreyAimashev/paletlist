@@ -1965,11 +1965,8 @@
       }
 
       async function fetchRenderedUnirusDocxForPallet(palletNumber) {
-        const res = await fetch("/api/unirus-pallet-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pallet_number: palletNumber ?? "" }),
-        });
+        const q = encodeURIComponent(String(palletNumber ?? ""));
+        const res = await fetch(`/api/unirus-pallet-sheet?pallet_number=${q}`);
         if (!res.ok) {
           let detail = "";
           try {

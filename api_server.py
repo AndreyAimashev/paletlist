@@ -30,7 +30,10 @@ DB_LOCK = threading.Lock()
 
 
 def _norm_api_path(path: str) -> str:
-    p = (path or "").rstrip("/")
+    p = (path or "").strip()
+    while "//" in p:
+        p = p.replace("//", "/")
+    p = p.rstrip("/")
     return p if p else "/"
 
 
@@ -992,9 +995,50 @@ class ApiHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw else {}
 
+    def _respond_unirus_pallet_sheet(self, pn_str: str):
+        """Отдаёт один .docx с подстановкой штрих-кода паллеты (GET и POST)."""
+        if not HAVE_DOCX:
+            self._send_json(
+                503,
+                {
+                    "error": "no_docx_lib",
+                    "message": _unirus_render_error_message("no_docx_lib"),
+                },
+            )
+            return
+        blob, err = render_unirus_docx_with_pallet_barcode(pn_str)
+        if err:
+            status_map = {
+                "template_missing": 404,
+                "barcode_fetch": 502,
+                "no_docx_lib": 503,
+            }
+            status = status_map.get(err, 500)
+            self._send_json(
+                status,
+                {"error": err, "message": _unirus_render_error_message(err)},
+            )
+            return
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.send_header("Content-Length", str(len(blob)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(blob)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_unirus_pallet_sheet_path(path):
+            qs = parse_qs(parsed.query)
+            vals = qs.get("pallet_number", [""])
+            raw_v = vals[0] if vals else ""
+            pn_str = str(raw_v).strip()
+            self._respond_unirus_pallet_sheet(pn_str)
+            return
         oid = _parse_orders_detail_id(path)
         if oid is not None:
             detail = fetch_order_detail(oid)
@@ -1043,15 +1087,6 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if _is_unirus_pallet_sheet_path(path):
-            if not HAVE_DOCX:
-                self._send_json(
-                    503,
-                    {
-                        "error": "no_docx_lib",
-                        "message": _unirus_render_error_message("no_docx_lib"),
-                    },
-                )
-                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:
@@ -1068,28 +1103,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 )
                 return
             pn_str = str(raw_pn).strip() if raw_pn is not None else ""
-            blob, err = render_unirus_docx_with_pallet_barcode(pn_str)
-            if err:
-                status_map = {
-                    "template_missing": 404,
-                    "barcode_fetch": 502,
-                    "no_docx_lib": 503,
-                }
-                status = status_map.get(err, 500)
-                self._send_json(
-                    status,
-                    {"error": err, "message": _unirus_render_error_message(err)},
-                )
-                return
-            self.send_response(200)
-            self.send_header(
-                "Content-Type",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-            self.send_header("Content-Length", str(len(blob)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(blob)
+            self._respond_unirus_pallet_sheet(pn_str)
             return
         if _is_orders_list_path(path):
             try:
@@ -1109,7 +1123,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(201, result)
             return
         if not _is_nomenclature_list_path(parsed.path):
-            self._send_json(404, {"error": "Not found"})
+            self._send_json(
+                404,
+                {
+                    "error": "Not found",
+                    "message": "Неизвестный POST-маршрут. Обновите код api_server и выполните sudo systemctl restart paletlist-api.",
+                },
+            )
             return
         try:
             body = self._read_json_body()

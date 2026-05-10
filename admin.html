@@ -48,6 +48,14 @@
         overflow-x: auto;
       }
 
+      /* Заказы: вся колонка под контент — без отступов и без «карточки» на градиенте; сдвиг только от сайдбара (flex). */
+      .main-area.main-area--orders {
+        padding: 0;
+        place-items: stretch;
+        align-content: stretch;
+        background: linear-gradient(160deg, rgba(10, 14, 22, 0.99) 0%, rgba(14, 18, 30, 0.99) 100%);
+      }
+
       .panel {
         /* 100% от .main-area, не vw — иначе панель шире контентной колонки и уходит под сайдбар; клики попадают в «Сборка заказа». */
         width: min(560px, 100%);
@@ -66,6 +74,18 @@
 
       .panel.wide {
         width: min(980px, 100%);
+      }
+
+      .panel.panel--full-bleed {
+        width: 100%;
+        max-width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+        backdrop-filter: none;
+        padding: 24px 28px 28px;
       }
 
       .panel.transitioning {
@@ -1261,6 +1281,7 @@
       const quickNav = document.querySelector(".quick-nav");
       const sidebar = document.getElementById("sidebar");
       const sidebarToggle = document.getElementById("sidebar-toggle");
+      const mainArea = document.querySelector(".main-area");
       const panel = document.querySelector(".panel");
       const resizeHandle = document.getElementById("resize-handle");
       const navButtons = {
@@ -1337,7 +1358,8 @@
         }
 
         menuTitle.textContent = "Главное меню";
-        panel.classList.remove("wide");
+        panel.classList.remove("wide", "panel--full-bleed");
+        mainArea.classList.remove("main-area--orders");
         palletListButton.style.display = "inline-block";
         ordersButton.style.display = "inline-block";
         nomenclatureButton.style.display = "inline-block";
@@ -1377,7 +1399,8 @@
 
         if (stage === "orders") {
           menuTitle.textContent = "Заказы";
-          panel.classList.add("wide");
+          panel.classList.add("panel--full-bleed");
+          mainArea.classList.add("main-area--orders");
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";

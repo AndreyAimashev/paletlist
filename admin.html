@@ -18,7 +18,7 @@
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
-        --sidebar-width: 360px;
+        --sidebar-width: 180px;
       }
 
       body {
@@ -423,13 +423,13 @@
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
-        min-width: 260px;
-        max-width: 620px;
+        min-width: 130px;
+        max-width: 310px;
         border-left: 1px solid rgba(0, 200, 160, 0.2);
         background: rgba(12, 16, 28, 0.96);
         display: flex;
         flex-direction: column;
-        padding: 24px 20px;
+        padding: 16px 10px;
       }
 
       .sidebar.collapsed {
@@ -486,30 +486,36 @@
       }
 
       .sidebar-title {
-        margin: 0 0 8px;
+        margin: 0 0 6px;
         font-family: "Orbitron", sans-serif;
-        font-size: 18px;
+        font-size: 13px;
+        line-height: 1.25;
       }
 
       .sidebar-note {
-        margin: 0 0 16px;
+        margin: 0 0 12px;
         color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.35;
       }
 
       .quick-nav {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
       }
 
       .quick-nav button {
         border: 1px solid rgba(0, 200, 160, 0.3);
-        border-radius: 10px;
-        padding: 10px 12px;
+        border-radius: 8px;
+        padding: 8px 8px;
         background: rgba(10, 14, 23, 0.75);
         color: var(--text-main);
+        font-size: 11px;
+        line-height: 1.3;
         text-align: left;
         cursor: pointer;
+        overflow-wrap: anywhere;
       }
 
       .quick-nav button.active {
@@ -1439,7 +1445,7 @@
         }
 
         const nextWidth = window.innerWidth - event.clientX;
-        const boundedWidth = Math.max(260, Math.min(620, nextWidth));
+        const boundedWidth = Math.max(130, Math.min(310, nextWidth));
         sidebar.style.width = `${boundedWidth}px`;
       });
 

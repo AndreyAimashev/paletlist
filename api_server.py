@@ -55,6 +55,10 @@ def _migrate_products(cur):
         cur.execute(
             "ALTER TABLE products ADD COLUMN box_weight REAL NOT NULL DEFAULT 0"
         )
+    if "pieces_per_set" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN pieces_per_set INTEGER NOT NULL DEFAULT 1"
+        )
 
 
 def init_db():
@@ -68,6 +72,7 @@ def init_db():
               article TEXT NOT NULL DEFAULT '',
               name TEXT NOT NULL DEFAULT '',
               pieces_in_box INTEGER NOT NULL DEFAULT 0,
+              pieces_per_set INTEGER NOT NULL DEFAULT 1,
               row_layout INTEGER NOT NULL DEFAULT 0,
               max_rows INTEGER NOT NULL DEFAULT 0,
               box_weight REAL NOT NULL DEFAULT 0
@@ -87,6 +92,7 @@ def init_db():
                             (item.get("article") or "").strip(),
                             (item.get("name") or "").strip(),
                             int(item.get("pieces_in_box") or 0),
+                            max(1, int(item.get("pieces_per_set") or 1)),
                             int(item.get("row_layout") or 0),
                             int(item.get("max_rows") or 0),
                             float(item.get("box_weight") or 0),
@@ -99,8 +105,8 @@ def init_db():
                     """
                     INSERT INTO products (
                       id, article, name,
-                      pieces_in_box, row_layout, max_rows, box_weight
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                      pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -300,7 +306,7 @@ def fetch_nomenclature():
         rows = con.execute(
             """
             SELECT id, article, name,
-                   pieces_in_box, row_layout, max_rows, box_weight
+                   pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
             FROM products ORDER BY id
             """
         ).fetchall()
@@ -311,6 +317,7 @@ def fetch_nomenclature():
             "article": row["article"] or "",
             "name": row["name"] or "",
             "pieces_in_box": int(row["pieces_in_box"] or 0),
+            "pieces_per_set": max(1, int(row["pieces_per_set"] or 1)),
             "row_layout": int(row["row_layout"] or 0),
             "max_rows": int(row["max_rows"] or 0),
             "box_weight": float(row["box_weight"] or 0),
@@ -324,10 +331,12 @@ def update_nomenclature_row(
     article: str,
     name: str,
     pieces_in_box: int = 0,
+    pieces_per_set: int = 1,
     row_layout: int = 0,
     max_rows: int = 0,
     box_weight: float = 0,
 ):
+    pps = max(1, int(pieces_per_set))
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -335,13 +344,14 @@ def update_nomenclature_row(
             """
             UPDATE products SET
               article = ?, name = ?,
-              pieces_in_box = ?, row_layout = ?, max_rows = ?, box_weight = ?
+              pieces_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?
             WHERE id = ?
             """,
             (
                 article.strip(),
                 name.strip(),
                 int(pieces_in_box),
+                pps,
                 int(row_layout),
                 int(max_rows),
                 float(box_weight),
@@ -355,7 +365,7 @@ def update_nomenclature_row(
 
 
 def soft_delete_row(row_id: int):
-    return update_nomenclature_row(row_id, "", "", 0, 0, 0, 0)
+    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0)
 
 
 def _normalize_str(value: str) -> str:
@@ -408,6 +418,7 @@ def insert_nomenclature_row(
     article: str,
     name: str,
     pieces_in_box: int,
+    pieces_per_set: int,
     row_layout: int,
     max_rows: int,
     box_weight: float,
@@ -421,18 +432,20 @@ def insert_nomenclature_row(
         con = get_connection()
         cur = con.cursor()
         next_id = cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM products").fetchone()[0]
+        pps = max(1, int(pieces_per_set))
         cur.execute(
             """
             INSERT INTO products (
               id, article, name,
-              pieces_in_box, row_layout, max_rows, box_weight
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(next_id),
                 article_n,
                 name_n,
                 int(pieces_in_box),
+                pps,
                 int(row_layout),
                 int(max_rows),
                 float(box_weight),
@@ -523,11 +536,19 @@ class ApiHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
+        def _pieces_per_set_body() -> int:
+            try:
+                v = int(body.get("pieces_per_set", 1))
+            except (TypeError, ValueError):
+                return 1
+            return max(1, v)
+
         try:
             result = insert_nomenclature_row(
                 body.get("article", ""),
                 body.get("name", ""),
                 _int_body("pieces_in_box"),
+                _pieces_per_set_body(),
                 _int_body("row_layout"),
                 _int_body("max_rows"),
                 _float_body("box_weight"),
@@ -574,11 +595,19 @@ class ApiHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
+        def _pieces_per_set_body() -> int:
+            try:
+                v = int(body.get("pieces_per_set", 1))
+            except (TypeError, ValueError):
+                return 1
+            return max(1, v)
+
         ok = update_nomenclature_row(
             row_id,
             body.get("article", ""),
             body.get("name", ""),
             _int_body("pieces_in_box"),
+            _pieces_per_set_body(),
             _int_body("row_layout"),
             _int_body("max_rows"),
             _float_body("box_weight"),

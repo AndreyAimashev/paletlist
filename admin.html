@@ -193,12 +193,17 @@
         font-size: 13px;
       }
 
-      .arnest-field input {
+      .arnest-field input,
+      .arnest-field select {
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 8px;
         padding: 10px;
         background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
+      }
+
+      .arnest-field select {
+        cursor: pointer;
       }
 
       .arnest-actions {
@@ -1020,6 +1025,25 @@
             <label for="edit-name">Наименование</label>
             <textarea id="edit-name" name="name" rows="3"></textarea>
           </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="edit-pieces-per-set-mode">Штук в наборе</label>
+            <p class="muted" style="font-size: 12px; margin: 0 0 6px; line-height: 1.35">
+              Сначала штуки складывают в наборы, наборы — в коробки. Если наборов нет, штуки сразу в коробке.
+            </p>
+            <select id="edit-pieces-per-set-mode" aria-label="Режим: наборы или нет">
+              <option value="none">Нет наборов</option>
+              <option value="custom">Указать число</option>
+            </select>
+            <input
+              id="edit-pieces-per-set"
+              name="pieces_per_set"
+              type="number"
+              min="1"
+              step="1"
+              value="2"
+              style="margin-top: 8px"
+            />
+          </div>
           <div class="arnest-field">
             <label for="edit-pieces-in-box">Штук в коробке</label>
             <input id="edit-pieces-in-box" name="pieces_in_box" type="number" min="0" step="1" />
@@ -1062,6 +1086,25 @@
           <div class="arnest-field" style="grid-column: 1 / -1">
             <label for="create-name">Наименование</label>
             <textarea id="create-name" name="name" rows="3"></textarea>
+          </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="create-pieces-per-set-mode">Штук в наборе</label>
+            <p class="muted" style="font-size: 12px; margin: 0 0 6px; line-height: 1.35">
+              Сначала штуки складывают в наборы, наборы — в коробки. Если наборов нет, штуки сразу в коробке.
+            </p>
+            <select id="create-pieces-per-set-mode" aria-label="Режим: наборы или нет">
+              <option value="none" selected>Нет наборов</option>
+              <option value="custom">Указать число</option>
+            </select>
+            <input
+              id="create-pieces-per-set"
+              name="pieces_per_set"
+              type="number"
+              min="1"
+              step="1"
+              value="2"
+              style="margin-top: 8px"
+            />
           </div>
           <div class="arnest-field">
             <label for="create-pieces-in-box">Штук в коробке</label>
@@ -1185,6 +1228,8 @@
       const nomenclatureCreateError = document.getElementById("nomenclature-create-error");
       const createArticleInput = document.getElementById("create-article");
       const createNameInput = document.getElementById("create-name");
+      const createPiecesPerSetMode = document.getElementById("create-pieces-per-set-mode");
+      const createPiecesPerSetInput = document.getElementById("create-pieces-per-set");
       const createPiecesInput = document.getElementById("create-pieces-in-box");
       const createRowLayoutInput = document.getElementById("create-row-layout");
       const createMaxRowsInput = document.getElementById("create-max-rows");
@@ -1218,6 +1263,8 @@
       const nomenclatureEditCancel = document.getElementById("nomenclature-edit-cancel");
       const editArticleInput = document.getElementById("edit-article");
       const editNameInput = document.getElementById("edit-name");
+      const editPiecesPerSetMode = document.getElementById("edit-pieces-per-set-mode");
+      const editPiecesPerSetInput = document.getElementById("edit-pieces-per-set");
       const editPiecesInput = document.getElementById("edit-pieces-in-box");
       const editRowLayoutInput = document.getElementById("edit-row-layout");
       const editMaxRowsInput = document.getElementById("edit-max-rows");
@@ -1414,6 +1461,7 @@
       navNomenclature.addEventListener("click", () => setStage("nomenclature"));
 
       const NOMENCLATURE_PACK_ICONS = {
+        set: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M5 10V7l7-3 7 3v3"/><path d="M5 10l7 3 7-3"/><rect x="5" y="10" width="14" height="10" rx="1.5"/></svg>`,
         pieces: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h3M13 9h3M8 13h3M13 13h3"/></svg>`,
         row: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="5" height="6" rx="1"/><rect x="9.5" y="9" width="5" height="6" rx="1"/><rect x="17" y="9" width="5" height="6" rx="1"/></svg>`,
         layers: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 8l8-3 8 3-8 3-8-3z"/><path d="M4 12l8 3 8-3"/><path d="M4 16l8 3 8-3"/></svg>`,
@@ -1434,10 +1482,37 @@
         return String(r);
       }
 
+      function syncPiecesPerSetField(modeEl, valueEl) {
+        const custom = modeEl.value === "custom";
+        valueEl.toggleAttribute("hidden", !custom);
+        valueEl.style.marginTop = custom ? "8px" : "0";
+        valueEl.disabled = !custom;
+      }
+
+      function getPiecesPerSetFromForm(modeEl, valueEl) {
+        if (modeEl.value === "none") {
+          return 1;
+        }
+        return Math.max(1, Math.trunc(Number(valueEl.value)) || 1);
+      }
+
+      function applyPiecesPerSetToForm(modeEl, valueEl, stored) {
+        const n = Math.max(1, Math.trunc(Number(stored)) || 1);
+        if (n <= 1) {
+          modeEl.value = "none";
+          valueEl.value = "2";
+        } else {
+          modeEl.value = "custom";
+          valueEl.value = String(n);
+        }
+        syncPiecesPerSetField(modeEl, valueEl);
+      }
+
       function openNomenclatureEdit(item) {
         nomenclatureEditId = item.id;
         editArticleInput.value = item.article || "";
         editNameInput.value = item.name || "";
+        applyPiecesPerSetToForm(editPiecesPerSetMode, editPiecesPerSetInput, item.pieces_per_set);
         editPiecesInput.value = formatPackInt(item.pieces_in_box);
         editRowLayoutInput.value = formatPackInt(item.row_layout);
         editMaxRowsInput.value = formatPackInt(item.max_rows);
@@ -1521,6 +1596,9 @@
 
       function openNomenclatureCreate() {
         nomenclatureCreateForm.reset();
+        createPiecesPerSetMode.value = "none";
+        createPiecesPerSetInput.value = "2";
+        syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
         createPiecesInput.value = "0";
         createRowLayoutInput.value = "0";
         createMaxRowsInput.value = "0";
@@ -1537,11 +1615,18 @@
       }
 
       function nomenclaturePackRowHtml(item) {
+        const ppsN = Math.max(1, Math.trunc(Number(item.pieces_per_set)) || 1);
+        const pps = formatPackInt(ppsN);
+        const ppsTitle =
+          ppsN <= 1
+            ? "Штук в наборе: 1 (нет отдельного уровня наборов)"
+            : "Штук в одном наборе";
         const p = formatPackInt(item.pieces_in_box);
         const row = formatPackInt(item.row_layout);
         const maxR = formatPackInt(item.max_rows);
         const w = formatPackWeight(item.box_weight);
         return `<div class="nomenclature-pack-line">
+          <span class="pack-stat" title="${escapeXml(ppsTitle)}">${NOMENCLATURE_PACK_ICONS.set}<span>${escapeXml(pps)}</span></span>
           <span class="pack-stat" title="Штук в коробке">${NOMENCLATURE_PACK_ICONS.pieces}<span>${escapeXml(p)}</span></span>
           <span class="pack-stat" title="Укладка ряда (коробок в ряду)">${NOMENCLATURE_PACK_ICONS.row}<span>${escapeXml(row)}</span></span>
           <span class="pack-stat" title="Максимум рядов">${NOMENCLATURE_PACK_ICONS.layers}<span>${escapeXml(maxR)}</span></span>
@@ -2169,6 +2254,7 @@
           body: JSON.stringify({
             article: editArticleInput.value.trim(),
             name: editNameInput.value.trim(),
+            pieces_per_set: getPiecesPerSetFromForm(editPiecesPerSetMode, editPiecesPerSetInput),
             pieces_in_box: Math.trunc(Number(editPiecesInput.value)) || 0,
             row_layout: Math.trunc(Number(editRowLayoutInput.value)) || 0,
             max_rows: Math.trunc(Number(editMaxRowsInput.value)) || 0,
@@ -2181,6 +2267,13 @@
         }
         closeNomenclatureEdit();
         await loadNomenclature();
+      });
+
+      createPiecesPerSetMode.addEventListener("change", () => {
+        syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
+      });
+      editPiecesPerSetMode.addEventListener("change", () => {
+        syncPiecesPerSetField(editPiecesPerSetMode, editPiecesPerSetInput);
       });
 
       nomenclatureEditCancel.addEventListener("click", () => {
@@ -2229,6 +2322,7 @@
             body: JSON.stringify({
               article: article.trim(),
               name: name.trim(),
+              pieces_per_set: getPiecesPerSetFromForm(createPiecesPerSetMode, createPiecesPerSetInput),
               pieces_in_box: Math.trunc(Number(createPiecesInput.value)) || 0,
               row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
               max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
@@ -2280,6 +2374,9 @@
       nomenclatureCreateCancel.addEventListener("click", () => {
         closeNomenclatureCreate();
       });
+
+      syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
+      syncPiecesPerSetField(editPiecesPerSetMode, editPiecesPerSetInput);
 
       renderNavOrder();
       setStage("main", false);

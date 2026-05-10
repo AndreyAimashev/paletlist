@@ -1465,6 +1465,8 @@
         row: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="5" height="6" rx="1"/><rect x="9.5" y="9" width="5" height="6" rx="1"/><rect x="17" y="9" width="5" height="6" rx="1"/></svg>`,
         layers: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 8l8-3 8 3-8 3-8-3z"/><path d="M4 12l8 3 8-3"/><path d="M4 16l8 3 8-3"/></svg>`,
         weight: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M12 3v4"/><circle cx="12" cy="13" r="6"/><path d="M9 7h6"/></svg>`,
+        setCount: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="5" height="11" rx="1"/><rect x="9.5" y="7" width="5" height="11" rx="1"/><rect x="16" y="7" width="5" height="11" rx="1"/></svg>`,
+        piecesPerSet: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5" y="6" width="14" height="13" rx="2"/><path d="M9 11h6M9 15h4"/></svg>`,
       };
 
       function formatPackInt(value) {
@@ -1479,6 +1481,20 @@
         }
         const r = Math.round(n * 100) / 100;
         return String(r);
+      }
+
+      function formatPackRatio(numerator, denominator) {
+        if (denominator <= 0) {
+          return "0";
+        }
+        const v = numerator / denominator;
+        if (!Number.isFinite(v)) {
+          return "0";
+        }
+        if (Math.abs(v - Math.round(v)) < 1e-6) {
+          return formatPackInt(v);
+        }
+        return String(Math.round(v * 100) / 100);
       }
 
       function syncPiecesPerSetField(modeEl, valueEl) {
@@ -1618,11 +1634,25 @@
         const row = formatPackInt(item.row_layout);
         const maxR = formatPackInt(item.max_rows);
         const w = formatPackWeight(item.box_weight);
+        const pib = Math.max(0, Math.trunc(Number(item.pieces_in_box)) || 0);
+        const pps = Math.max(1, Math.trunc(Number(item.pieces_per_set)) || 1);
+        let setBlock = "";
+        if (pps > 1 && pib > 0) {
+          const setCount = Math.trunc(pib / pps);
+          if (setCount > 1) {
+            const ppcStr = formatPackRatio(pib, setCount);
+            const setTitle = "Количество наборов в коробке (штук в коробке ÷ штук в наборе)";
+            const ppcTitle = "Штук в наборе (штук в коробке ÷ количество наборов)";
+            setBlock = `
+          <span class="pack-stat" title="${escapeXml(setTitle)}">${NOMENCLATURE_PACK_ICONS.setCount}<span>${escapeXml(formatPackInt(setCount))}</span></span>
+          <span class="pack-stat" title="${escapeXml(ppcTitle)}">${NOMENCLATURE_PACK_ICONS.piecesPerSet}<span>${escapeXml(ppcStr)}</span></span>`;
+          }
+        }
         return `<div class="nomenclature-pack-line">
           <span class="pack-stat" title="Штук в коробке">${NOMENCLATURE_PACK_ICONS.pieces}<span>${escapeXml(p)}</span></span>
           <span class="pack-stat" title="Укладка ряда (коробок в ряду)">${NOMENCLATURE_PACK_ICONS.row}<span>${escapeXml(row)}</span></span>
           <span class="pack-stat" title="Максимум рядов">${NOMENCLATURE_PACK_ICONS.layers}<span>${escapeXml(maxR)}</span></span>
-          <span class="pack-stat" title="Вес коробки, кг">${NOMENCLATURE_PACK_ICONS.weight}<span>${escapeXml(w)}</span></span>
+          <span class="pack-stat" title="Вес коробки, кг">${NOMENCLATURE_PACK_ICONS.weight}<span>${escapeXml(w)}</span></span>${setBlock}
         </div>`;
       }
 

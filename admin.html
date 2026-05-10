@@ -301,6 +301,63 @@
         color: var(--text-main);
       }
 
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(6, 10, 18, 0.72);
+        backdrop-filter: blur(4px);
+      }
+
+      .modal-overlay[hidden] {
+        display: none !important;
+      }
+
+      .modal-dialog {
+        width: min(520px, 100%);
+        max-height: 90vh;
+        overflow: auto;
+        border: 1px solid rgba(0, 200, 160, 0.3);
+        border-radius: 14px;
+        background: rgba(18, 24, 38, 0.96);
+        padding: 22px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .modal-dialog h3 {
+        margin: 0 0 16px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 15px;
+        color: var(--accent-teal);
+      }
+
+      .arnest-field textarea {
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-family: inherit;
+        font-size: 14px;
+        resize: vertical;
+        min-height: 52px;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+
+      .modal-actions .menu-button {
+        margin-top: 0;
+      }
+
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
@@ -641,6 +698,47 @@
       </aside>
     </div>
 
+    <div id="nomenclature-edit-overlay" class="modal-overlay" hidden>
+      <div
+        class="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nomenclature-edit-title"
+      >
+        <h3 id="nomenclature-edit-title">Редактировать товар</h3>
+        <form id="nomenclature-edit-form" class="arnest-grid">
+          <div class="arnest-field">
+            <label for="edit-article">Артикул</label>
+            <input id="edit-article" name="article" type="text" autocomplete="off" />
+          </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="edit-name">Наименование</label>
+            <textarea id="edit-name" name="name" rows="3"></textarea>
+          </div>
+          <div class="arnest-field">
+            <label for="edit-pieces-in-box">Штук в коробке</label>
+            <input id="edit-pieces-in-box" name="pieces_in_box" type="number" min="0" step="1" />
+          </div>
+          <div class="arnest-field">
+            <label for="edit-row-layout">Укладка ряда (коробок в ряду)</label>
+            <input id="edit-row-layout" name="row_layout" type="number" min="0" step="1" />
+          </div>
+          <div class="arnest-field">
+            <label for="edit-max-rows">Максимум рядов</label>
+            <input id="edit-max-rows" name="max_rows" type="number" min="0" step="1" />
+          </div>
+          <div class="arnest-field">
+            <label for="edit-box-weight">Вес коробки (кг)</label>
+            <input id="edit-box-weight" name="box_weight" type="number" min="0" step="any" />
+          </div>
+        </form>
+        <div class="modal-actions">
+          <button class="menu-button" type="submit" form="nomenclature-edit-form">Сохранить</button>
+          <button id="nomenclature-edit-cancel" class="menu-button" type="button">Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const params = new URLSearchParams(window.location.search);
       const login = params.get("login");
@@ -672,6 +770,16 @@
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
+      const nomenclatureEditOverlay = document.getElementById("nomenclature-edit-overlay");
+      const nomenclatureEditForm = document.getElementById("nomenclature-edit-form");
+      const nomenclatureEditCancel = document.getElementById("nomenclature-edit-cancel");
+      const editArticleInput = document.getElementById("edit-article");
+      const editNameInput = document.getElementById("edit-name");
+      const editPiecesInput = document.getElementById("edit-pieces-in-box");
+      const editRowLayoutInput = document.getElementById("edit-row-layout");
+      const editMaxRowsInput = document.getElementById("edit-max-rows");
+      const editBoxWeightInput = document.getElementById("edit-box-weight");
+      let nomenclatureEditId = null;
       const output = document.getElementById("arnest-output");
       const buildSheetButton = document.getElementById("build-sheet");
       const quickNav = document.querySelector(".quick-nav");
@@ -868,6 +976,25 @@
         }
         const r = Math.round(n * 100) / 100;
         return String(r);
+      }
+
+      function openNomenclatureEdit(item) {
+        nomenclatureEditId = item.id;
+        editArticleInput.value = item.article || "";
+        editNameInput.value = item.name || "";
+        editPiecesInput.value = formatPackInt(item.pieces_in_box);
+        editRowLayoutInput.value = formatPackInt(item.row_layout);
+        editMaxRowsInput.value = formatPackInt(item.max_rows);
+        editBoxWeightInput.value = formatPackWeight(item.box_weight);
+        nomenclatureEditOverlay.hidden = false;
+        editArticleInput.focus();
+        editArticleInput.select();
+      }
+
+      function closeNomenclatureEdit() {
+        nomenclatureEditOverlay.hidden = true;
+        nomenclatureEditId = null;
+        nomenclatureEditForm.reset();
       }
 
       function nomenclaturePackRowHtml(item) {
@@ -1152,63 +1279,7 @@
         }
 
         if (action === "edit") {
-          const nextArticle = prompt("Новый артикул:", item.article || "");
-          if (nextArticle === null) {
-            return;
-          }
-          const nextName = prompt("Новое наименование:", item.name || "");
-          if (nextName === null) {
-            return;
-          }
-          const nextPieces = prompt("Штук в коробке:", formatPackInt(item.pieces_in_box));
-          if (nextPieces === null) {
-            return;
-          }
-          const nextRowLayout = prompt("Укладка ряда (коробок в ряду):", formatPackInt(item.row_layout));
-          if (nextRowLayout === null) {
-            return;
-          }
-          const nextMaxRows = prompt("Максимум рядов:", formatPackInt(item.max_rows));
-          if (nextMaxRows === null) {
-            return;
-          }
-          const nextBoxWeight = prompt("Вес коробки (кг):", formatPackWeight(item.box_weight));
-          if (nextBoxWeight === null) {
-            return;
-          }
-          const parsedPieces = Math.trunc(Number(nextPieces)) || 0;
-          const parsedRowLayout = Math.trunc(Number(nextRowLayout)) || 0;
-          const parsedMaxRows = Math.trunc(Number(nextMaxRows)) || 0;
-          const parsedWeight = Number(String(nextBoxWeight).replace(",", "."));
-          const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
-          const response = await fetch(`/api/nomenclature/${item.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              article: nextArticle.trim(),
-              name: nextName.trim(),
-              pieces_in_box: parsedPieces,
-              row_layout: parsedRowLayout,
-              max_rows: parsedMaxRows,
-              box_weight: parsedBoxWeight,
-            }),
-          });
-          if (!response.ok) {
-            alert("Не удалось обновить номенклатуру в БД.");
-            return;
-          }
-          await loadNomenclature();
-          const query = nomenclatureSearch.value.trim().toLowerCase();
-          if (!query) {
-            renderNomenclatureList(nomenclatureItems);
-          } else {
-            const filtered = nomenclatureItems.filter((entry) => {
-              const article = (entry.article || "").toLowerCase();
-              const name = (entry.name || "").toLowerCase();
-              return article.includes(query) || name.includes(query);
-            });
-            renderNomenclatureList(filtered);
-          }
+          openNomenclatureEdit(item);
           return;
         }
 
@@ -1236,6 +1307,61 @@
             });
             renderNomenclatureList(filtered);
           }
+        }
+      });
+
+      nomenclatureEditForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (nomenclatureEditId === null) {
+          return;
+        }
+        const weightRaw = String(editBoxWeightInput.value).trim().replace(",", ".");
+        const parsedWeight = Number(weightRaw);
+        const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
+        const response = await fetch(`/api/nomenclature/${nomenclatureEditId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            article: editArticleInput.value.trim(),
+            name: editNameInput.value.trim(),
+            pieces_in_box: Math.trunc(Number(editPiecesInput.value)) || 0,
+            row_layout: Math.trunc(Number(editRowLayoutInput.value)) || 0,
+            max_rows: Math.trunc(Number(editMaxRowsInput.value)) || 0,
+            box_weight: parsedBoxWeight,
+          }),
+        });
+        if (!response.ok) {
+          alert("Не удалось обновить номенклатуру в БД.");
+          return;
+        }
+        closeNomenclatureEdit();
+        await loadNomenclature();
+        const query = nomenclatureSearch.value.trim().toLowerCase();
+        if (!query) {
+          renderNomenclatureList(nomenclatureItems);
+        } else {
+          const filtered = nomenclatureItems.filter((entry) => {
+            const article = (entry.article || "").toLowerCase();
+            const name = (entry.name || "").toLowerCase();
+            return article.includes(query) || name.includes(query);
+          });
+          renderNomenclatureList(filtered);
+        }
+      });
+
+      nomenclatureEditCancel.addEventListener("click", () => {
+        closeNomenclatureEdit();
+      });
+
+      nomenclatureEditOverlay.addEventListener("click", (event) => {
+        if (event.target === nomenclatureEditOverlay) {
+          closeNomenclatureEdit();
+        }
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !nomenclatureEditOverlay.hidden) {
+          closeNomenclatureEdit();
         }
       });
 

@@ -1961,12 +1961,15 @@
         editingOrderId = orderId;
         newOrderTitle.textContent = "Редактирование заказа";
         newOrderItems.innerHTML = "";
-        newOrderForm.reset();
         const parsedDate = orderShipDateStorageToInput(data.ship_date);
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
         newOrderClient.value = data.client || "";
-        const items = Array.isArray(data.items) ? data.items : [];
+        const items = Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.order_items)
+            ? data.order_items
+            : [];
         if (!items.length) {
           addOrderItemRow();
         } else {

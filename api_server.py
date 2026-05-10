@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import re
 import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -284,6 +285,104 @@ def _format_order_names_summary(items):
     return "; ".join(parts)
 
 
+_ORDER_NAMES_LINE_RE = re.compile(
+    r"^(.+?)\s*×\s*([\d.,]+)\s*(коробок|наборов|шт)\s*$",
+    re.UNICODE,
+)
+
+
+def _synthetic_items_from_order_names(names: str):
+    """Если в order_items нет строк, собираем позиции из сводки names (демо/старые заказы)."""
+    if not names or not str(names).strip():
+        return []
+    out = []
+    for part in str(names).split(";"):
+        seg = part.strip()
+        if not seg:
+            continue
+        m = _ORDER_NAMES_LINE_RE.match(seg)
+        if m:
+            label = m.group(1).strip()
+            try:
+                qty = float(m.group(2).replace(",", "."))
+            except (TypeError, ValueError):
+                qty = 1.0
+            unit = {"коробок": "box", "наборов": "set", "шт": "piece"}.get(m.group(3), "piece")
+            out.append(
+                {
+                    "product_id": None,
+                    "article": "",
+                    "name": label,
+                    "quantity": qty,
+                    "unit": unit,
+                }
+            )
+        else:
+            out.append(
+                {
+                    "product_id": None,
+                    "article": "",
+                    "name": seg,
+                    "quantity": 1.0,
+                    "unit": "piece",
+                }
+            )
+    return out
+
+
+def _try_resolve_product_id(cur, article: str, name: str):
+    """Точное совпадение наименования или артикула с номенклатурой."""
+    name_n = _normalize_str(name)
+    art_n = _normalize_str(article)
+    if name_n:
+        row = cur.execute(
+            "SELECT id FROM products WHERE name = ? LIMIT 1",
+            (name_n,),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+    if art_n:
+        row = cur.execute(
+            "SELECT id FROM products WHERE article = ? LIMIT 1",
+            (art_n,),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+    return None
+
+
+def _resolve_normalized_product_ids(normalized, cur):
+    """Подставляет product_id и канонические article/name из БД, если id не был передан."""
+    out = []
+    for pid, article, name, qty, unit in normalized:
+        if pid is None:
+            rid = _try_resolve_product_id(cur, article, name)
+            if rid is None:
+                return None, {
+                    "error": "validation",
+                    "message": "Для позиций без привязки к номенклатуре выберите товар в поле «Наименование» из подсказки или приведите название к точному совпадению с номенклатурой.",
+                }
+            row = cur.execute(
+                "SELECT article, name FROM products WHERE id = ?",
+                (rid,),
+            ).fetchone()
+            if not row:
+                return None, {
+                    "error": "validation",
+                    "message": "Товар не найден в номенклатуре.",
+                }
+            article = _normalize_str(row["article"])
+            name = _normalize_str(row["name"])
+            pid = rid
+        if not name and not article:
+            return None, {
+                "error": "validation",
+                "message": "Для позиции не указано наименование.",
+            }
+        out.append((pid, article, name, qty, unit))
+    return out, None
+
+
 def _normalize_order_items_body(body: dict):
     """Общая валидация позиций для создания и обновления заказа."""
     ship_raw = body.get("ship_date", "")
@@ -326,12 +425,12 @@ def _normalize_order_items_body(body: dict):
                 "error": "validation",
                 "message": "Укажите количество больше нуля по каждой позиции.",
             }
-        if pid is None:
+        if pid is None and not name and not article:
             return {
                 "error": "validation",
-                "message": "Каждая позицию выберите из подсказки номенклатуры (поле «Наименование»).",
+                "message": "Для каждой позиции укажите наименование или выберите товар из подсказки.",
             }
-        if not name and not article:
+        if pid is not None and not name and not article:
             return {
                 "error": "validation",
                 "message": "Для позиции не указано наименование.",
@@ -342,13 +441,11 @@ def _normalize_order_items_body(body: dict):
             "error": "validation",
             "message": "Нет корректных позиций в заказе.",
         }
-    names_summary = _format_order_names_summary(normalized)
     return {
         "ok": True,
         "ship": ship,
         "client": client_n,
         "normalized": normalized,
-        "names_summary": names_summary,
     }
 
 
@@ -359,10 +456,14 @@ def insert_order_with_items(body: dict):
     ship = pack["ship"]
     client_n = pack["client"]
     normalized = pack["normalized"]
-    names_summary = pack["names_summary"]
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
+        normalized, res_err = _resolve_normalized_product_ids(normalized, cur)
+        if res_err:
+            con.close()
+            return res_err
+        names_summary = _format_order_names_summary(normalized)
         cur.execute(
             """
             INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
@@ -391,10 +492,14 @@ def update_order_with_items(order_id: int, body: dict):
     ship = pack["ship"]
     client_n = pack["client"]
     normalized = pack["normalized"]
-    names_summary = pack["names_summary"]
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
+        normalized, res_err = _resolve_normalized_product_ids(normalized, cur)
+        if res_err:
+            con.close()
+            return res_err
+        names_summary = _format_order_names_summary(normalized)
         row = cur.execute(
             "SELECT id, assembled_percent, extra_info FROM orders WHERE id = ?",
             (order_id,),
@@ -458,6 +563,8 @@ def fetch_order_detail(order_id: int):
                 "unit": (ir["unit"] or "piece").strip().lower(),
             }
         )
+    if not items and (row["names"] or "").strip():
+        items = _synthetic_items_from_order_names(row["names"] or "")
     return {
         "id": int(row["id"]),
         "ship_date": row["ship_date"] or "",

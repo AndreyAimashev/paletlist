@@ -1461,7 +1461,6 @@
       navNomenclature.addEventListener("click", () => setStage("nomenclature"));
 
       const NOMENCLATURE_PACK_ICONS = {
-        set: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M5 10V7l7-3 7 3v3"/><path d="M5 10l7 3 7-3"/><rect x="5" y="10" width="14" height="10" rx="1.5"/></svg>`,
         pieces: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h3M13 9h3M8 13h3M13 13h3"/></svg>`,
         row: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="5" height="6" rx="1"/><rect x="9.5" y="9" width="5" height="6" rx="1"/><rect x="17" y="9" width="5" height="6" rx="1"/></svg>`,
         layers: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 8l8-3 8 3-8 3-8-3z"/><path d="M4 12l8 3 8-3"/><path d="M4 16l8 3 8-3"/></svg>`,
@@ -1615,18 +1614,11 @@
       }
 
       function nomenclaturePackRowHtml(item) {
-        const ppsN = Math.max(1, Math.trunc(Number(item.pieces_per_set)) || 1);
-        const pps = formatPackInt(ppsN);
-        const ppsTitle =
-          ppsN <= 1
-            ? "Штук в наборе: 1 (нет отдельного уровня наборов)"
-            : "Штук в одном наборе";
         const p = formatPackInt(item.pieces_in_box);
         const row = formatPackInt(item.row_layout);
         const maxR = formatPackInt(item.max_rows);
         const w = formatPackWeight(item.box_weight);
         return `<div class="nomenclature-pack-line">
-          <span class="pack-stat" title="${escapeXml(ppsTitle)}">${NOMENCLATURE_PACK_ICONS.set}<span>${escapeXml(pps)}</span></span>
           <span class="pack-stat" title="Штук в коробке">${NOMENCLATURE_PACK_ICONS.pieces}<span>${escapeXml(p)}</span></span>
           <span class="pack-stat" title="Укладка ряда (коробок в ряду)">${NOMENCLATURE_PACK_ICONS.row}<span>${escapeXml(row)}</span></span>
           <span class="pack-stat" title="Максимум рядов">${NOMENCLATURE_PACK_ICONS.layers}<span>${escapeXml(maxR)}</span></span>

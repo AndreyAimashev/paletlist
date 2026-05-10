@@ -1347,7 +1347,6 @@
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
           <div class="menu-items">
-            <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
@@ -1711,7 +1710,6 @@
         window.location.replace("index.html");
       }
 
-      const palletListButton = document.getElementById("pallet-list-button");
       const ordersButton = document.getElementById("orders-button");
       const nomenclatureButton = document.getElementById("nomenclature-button");
       const menuTitle = document.getElementById("menu-title");
@@ -1891,7 +1889,6 @@
         }
 
         menuTitle.textContent = "Главное меню";
-        palletListButton.style.display = "inline-block";
         ordersButton.style.display = "inline-block";
         nomenclatureButton.style.display = "inline-block";
         createPalletButton.classList.remove("visible");
@@ -1909,7 +1906,6 @@
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
-          palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           createPalletButton.classList.add("visible");
@@ -1918,7 +1914,6 @@
 
         if (stage === "create" || stage === "arnest") {
           menuTitle.textContent = "Создание паллетных листов";
-          palletListButton.style.display = "none";
           arnestButton.classList.add("visible");
           backToPalletButton.classList.add("visible");
         }
@@ -1931,7 +1926,6 @@
 
         if (stage === "orders") {
           menuTitle.textContent = "Заказы";
-          palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
@@ -1942,7 +1936,6 @@
 
         if (stage === "assemble") {
           menuTitle.textContent = "Сборка заказа";
-          palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           if (activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
@@ -1956,7 +1949,6 @@
 
         if (stage === "nomenclature") {
           menuTitle.textContent = "Номенклатура";
-          palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           nomenclatureCreateProductButton.classList.add("visible");
@@ -1993,7 +1985,6 @@
         }
       }
 
-      palletListButton.addEventListener("click", () => setStage("pallet"));
       ordersButton.addEventListener("click", () => setStage("orders"));
       nomenclatureButton.addEventListener("click", () => setStage("nomenclature"));
       createPalletButton.addEventListener("click", () => setStage("create"));

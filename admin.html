@@ -1605,7 +1605,9 @@
           } else {
             activeStageOrderId = null;
           }
-        } else if (wasAssembleOrPallet) {
+        } else if (stage === "main") {
+          activeStageOrderId = null;
+        } else if (wasAssembleOrPallet && stage !== "orders") {
           activeStageOrderId = null;
         }
 

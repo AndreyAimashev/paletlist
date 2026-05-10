@@ -45,11 +45,14 @@
         display: grid;
         place-items: center;
         padding: 24px;
+        overflow-x: auto;
       }
 
       .panel {
-        width: min(560px, 90vw);
+        /* 100% от .main-area, не vw — иначе панель шире контентной колонки и уходит под сайдбар; клики попадают в «Сборка заказа». */
+        width: min(560px, 100%);
         max-width: 100%;
+        min-width: 0;
         box-sizing: border-box;
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 16px;
@@ -62,7 +65,7 @@
       }
 
       .panel.wide {
-        width: min(980px, 94vw);
+        width: min(980px, 100%);
       }
 
       .panel.transitioning {
@@ -494,6 +497,117 @@
 
       .modal-error[hidden] {
         display: none !important;
+      }
+
+      .new-order-overlay {
+        z-index: 2100;
+      }
+
+      .new-order-dialog {
+        width: min(640px, 100%);
+        max-height: 92vh;
+      }
+
+      .new-order-items-label {
+        margin: 16px 0 8px;
+      }
+
+      .order-items-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .order-item-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
+        gap: 8px;
+        align-items: start;
+        margin-bottom: 12px;
+      }
+
+      .order-item-autocomplete {
+        position: relative;
+        min-width: 0;
+      }
+
+      .order-item-search {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 13px;
+      }
+
+      .order-item-suggestions {
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 4px 0;
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        z-index: 30;
+        max-height: 220px;
+        overflow-y: auto;
+        background: rgba(16, 22, 34, 0.98);
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 8px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+      }
+
+      .order-item-suggestions[hidden] {
+        display: none !important;
+      }
+
+      .order-item-suggestions li {
+        padding: 8px 10px;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .order-item-suggestions li:hover {
+        background: rgba(0, 200, 160, 0.12);
+      }
+
+      .order-item-qty {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px 8px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 13px;
+      }
+
+      .order-item-unit {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 9px 6px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 12px;
+      }
+
+      .order-item-remove {
+        margin-top: 2px;
+      }
+
+      #new-order-add-item {
+        margin-top: 4px;
+        margin-bottom: 8px;
       }
 
       .sidebar {
@@ -952,6 +1066,77 @@
       </div>
     </div>
 
+    <div id="new-order-overlay" class="modal-overlay new-order-overlay" hidden>
+      <div
+        id="new-order-dialog"
+        class="modal-dialog new-order-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-order-title"
+      >
+        <h3 id="new-order-title">Новый заказ</h3>
+        <p id="new-order-error" class="modal-error" hidden></p>
+        <form id="new-order-form">
+          <div class="arnest-grid">
+            <div class="arnest-field">
+              <label for="new-order-ship-date">Дата отгрузки</label>
+              <input id="new-order-ship-date" name="ship_date" type="date" required />
+            </div>
+            <div class="arnest-field">
+              <label for="new-order-client">Клиент</label>
+              <input
+                id="new-order-client"
+                name="client"
+                type="text"
+                list="new-order-client-presets"
+                autocomplete="off"
+                required
+                placeholder="Вручную или из списка"
+              />
+              <datalist id="new-order-client-presets">
+                <option value="Арнест Юнирусь"></option>
+              </datalist>
+            </div>
+          </div>
+          <p class="muted new-order-items-label">Позиции заказа</p>
+          <div class="order-items-head">
+            <span>Наименование</span>
+            <span>Количество</span>
+            <span>Единица</span>
+            <span></span>
+          </div>
+          <div id="new-order-items"></div>
+          <button id="new-order-add-item" class="menu-button" type="button">+ Добавить позицию</button>
+          <div class="modal-actions">
+            <button class="menu-button" type="submit">Сохранить заказ</button>
+            <button id="new-order-cancel" class="menu-button" type="button">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <template id="order-item-row-template">
+      <div class="order-item-row">
+        <div class="order-item-autocomplete">
+          <input
+            type="text"
+            class="order-item-search"
+            placeholder="Артикул или наименование…"
+            autocomplete="off"
+          />
+          <input type="hidden" class="order-item-product-id" value="" />
+          <ul class="order-item-suggestions" hidden></ul>
+        </div>
+        <input type="number" class="order-item-qty" min="0" step="any" value="1" />
+        <select class="order-item-unit" aria-label="Единица учёта">
+          <option value="box">Коробки</option>
+          <option value="set">Наборы</option>
+          <option value="piece" selected>Штуки</option>
+        </select>
+        <button type="button" class="icon-btn order-item-remove" title="Удалить строку">✕</button>
+      </div>
+    </template>
+
     <script>
       const params = new URLSearchParams(window.location.search);
       const login = params.get("login");
@@ -993,6 +1178,16 @@
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
       const ordersTableBody = document.getElementById("orders-table-body");
+      const newOrderOverlay = document.getElementById("new-order-overlay");
+      const newOrderDialog = document.getElementById("new-order-dialog");
+      const newOrderForm = document.getElementById("new-order-form");
+      const newOrderError = document.getElementById("new-order-error");
+      const newOrderShipDate = document.getElementById("new-order-ship-date");
+      const newOrderClient = document.getElementById("new-order-client");
+      const newOrderItems = document.getElementById("new-order-items");
+      const newOrderAddItem = document.getElementById("new-order-add-item");
+      const newOrderCancel = document.getElementById("new-order-cancel");
+      const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -1179,7 +1374,11 @@
       createPalletButton.addEventListener("click", () => setStage("create"));
       backToMainButton.addEventListener("click", () => setStage("main"));
       backToPalletButton.addEventListener("click", () => setStage("pallet"));
-      assembleOrderButton.addEventListener("click", () => setStage("assemble"));
+      assembleOrderButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openNewOrderModal();
+      });
       backToMainOrdersButton.addEventListener("click", () => setStage("main"));
       backToMainNomenclatureButton.addEventListener("click", () => setStage("main"));
       nomenclatureCreateProductButton.addEventListener("click", () => {
@@ -1380,6 +1579,186 @@
             "<tr><td colspan=\"5\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
         }
       }
+
+      const orderSearchDebounce = new Map();
+
+      function clearNewOrderError() {
+        newOrderError.textContent = "";
+        newOrderError.hidden = true;
+      }
+
+      function showNewOrderError(text) {
+        newOrderError.textContent = text;
+        newOrderError.hidden = false;
+      }
+
+      function attachOrderItemRowListeners(row) {
+        const input = row.querySelector(".order-item-search");
+        const ul = row.querySelector(".order-item-suggestions");
+        const hid = row.querySelector(".order-item-product-id");
+        const removeBtn = row.querySelector(".order-item-remove");
+
+        input.addEventListener("input", () => {
+          hid.value = "";
+          delete row.dataset.article;
+          delete row.dataset.name;
+          row._orderSuggest = null;
+          const q = input.value.trim();
+          const prev = orderSearchDebounce.get(input);
+          if (prev) {
+            clearTimeout(prev);
+          }
+          if (q.length < 1) {
+            ul.hidden = true;
+            ul.innerHTML = "";
+            return;
+          }
+          const tid = setTimeout(async () => {
+            orderSearchDebounce.delete(input);
+            try {
+              const res = await fetch(`/api/nomenclature?q=${encodeURIComponent(q)}`);
+              if (!res.ok) {
+                return;
+              }
+              const list = await res.json();
+              ul.innerHTML = "";
+              row._orderSuggest = Array.isArray(list) ? list.slice(0, 15) : [];
+              if (!row._orderSuggest.length) {
+                ul.hidden = true;
+                return;
+              }
+              row._orderSuggest.forEach((item, i) => {
+                const li = document.createElement("li");
+                li.dataset.idx = String(i);
+                li.textContent = `${item.article || "—"} — ${item.name || ""}`;
+                ul.appendChild(li);
+              });
+              ul.hidden = false;
+            } catch (err) {
+              ul.hidden = true;
+            }
+          }, 280);
+          orderSearchDebounce.set(input, tid);
+        });
+
+        ul.addEventListener("mousedown", (e) => {
+          const li = e.target.closest("li[data-idx]");
+          if (!li || !row._orderSuggest) {
+            return;
+          }
+          e.preventDefault();
+          const item = row._orderSuggest[Number(li.dataset.idx)];
+          if (!item) {
+            return;
+          }
+          hid.value = String(item.id);
+          row.dataset.article = item.article || "";
+          row.dataset.name = item.name || "";
+          input.value = `${item.article || "—"} — ${item.name || ""}`;
+          ul.hidden = true;
+          ul.innerHTML = "";
+        });
+
+        removeBtn.addEventListener("click", () => {
+          if (newOrderItems.querySelectorAll(".order-item-row").length <= 1) {
+            return;
+          }
+          row.remove();
+        });
+      }
+
+      function addOrderItemRow() {
+        const row = orderItemRowTemplate.content.firstElementChild.cloneNode(true);
+        newOrderItems.appendChild(row);
+        attachOrderItemRowListeners(row);
+      }
+
+      function openNewOrderModal() {
+        clearNewOrderError();
+        newOrderForm.reset();
+        newOrderItems.innerHTML = "";
+        addOrderItemRow();
+        const today = new Date();
+        newOrderShipDate.value = today.toISOString().slice(0, 10);
+        newOrderOverlay.hidden = false;
+        newOrderShipDate.focus();
+      }
+
+      function closeNewOrderModal() {
+        newOrderOverlay.hidden = true;
+        clearNewOrderError();
+        newOrderForm.reset();
+        newOrderItems.innerHTML = "";
+      }
+
+      document.addEventListener("mousedown", (event) => {
+        if (event.target.closest(".order-item-autocomplete")) {
+          return;
+        }
+        document.querySelectorAll("#new-order-items .order-item-suggestions").forEach((u) => {
+          u.hidden = true;
+        });
+      });
+
+      newOrderDialog.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+
+      newOrderAddItem.addEventListener("click", () => {
+        addOrderItemRow();
+      });
+
+      newOrderCancel.addEventListener("click", () => {
+        closeNewOrderModal();
+      });
+
+      newOrderForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearNewOrderError();
+        const shipDate = newOrderShipDate.value;
+        const client = newOrderClient.value.trim();
+        if (!shipDate || !client) {
+          showNewOrderError("Укажите дату отгрузки и клиента.");
+          return;
+        }
+        const rows = [...newOrderItems.querySelectorAll(".order-item-row")];
+        const items = rows.map((r) => ({
+          product_id: r.querySelector(".order-item-product-id").value,
+          article: r.dataset.article || "",
+          name: r.dataset.name || "",
+          quantity: r.querySelector(".order-item-qty").value,
+          unit: r.querySelector(".order-item-unit").value,
+        }));
+        let response;
+        try {
+          response = await fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ship_date: shipDate, client, items }),
+          });
+        } catch (err) {
+          showNewOrderError("Нет связи с сервером при сохранении заказа.");
+          return;
+        }
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (err) {
+          payload = null;
+        }
+        if (response.status === 400 && payload && payload.message) {
+          showNewOrderError(payload.message);
+          return;
+        }
+        if (!response.ok) {
+          showNewOrderError(`Не удалось сохранить заказ (код ${response.status}).`);
+          return;
+        }
+        closeNewOrderModal();
+        if (ordersWorkspace.classList.contains("visible")) {
+          await loadOrders();
+        }
+      });
 
       function renderNomenclatureList(items) {
         if (!items.length) {

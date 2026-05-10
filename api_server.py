@@ -31,6 +31,7 @@ def _is_orders_list_path(path: str) -> bool:
 def get_connection():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
@@ -154,6 +155,120 @@ def _init_orders_table(cur):
             """,
             samples,
         )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_id INTEGER NOT NULL,
+          product_id INTEGER,
+          article TEXT NOT NULL DEFAULT '',
+          name TEXT NOT NULL DEFAULT '',
+          quantity REAL NOT NULL DEFAULT 0,
+          unit TEXT NOT NULL DEFAULT 'piece',
+          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _format_ship_date_storage(value: str) -> str:
+    v = (value or "").strip()
+    if len(v) == 10 and v[4] == "-" and v[7] == "-":
+        return f"{v[8:10]}.{v[5:7]}.{v[0:4]}"
+    return v
+
+
+def _format_order_names_summary(items):
+    unit_ru = {"box": "коробок", "set": "наборов", "piece": "шт"}
+    parts = []
+    for _pid, article, name, qty, unit in items:
+        label = (name or article or "—").strip() or "—"
+        u = unit_ru.get(unit, "шт")
+        q = int(qty) if qty == int(qty) else qty
+        parts.append(f"{label} × {q} {u}")
+    return "; ".join(parts)
+
+
+def insert_order_with_items(body: dict):
+    ship_raw = body.get("ship_date", "")
+    client_raw = body.get("client", "")
+    ship = _format_ship_date_storage(ship_raw)
+    client_n = _normalize_str(client_raw)
+    if not ship or not client_n:
+        return {
+            "error": "validation",
+            "message": "Укажите дату отгрузки и клиента.",
+        }
+    raw_items = body.get("items")
+    if not isinstance(raw_items, list) or not raw_items:
+        return {
+            "error": "validation",
+            "message": "Добавьте хотя бы одну позицию заказа.",
+        }
+    normalized = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            qty = float(raw.get("quantity", 0))
+        except (TypeError, ValueError):
+            qty = 0
+        unit = (raw.get("unit") or "piece").strip().lower()
+        if unit not in ("box", "set", "piece"):
+            unit = "piece"
+        name = _normalize_str(raw.get("name", ""))
+        article = _normalize_str(raw.get("article", ""))
+        pid_raw = raw.get("product_id")
+        pid = None
+        if pid_raw is not None and str(pid_raw).strip() != "":
+            try:
+                pid = int(pid_raw)
+            except (TypeError, ValueError):
+                pid = None
+        if qty <= 0:
+            return {
+                "error": "validation",
+                "message": "Укажите количество больше нуля по каждой позиции.",
+            }
+        if pid is None:
+            return {
+                "error": "validation",
+                "message": "Каждая позицию выберите из подсказки номенклатуры (поле «Наименование»).",
+            }
+        if not name and not article:
+            return {
+                "error": "validation",
+                "message": "Для позиции не указано наименование.",
+            }
+        normalized.append((pid, article, name, qty, unit))
+    if not normalized:
+        return {
+            "error": "validation",
+            "message": "Нет корректных позиций в заказе.",
+        }
+    names_summary = _format_order_names_summary(normalized)
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
+            VALUES (?, ?, 0, ?, '')
+            """,
+            (ship, client_n, names_summary),
+        )
+        oid = cur.lastrowid
+        for pid, article, name, qty, unit in normalized:
+            cur.execute(
+                """
+                INSERT INTO order_items (order_id, product_id, article, name, quantity, unit)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (oid, pid, article, name, qty, unit),
+            )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": int(oid)}
 
 
 def fetch_orders():
@@ -354,17 +469,39 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
             return
         items = fetch_nomenclature()
-        query = (parse_qs(parsed.query).get("q", [""])[0] or "").strip().lower()
-        if query:
-            items = [
-                item
-                for item in items
-                if query in item["article"].lower() or query in item["name"].lower()
-            ]
+        qs = parse_qs(parsed.query)
+        if "q" in qs:
+            query = (qs.get("q", [""])[0] or "").strip().lower()
+            if query:
+                items = [
+                    item
+                    for item in items
+                    if query in item["article"].lower() or query in item["name"].lower()
+                ]
+            else:
+                items = []
         self._send_json(200, items)
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        path = parsed.path
+        if _is_orders_list_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = insert_order_with_items(body)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            self._send_json(201, result)
+            return
         if not _is_nomenclature_list_path(parsed.path):
             self._send_json(404, {"error": "Not found"})
             return

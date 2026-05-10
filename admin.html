@@ -41,6 +41,7 @@
 
       .main-area {
         flex: 1;
+        min-width: 0;
         display: grid;
         place-items: center;
         padding: 24px;
@@ -48,6 +49,8 @@
 
       .panel {
         width: min(560px, 90vw);
+        max-width: 100%;
+        box-sizing: border-box;
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 16px;
         background: rgba(18, 24, 38, 0.82);
@@ -213,10 +216,11 @@
         margin-top: 22px;
         border: 1px solid rgba(0, 200, 160, 0.2);
         border-radius: 12px;
-        padding: 16px;
+        padding: 0;
         background: rgba(10, 14, 23, 0.55);
-        max-height: 68vh;
-        overflow: auto;
+        overflow: hidden;
+        min-width: 0;
+        max-width: 100%;
       }
 
       .nomenclature-workspace.visible {
@@ -224,11 +228,18 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .nomenclature-workspace-scroll {
+        max-height: 68vh;
+        overflow-x: hidden;
+        overflow-y: auto;
+        min-width: 0;
+      }
+
       .nomenclature-sticky-head {
         position: sticky;
         top: 0;
         z-index: 4;
-        margin: -16px -16px 12px -16px;
+        margin: 0;
         padding: 16px 16px 12px;
         background: rgba(10, 14, 23, 0.97);
         backdrop-filter: blur(8px);
@@ -239,17 +250,19 @@
         margin: 0 0 8px;
       }
 
-      .nomenclature-sticky-head .nomenclature-search {
-        margin: 0;
+      .nomenclature-list-body {
+        padding: 0 16px 16px;
+        min-width: 0;
       }
 
       .nomenclature-item {
         padding: 10px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.15);
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
+        min-width: 0;
       }
 
       .nomenclature-item:last-child {
@@ -264,6 +277,12 @@
       .nomenclature-meta {
         min-width: 0;
         flex: 1;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .nomenclature-meta .article {
+        overflow-wrap: anywhere;
       }
 
       .nomenclature-pack-line {
@@ -274,13 +293,14 @@
         margin-top: 6px;
         font-size: 0.88rem;
         color: rgba(220, 230, 245, 0.88);
+        max-width: 100%;
       }
 
       .nomenclature-pack-line .pack-stat {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .pack-icon {
@@ -294,6 +314,7 @@
       .nomenclature-actions {
         display: flex;
         gap: 6px;
+        flex-shrink: 0;
       }
 
       .icon-btn {
@@ -311,13 +332,19 @@
       }
 
       .nomenclature-search {
+        box-sizing: border-box;
         width: 100%;
+        max-width: 100%;
         margin: 8px 0 14px;
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 8px;
         padding: 10px 12px;
         background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
+      }
+
+      .nomenclature-sticky-head .nomenclature-search {
+        margin: 0;
       }
 
       .modal-overlay {
@@ -705,16 +732,18 @@
           </section>
 
           <section id="nomenclature-workspace" class="nomenclature-workspace">
-            <div class="nomenclature-sticky-head">
-              <p class="muted">Список товаров</p>
-              <input
-                id="nomenclature-search"
-                class="nomenclature-search"
-                type="text"
-                placeholder="Поиск по артикулу или наименованию..."
-              />
+            <div class="nomenclature-workspace-scroll">
+              <div class="nomenclature-sticky-head">
+                <p class="muted">Список товаров</p>
+                <input
+                  id="nomenclature-search"
+                  class="nomenclature-search"
+                  type="text"
+                  placeholder="Поиск по артикулу или наименованию..."
+                />
+              </div>
+              <div id="nomenclature-list" class="nomenclature-list-body"></div>
             </div>
-            <div id="nomenclature-list"></div>
           </section>
         </section>
       </main>

@@ -2272,23 +2272,6 @@
         closeNomenclatureEdit();
       });
 
-      nomenclatureEditDialog.addEventListener("click", (event) => {
-        event.stopPropagation();
-      });
-
-      nomenclatureEditOverlay.addEventListener("click", () => {
-        closeNomenclatureEdit();
-      });
-
-      window.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape") {
-          return;
-        }
-        if (!nomenclatureEditOverlay.hidden) {
-          closeNomenclatureEdit();
-        }
-      });
-
       nomenclatureCreateForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         clearNomenclatureCreateError();

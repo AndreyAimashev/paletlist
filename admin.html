@@ -1705,7 +1705,7 @@
         currentStage = stage;
 
         if (stageOrderContextEl) {
-          if (isAssembleOrPallet && activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
+          if (stage === "pallet" && activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
             stageOrderContextEl.hidden = false;
             stageOrderContextEl.textContent = `Выбран заказ №${activeStageOrderId}.`;
           } else {
@@ -2441,9 +2441,9 @@
         saveAssembleDraft();
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
-        assembleOrderHeading.textContent = `Сборка заказа №${data.id}`;
-        assembleOrderMeta.textContent = `Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
-        menuTitle.textContent = `Сборка заказа №${data.id}`;
+        assembleOrderHeading.textContent = "Сборка заказа";
+        assembleOrderMeta.textContent = `Заказ №${data.id} · Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
+        menuTitle.textContent = "Сборка заказа";
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();

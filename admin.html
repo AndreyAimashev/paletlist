@@ -358,6 +358,22 @@
         margin-top: 0;
       }
 
+      .modal-error {
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 120, 120, 0.45);
+        background: rgba(40, 18, 22, 0.65);
+        color: #ffb4b4;
+        font-size: 13px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+
+      .modal-error[hidden] {
+        display: none !important;
+      }
+
       .sidebar {
         position: relative;
         width: var(--sidebar-width);
@@ -640,6 +656,9 @@
             <button id="back-to-main-orders-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
+            <button id="nomenclature-create-product-button" class="menu-button menu-step" type="button">
+              Создать товар
+            </button>
             <button id="back-to-main-nomenclature-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
@@ -739,6 +758,48 @@
       </div>
     </div>
 
+    <div id="nomenclature-create-overlay" class="modal-overlay" hidden>
+      <div
+        class="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nomenclature-create-title"
+      >
+        <h3 id="nomenclature-create-title">Создать товар</h3>
+        <p id="nomenclature-create-error" class="modal-error" hidden></p>
+        <form id="nomenclature-create-form" class="arnest-grid">
+          <div class="arnest-field">
+            <label for="create-article">Артикул</label>
+            <input id="create-article" name="article" type="text" autocomplete="off" />
+          </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="create-name">Наименование</label>
+            <textarea id="create-name" name="name" rows="3"></textarea>
+          </div>
+          <div class="arnest-field">
+            <label for="create-pieces-in-box">Штук в коробке</label>
+            <input id="create-pieces-in-box" name="pieces_in_box" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="arnest-field">
+            <label for="create-row-layout">Укладка ряда (коробок в ряду)</label>
+            <input id="create-row-layout" name="row_layout" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="arnest-field">
+            <label for="create-max-rows">Максимум рядов</label>
+            <input id="create-max-rows" name="max_rows" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="arnest-field">
+            <label for="create-box-weight">Вес коробки (кг)</label>
+            <input id="create-box-weight" name="box_weight" type="number" min="0" step="any" value="0" />
+          </div>
+        </form>
+        <div class="modal-actions">
+          <button class="menu-button" type="submit" form="nomenclature-create-form">Создать</button>
+          <button id="nomenclature-create-cancel" class="menu-button" type="button">Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const params = new URLSearchParams(window.location.search);
       const login = params.get("login");
@@ -759,6 +820,17 @@
       const assembleOrderButton = document.getElementById("assemble-order-button");
       const backToMainOrdersButton = document.getElementById("back-to-main-orders-button");
       const backToMainNomenclatureButton = document.getElementById("back-to-main-nomenclature-button");
+      const nomenclatureCreateProductButton = document.getElementById("nomenclature-create-product-button");
+      const nomenclatureCreateOverlay = document.getElementById("nomenclature-create-overlay");
+      const nomenclatureCreateForm = document.getElementById("nomenclature-create-form");
+      const nomenclatureCreateCancel = document.getElementById("nomenclature-create-cancel");
+      const nomenclatureCreateError = document.getElementById("nomenclature-create-error");
+      const createArticleInput = document.getElementById("create-article");
+      const createNameInput = document.getElementById("create-name");
+      const createPiecesInput = document.getElementById("create-pieces-in-box");
+      const createRowLayoutInput = document.getElementById("create-row-layout");
+      const createMaxRowsInput = document.getElementById("create-max-rows");
+      const createBoxWeightInput = document.getElementById("create-box-weight");
       const navMain = document.getElementById("nav-main");
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
@@ -872,6 +944,7 @@
         assembleOrderButton.classList.remove("visible");
         backToMainOrdersButton.classList.remove("visible");
         backToMainNomenclatureButton.classList.remove("visible");
+        nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
 
@@ -921,6 +994,7 @@
           palletListButton.style.display = "none";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
+          nomenclatureCreateProductButton.classList.add("visible");
           backToMainNomenclatureButton.classList.add("visible");
           nomenclatureWorkspace.classList.add("visible");
         }
@@ -949,6 +1023,9 @@
       assembleOrderButton.addEventListener("click", () => setStage("assemble"));
       backToMainOrdersButton.addEventListener("click", () => setStage("main"));
       backToMainNomenclatureButton.addEventListener("click", () => setStage("main"));
+      nomenclatureCreateProductButton.addEventListener("click", () => {
+        openNomenclatureCreate();
+      });
       navMain.addEventListener("click", () => setStage("main"));
       navPallet.addEventListener("click", () => setStage("pallet"));
       navCreate.addEventListener("click", () => setStage("create"));
@@ -995,6 +1072,89 @@
         nomenclatureEditOverlay.hidden = true;
         nomenclatureEditId = null;
         nomenclatureEditForm.reset();
+      }
+
+      function clearNomenclatureCreateError() {
+        nomenclatureCreateError.textContent = "";
+        nomenclatureCreateError.hidden = true;
+      }
+
+      function showNomenclatureCreateError(text) {
+        nomenclatureCreateError.textContent = text;
+        nomenclatureCreateError.hidden = false;
+      }
+
+      function formatNomenclatureConflicts(conflicts) {
+        if (!conflicts || !conflicts.length) {
+          return "";
+        }
+        const lines = [];
+        for (const c of conflicts) {
+          if (c.kind === "article") {
+            lines.push(
+              `Артикул «${c.you}» совпадает с уже существующим товаром (id ${c.existing_id}).\nУ того товара сейчас: артикул «${c.existing_article}», наименование «${c.existing_name}».\nИзмените артикул нового товара и нажмите «Создать» снова.`,
+            );
+          } else if (c.kind === "name") {
+            lines.push(
+              `Наименование «${c.you}» совпадает с уже существующим товаром (id ${c.existing_id}).\nУ того товара сейчас: артикул «${c.existing_article}», наименование «${c.existing_name}».\nИзмените наименование нового товара и нажмите «Создать» снова.`,
+            );
+          }
+        }
+        return lines.join("\n\n—\n\n");
+      }
+
+      function findLocalCreateConflicts(articleRaw, nameRaw) {
+        const articleN = articleRaw.trim();
+        const nameN = nameRaw.trim();
+        if (!articleN || !nameN) {
+          return { message: "Укажите непустой артикул и наименование." };
+        }
+        const artKey = articleN.toLowerCase();
+        const nameKey = nameN.toLowerCase();
+        const conflicts = [];
+        for (const item of nomenclatureItems) {
+          const ea = (item.article || "").trim();
+          const en = (item.name || "").trim();
+          if (!ea && !en) {
+            continue;
+          }
+          if (artKey === ea.toLowerCase()) {
+            conflicts.push({
+              kind: "article",
+              you: articleN,
+              existing_id: item.id,
+              existing_article: ea,
+              existing_name: en || "—",
+            });
+          }
+          if (nameKey === en.toLowerCase()) {
+            conflicts.push({
+              kind: "name",
+              you: nameN,
+              existing_id: item.id,
+              existing_article: ea || "—",
+              existing_name: en,
+            });
+          }
+        }
+        return conflicts.length ? { conflicts } : null;
+      }
+
+      function openNomenclatureCreate() {
+        nomenclatureCreateForm.reset();
+        createPiecesInput.value = "0";
+        createRowLayoutInput.value = "0";
+        createMaxRowsInput.value = "0";
+        createBoxWeightInput.value = "0";
+        clearNomenclatureCreateError();
+        nomenclatureCreateOverlay.hidden = false;
+        createArticleInput.focus();
+      }
+
+      function closeNomenclatureCreate() {
+        nomenclatureCreateOverlay.hidden = true;
+        nomenclatureCreateForm.reset();
+        clearNomenclatureCreateError();
       }
 
       function nomenclaturePackRowHtml(item) {
@@ -1360,8 +1520,87 @@
       });
 
       window.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !nomenclatureEditOverlay.hidden) {
+        if (event.key !== "Escape") {
+          return;
+        }
+        if (!nomenclatureCreateOverlay.hidden) {
+          closeNomenclatureCreate();
+          return;
+        }
+        if (!nomenclatureEditOverlay.hidden) {
           closeNomenclatureEdit();
+        }
+      });
+
+      nomenclatureCreateForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearNomenclatureCreateError();
+        const article = createArticleInput.value;
+        const name = createNameInput.value;
+        const local = findLocalCreateConflicts(article, name);
+        if (local && local.message) {
+          showNomenclatureCreateError(local.message);
+          return;
+        }
+        if (local && local.conflicts) {
+          showNomenclatureCreateError(formatNomenclatureConflicts(local.conflicts));
+          return;
+        }
+        const weightRaw = String(createBoxWeightInput.value).trim().replace(",", ".");
+        const parsedWeight = Number(weightRaw);
+        const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
+        const response = await fetch("/api/nomenclature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            article: article.trim(),
+            name: name.trim(),
+            pieces_in_box: Math.trunc(Number(createPiecesInput.value)) || 0,
+            row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
+            max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
+            box_weight: parsedBoxWeight,
+          }),
+        });
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (err) {
+          payload = null;
+        }
+        if (response.status === 409 && payload && payload.conflicts) {
+          showNomenclatureCreateError(formatNomenclatureConflicts(payload.conflicts));
+          return;
+        }
+        if (response.status === 400 && payload && payload.message) {
+          showNomenclatureCreateError(payload.message);
+          return;
+        }
+        if (!response.ok) {
+          showNomenclatureCreateError("Не удалось создать товар. Проверьте связь с сервером.");
+          return;
+        }
+        closeNomenclatureCreate();
+        await loadNomenclature();
+        const query = nomenclatureSearch.value.trim().toLowerCase();
+        if (!query) {
+          renderNomenclatureList(nomenclatureItems);
+        } else {
+          const filtered = nomenclatureItems.filter((entry) => {
+            const a = (entry.article || "").toLowerCase();
+            const n = (entry.name || "").toLowerCase();
+            return a.includes(query) || n.includes(query);
+          });
+          renderNomenclatureList(filtered);
+        }
+      });
+
+      nomenclatureCreateCancel.addEventListener("click", () => {
+        closeNomenclatureCreate();
+      });
+
+      nomenclatureCreateOverlay.addEventListener("click", (event) => {
+        if (event.target === nomenclatureCreateOverlay) {
+          closeNomenclatureCreate();
         }
       });
 

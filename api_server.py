@@ -158,6 +158,91 @@ def soft_delete_row(row_id: int):
     return update_nomenclature_row(row_id, "", "", 0, 0, 0, 0)
 
 
+def _normalize_str(value: str) -> str:
+    return (value or "").strip()
+
+
+def find_nomenclature_create_conflicts(article: str, name: str):
+    article_n = _normalize_str(article)
+    name_n = _normalize_str(name)
+    conflicts = []
+    if not article_n or not name_n:
+        return {
+            "error": "validation",
+            "message": "Укажите непустой артикул и наименование.",
+        }
+    art_cf = article_n.casefold()
+    name_cf = name_n.casefold()
+    for item in fetch_nomenclature():
+        ea = _normalize_str(item["article"])
+        en = _normalize_str(item["name"])
+        if not ea and not en:
+            continue
+        row_id = item["id"]
+        if art_cf == ea.casefold():
+            conflicts.append(
+                {
+                    "kind": "article",
+                    "you": article_n,
+                    "existing_id": row_id,
+                    "existing_article": ea,
+                    "existing_name": en or "—",
+                }
+            )
+        if name_cf == en.casefold():
+            conflicts.append(
+                {
+                    "kind": "name",
+                    "you": name_n,
+                    "existing_id": row_id,
+                    "existing_article": ea or "—",
+                    "existing_name": en,
+                }
+            )
+    if conflicts:
+        return {"error": "duplicate", "conflicts": conflicts}
+    return None
+
+
+def insert_nomenclature_row(
+    article: str,
+    name: str,
+    pieces_in_box: int,
+    row_layout: int,
+    max_rows: int,
+    box_weight: float,
+):
+    conflict = find_nomenclature_create_conflicts(article, name)
+    if conflict:
+        return conflict
+    article_n = _normalize_str(article)
+    name_n = _normalize_str(name)
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        next_id = cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM products").fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO products (
+              id, article, name,
+              pieces_in_box, row_layout, max_rows, box_weight
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(next_id),
+                article_n,
+                name_n,
+                int(pieces_in_box),
+                int(row_layout),
+                int(max_rows),
+                float(box_weight),
+            ),
+        )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": int(next_id)}
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, data):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -188,6 +273,46 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if query in item["article"].lower() or query in item["name"].lower()
             ]
         self._send_json(200, items)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/nomenclature":
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+
+        def _int_body(key: str) -> int:
+            try:
+                return int(body.get(key, 0))
+            except (TypeError, ValueError):
+                return 0
+
+        def _float_body(key: str) -> float:
+            try:
+                return float(body.get(key, 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        result = insert_nomenclature_row(
+            body.get("article", ""),
+            body.get("name", ""),
+            _int_body("pieces_in_box"),
+            _int_body("row_layout"),
+            _int_body("max_rows"),
+            _float_body("box_weight"),
+        )
+        err = result.get("error")
+        if err == "validation":
+            self._send_json(400, result)
+            return
+        if err == "duplicate":
+            self._send_json(409, result)
+            return
+        self._send_json(201, result)
 
     def do_PUT(self):
         parsed = urlparse(self.path)

@@ -2164,7 +2164,14 @@
 
       function formatOrderPct(value) {
         const n = Number(value);
-        return String(Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0);
+        if (!Number.isFinite(n)) {
+          return "0";
+        }
+        let r = Math.round(Math.max(0, Math.min(100, n)));
+        if (r === 100 && n < 100 - 1e-6) {
+          r = 99;
+        }
+        return String(r);
       }
 
       function renderOrderRowActions(orderId) {
@@ -2408,6 +2415,27 @@
         return s;
       }
 
+      function assembledPercentFromPieceTotals(allocTotal, maxTotal) {
+        if (!Number.isFinite(maxTotal) || maxTotal <= 0) {
+          return 0;
+        }
+        const allocRaw = Number(allocTotal);
+        if (!Number.isFinite(allocRaw) || allocRaw <= 0) {
+          return 0;
+        }
+        const alloc = Math.min(Math.max(0, allocRaw), maxTotal);
+        const remainder = maxTotal - alloc;
+        const tol = Math.max(1e-6, maxTotal * 1e-9);
+        if (remainder <= tol) {
+          return 100;
+        }
+        let pct = Math.round((100 * alloc) / maxTotal);
+        if (pct >= 100) {
+          pct = 99;
+        }
+        return Math.max(0, Math.min(99, pct));
+      }
+
       function computeAssembledPercentFromDraftItems(items, pallets) {
         if (!Array.isArray(items) || !items.length) {
           return 0;
@@ -2420,10 +2448,7 @@
           const alloc = lineAllocatedPiecesSumFromDraft(items, pallets, li);
           allocTotal += Math.min(Math.max(0, alloc), maxP);
         });
-        if (maxTotal <= 0) {
-          return 0;
-        }
-        return Math.max(0, Math.min(100, Math.round((100 * allocTotal) / maxTotal)));
+        return assembledPercentFromPieceTotals(allocTotal, maxTotal);
       }
 
       function tryGetAssembleDraftPallets(orderId) {

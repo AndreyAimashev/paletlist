@@ -2184,20 +2184,6 @@
             .join("");
       }
 
-      async function loadOrders() {
-        try {
-          const res = await fetch("/api/orders");
-          if (!res.ok) {
-            throw new Error("API error");
-          }
-          const rows = await res.json();
-          renderOrdersTable(Array.isArray(rows) ? rows : []);
-        } catch (error) {
-          ordersTableBody.innerHTML =
-            "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
-        }
-      }
-
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
       const ASSEMBLE_SUMMARY_UNITS = {
@@ -2380,6 +2366,106 @@
           });
         });
         return s;
+      }
+
+      function lineAllocatedPiecesSumFromDraft(items, pallets, lineIdx) {
+        const it = items[lineIdx];
+        if (!it) {
+          return 0;
+        }
+        let s = 0;
+        (pallets || []).forEach((p) => {
+          (p.slots || []).forEach((slot) => {
+            if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
+              return;
+            }
+            if (Number(slot.lineIndex) !== lineIdx) {
+              return;
+            }
+            s += allocationToPieces(it, slotToAlloc(normalizeSlot(slot)));
+          });
+        });
+        return s;
+      }
+
+      function computeAssembledPercentFromDraftItems(items, pallets) {
+        if (!Array.isArray(items) || !items.length) {
+          return 0;
+        }
+        let maxTotal = 0;
+        let allocTotal = 0;
+        items.forEach((it, li) => {
+          const maxP = orderLineMaxPieces(it);
+          maxTotal += maxP;
+          const alloc = lineAllocatedPiecesSumFromDraft(items, pallets, li);
+          allocTotal += Math.min(Math.max(0, alloc), maxP);
+        });
+        if (maxTotal <= 0) {
+          return 0;
+        }
+        return Math.max(0, Math.min(100, Math.round((100 * allocTotal) / maxTotal)));
+      }
+
+      function tryGetAssembleDraftPallets(orderId) {
+        try {
+          const raw = localStorage.getItem(assembleStorageKey(orderId));
+          if (!raw) {
+            return null;
+          }
+          const data = JSON.parse(raw);
+          if (!data || !Array.isArray(data.pallets)) {
+            return null;
+          }
+          return data.pallets.map((p) => migratePalletRecord(p));
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function loadOrders() {
+        try {
+          const res = await fetch("/api/orders");
+          if (!res.ok) {
+            throw new Error("API error");
+          }
+          let rows = await res.json();
+          if (!Array.isArray(rows)) {
+            rows = [];
+          }
+          const enriched = await Promise.all(
+            rows.map(async (o) => {
+              const pallets = tryGetAssembleDraftPallets(o.id);
+              if (!pallets) {
+                return o;
+              }
+              let detailRes;
+              try {
+                detailRes = await fetch(`/api/orders/${o.id}`);
+              } catch (e) {
+                return o;
+              }
+              if (!detailRes.ok) {
+                return o;
+              }
+              let data;
+              try {
+                data = await detailRes.json();
+              } catch (e) {
+                return o;
+              }
+              const items = Array.isArray(data.items) ? data.items : [];
+              if (!items.length) {
+                return o;
+              }
+              const pct = computeAssembledPercentFromDraftItems(items, pallets);
+              return { ...o, assembled_percent: pct };
+            }),
+          );
+          renderOrdersTable(enriched);
+        } catch (error) {
+          ordersTableBody.innerHTML =
+            "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+        }
       }
 
       function finalizeAssembleSlots() {

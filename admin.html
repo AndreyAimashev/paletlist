@@ -2550,13 +2550,13 @@
         assemblePalletsRoot.innerHTML = assembleAllocState.pallets
           .map((pal, pIdx) => {
             const numVal = escapeXml(String(pal.palletNumber ?? ""));
-            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet="${pIdx}">Удалить всю паллету</button>`;
+            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`;
             const slots = Array.isArray(pal.slots) ? pal.slots : [];
             const slotsHtml =
               slots.length === 0
-                ? '<p class="muted">На паллете нет позиций — нажмите «Ещё позицию на эту паллету» ниже.</p>'
+                ? '<p class="muted">На паллете нет позиций — нажмите «Добавить позицию на паллет» ниже.</p>'
                 : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
-            const addBtn = `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Ещё позицию на эту паллету</button>`;
+            const addBtn = `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">Добавить позицию на паллет</button>`;
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">

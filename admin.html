@@ -224,6 +224,25 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .nomenclature-sticky-head {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        margin: -16px -16px 12px -16px;
+        padding: 16px 16px 12px;
+        background: rgba(10, 14, 23, 0.97);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid rgba(0, 200, 160, 0.22);
+      }
+
+      .nomenclature-sticky-head .muted {
+        margin: 0 0 8px;
+      }
+
+      .nomenclature-sticky-head .nomenclature-search {
+        margin: 0;
+      }
+
       .nomenclature-item {
         padding: 10px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.15);
@@ -686,13 +705,15 @@
           </section>
 
           <section id="nomenclature-workspace" class="nomenclature-workspace">
-            <p class="muted">Список товаров</p>
-            <input
-              id="nomenclature-search"
-              class="nomenclature-search"
-              type="text"
-              placeholder="Поиск по артикулу или наименованию..."
-            />
+            <div class="nomenclature-sticky-head">
+              <p class="muted">Список товаров</p>
+              <input
+                id="nomenclature-search"
+                class="nomenclature-search"
+                type="text"
+                placeholder="Поиск по артикулу или наименованию..."
+              />
+            </div>
             <div id="nomenclature-list"></div>
           </section>
         </section>

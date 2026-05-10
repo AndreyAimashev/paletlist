@@ -256,6 +256,38 @@
         margin-bottom: 14px;
       }
 
+      .pallet-sheets-toolbar-right {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .assemble-btn--download-docx {
+        margin: 0;
+        padding: 10px 18px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.45px;
+        text-transform: uppercase;
+        color: #09111e;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        background: linear-gradient(120deg, var(--accent-teal), #00a878 45%, var(--accent-purple));
+        box-shadow: 0 4px 14px rgba(0, 200, 160, 0.22);
+        white-space: nowrap;
+      }
+
+      .assemble-btn--download-docx:hover {
+        filter: brightness(1.06);
+        box-shadow: 0 6px 18px rgba(0, 200, 160, 0.3);
+      }
+
       .docx-preview-shell {
         border: 1px solid rgba(0, 200, 160, 0.2);
         border-radius: 12px;
@@ -1457,7 +1489,12 @@
               <button type="button" id="pallet-sheets-back-orders" class="assemble-btn assemble-btn--nav">
                 ← К списку заказов
               </button>
-              <span class="muted" id="pallet-sheets-order-meta"></span>
+              <div class="pallet-sheets-toolbar-right">
+                <span class="muted" id="pallet-sheets-order-meta"></span>
+                <button type="button" id="pallet-sheets-download" class="assemble-btn--download-docx" hidden>
+                  Скачать паллетные листы
+                </button>
+              </div>
             </div>
             <p id="pallet-sheets-loading" class="muted" hidden>Загрузка шаблона…</p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
@@ -1814,6 +1851,7 @@
       const palletSheetsWorkspace = document.getElementById("pallet-sheets-workspace");
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
+      const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
       const palletSheetsUnirusWrap = document.getElementById("pallet-sheets-unirus-wrap");
       const unirusDocxContainer = document.getElementById("unirus-docx-container");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
@@ -1912,6 +1950,9 @@
         palletSheetsLoading.hidden = false;
         unirusDocxContainer.innerHTML = "";
         palletSheetsOrderMeta.textContent = "";
+        if (palletSheetsDownloadBtn) {
+          palletSheetsDownloadBtn.hidden = true;
+        }
 
         let order;
         try {
@@ -1938,6 +1979,9 @@
         if (!isArnestUnirusClient(order.client)) {
           palletSheetsLoading.hidden = true;
           palletSheetsOtherClient.hidden = false;
+          if (palletSheetsDownloadBtn) {
+            palletSheetsDownloadBtn.hidden = true;
+          }
           return;
         }
 
@@ -1958,6 +2002,9 @@
               '<p class="muted" style="margin:0">Просмотр недоступен в браузере. <a href="/templates/Unirus.docx">Скачать Unirus.docx</a></p>';
           }
           palletSheetsUnirusWrap.hidden = false;
+          if (palletSheetsDownloadBtn) {
+            palletSheetsDownloadBtn.hidden = false;
+          }
         } catch (e) {
           if (token !== palletSheetsLoadToken) {
             return;
@@ -2145,13 +2192,8 @@
         }
 
         if (stageOrderContextEl) {
-          if (stage === "pallet" && activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
-            stageOrderContextEl.hidden = false;
-            stageOrderContextEl.textContent = `Выбран заказ №${activeStageOrderId}.`;
-          } else {
-            stageOrderContextEl.hidden = true;
-            stageOrderContextEl.textContent = "";
-          }
+          stageOrderContextEl.hidden = true;
+          stageOrderContextEl.textContent = "";
         }
 
         if (adminLoginNote) {
@@ -2166,6 +2208,22 @@
 
       if (palletSheetsBackOrdersBtn) {
         palletSheetsBackOrdersBtn.addEventListener("click", () => setStage("orders"));
+      }
+
+      if (palletSheetsDownloadBtn) {
+        palletSheetsDownloadBtn.addEventListener("click", () => {
+          const oid = activeStageOrderId;
+          if (oid == null || !Number.isFinite(oid)) {
+            return;
+          }
+          const a = document.createElement("a");
+          a.href = "/templates/Unirus.docx";
+          a.download = `Паллетные_листы_заказ_${oid}_Unirus.docx`;
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        });
       }
 
       ordersButton.addEventListener("click", () => setStage("orders"));

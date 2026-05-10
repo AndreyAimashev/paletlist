@@ -250,17 +250,10 @@
       .assemble-head {
         display: flex;
         flex-wrap: wrap;
-        align-items: flex-start;
-        justify-content: space-between;
+        align-items: center;
+        justify-content: flex-end;
         gap: 12px;
         margin-bottom: 14px;
-      }
-
-      .assemble-title {
-        margin: 0 0 6px;
-        font-family: "Orbitron", sans-serif;
-        font-size: 16px;
-        color: var(--accent-teal);
       }
 
       .assemble-pallet-card {
@@ -1122,7 +1115,7 @@
         <section class="panel">
           <h1 id="menu-title">Главное меню</h1>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
-          <p class="muted">Вы вошли как администратор.</p>
+          <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
           <div class="menu-items">
             <button id="pallet-list-button" class="menu-button" type="button">Паллетные листы</button>
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
@@ -1175,10 +1168,6 @@
             </div>
             <div id="assemble-loaded" hidden>
               <div class="assemble-head">
-                <div>
-                  <h2 class="assemble-title" id="assemble-order-heading">Сборка заказа</h2>
-                  <p class="muted" id="assemble-order-meta"></p>
-                </div>
                 <button type="button" id="assemble-back-orders" class="menu-button">К списку заказов</button>
               </div>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
@@ -1497,8 +1486,7 @@
       const assembleWorkspace = document.getElementById("assemble-workspace");
       const assembleEmptyEl = document.getElementById("assemble-empty");
       const assembleLoadedEl = document.getElementById("assemble-loaded");
-      const assembleOrderHeading = document.getElementById("assemble-order-heading");
-      const assembleOrderMeta = document.getElementById("assemble-order-meta");
+      const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
       const assemblePalletsRoot = document.getElementById("assemble-pallets");
@@ -1733,6 +1721,10 @@
             stageOrderContextEl.hidden = true;
             stageOrderContextEl.textContent = "";
           }
+        }
+
+        if (adminLoginNote) {
+          adminLoginNote.hidden = stage === "assemble";
         }
       }
 
@@ -2650,9 +2642,7 @@
         saveAssembleDraft();
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
-        assembleOrderHeading.textContent = "Сборка заказа";
-        assembleOrderMeta.textContent = `Заказ №${data.id} · Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
-        menuTitle.textContent = "Сборка заказа";
+        menuTitle.textContent = `Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();

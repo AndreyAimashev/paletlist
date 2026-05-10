@@ -15,6 +15,10 @@ PORT = 8081
 DB_LOCK = threading.Lock()
 
 
+def _is_nomenclature_list_path(path: str) -> bool:
+    return (path or "").rstrip("/") == "/api/nomenclature"
+
+
 def get_connection():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -261,7 +265,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/api/nomenclature":
+        if not _is_nomenclature_list_path(parsed.path):
             self._send_json(404, {"error": "Not found"})
             return
         items = fetch_nomenclature()
@@ -276,7 +280,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/api/nomenclature":
+        if not _is_nomenclature_list_path(parsed.path):
             self._send_json(404, {"error": "Not found"})
             return
         try:
@@ -297,14 +301,21 @@ class ApiHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
-        result = insert_nomenclature_row(
-            body.get("article", ""),
-            body.get("name", ""),
-            _int_body("pieces_in_box"),
-            _int_body("row_layout"),
-            _int_body("max_rows"),
-            _float_body("box_weight"),
-        )
+        try:
+            result = insert_nomenclature_row(
+                body.get("article", ""),
+                body.get("name", ""),
+                _int_body("pieces_in_box"),
+                _int_body("row_layout"),
+                _int_body("max_rows"),
+                _float_body("box_weight"),
+            )
+        except sqlite3.Error as exc:
+            self._send_json(
+                500,
+                {"error": "database", "message": str(exc)},
+            )
+            return
         err = result.get("error")
         if err == "validation":
             self._send_json(400, result)

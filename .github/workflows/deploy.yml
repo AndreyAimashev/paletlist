@@ -27,3 +27,5 @@ jobs:
               npm ci --omit=dev
             fi
             sudo systemctl reload nginx || true
+            # Подхватить новый код api_server.py (POST и т.д.); имя юнита задайте на сервере
+            sudo systemctl try-restart paletlist-api.service || true

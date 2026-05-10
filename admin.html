@@ -1606,18 +1606,26 @@
         const weightRaw = String(createBoxWeightInput.value).trim().replace(",", ".");
         const parsedWeight = Number(weightRaw);
         const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
-        const response = await fetch("/api/nomenclature", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            article: article.trim(),
-            name: name.trim(),
-            pieces_in_box: Math.trunc(Number(createPiecesInput.value)) || 0,
-            row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
-            max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
-            box_weight: parsedBoxWeight,
-          }),
-        });
+        let response;
+        try {
+          response = await fetch("/api/nomenclature", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              article: article.trim(),
+              name: name.trim(),
+              pieces_in_box: Math.trunc(Number(createPiecesInput.value)) || 0,
+              row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
+              max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
+              box_weight: parsedBoxWeight,
+            }),
+          });
+        } catch (netErr) {
+          showNomenclatureCreateError(
+            "Запрос не дошёл до сервера. Проверьте сеть или что сайт открыт по тому же адресу, куда настроен прокси API.",
+          );
+          return;
+        }
         let payload = null;
         try {
           payload = await response.json();
@@ -1628,12 +1636,26 @@
           showNomenclatureCreateError(formatNomenclatureConflicts(payload.conflicts));
           return;
         }
-        if (response.status === 400 && payload && payload.message) {
+        if (response.status === 400 && payload) {
+          showNomenclatureCreateError(
+            payload.message || payload.error || "Некорректные данные запроса.",
+          );
+          return;
+        }
+        if (response.status === 500 && payload && payload.message) {
           showNomenclatureCreateError(payload.message);
           return;
         }
         if (!response.ok) {
-          showNomenclatureCreateError("Не удалось создать товар. Проверьте связь с сервером.");
+          const code = response.status;
+          const fromApi = payload && (payload.message || payload.error);
+          const hint501 =
+            code === 501 || code === 405
+              ? "Часто это значит, что на сервере всё ещё работает старый процесс API без поддержки POST. Нужно перезапустить api_server.py (например: sudo systemctl restart paletlist-api)."
+              : "";
+          showNomenclatureCreateError(
+            `Не удалось создать товар (ответ сервера: ${code}).${fromApi ? "\n" + fromApi : ""}${hint501 ? "\n" + hint501 : "\nЕсли код 502/504 — проверьте, что API слушает порт и nginx проксирует /api/."}`,
+          );
           return;
         }
         closeNomenclatureCreate();

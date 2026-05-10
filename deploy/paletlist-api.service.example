@@ -1,0 +1,24 @@
+; Пример юнита systemd для api_server.py
+; Установка на сервере (пути и пользователь — под свою среду):
+;   sudo cp deploy/paletlist-api.service.example /etc/systemd/system/paletlist-api.service
+;   sudo nano /etc/systemd/system/paletlist-api.service
+;   sudo systemctl daemon-reload
+;   sudo systemctl enable --now paletlist-api.service
+;
+; После этого деплой из GitHub Actions сможет выполнять try-restart paletlist-api.service
+
+[Unit]
+Description=Paletlist nomenclature API (api_server.py)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/paletlist
+ExecStart=/usr/bin/python3 /var/www/paletlist/api_server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

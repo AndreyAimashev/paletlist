@@ -511,6 +511,52 @@
         font-size: 10px;
       }
 
+      .assemble-summary-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        margin: 0 0 10px;
+        font-size: 12px;
+      }
+
+      .assemble-summary-unit-toggle {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .assemble-summary-unit-btn {
+        margin: 0;
+        padding: 6px 12px;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 8px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .assemble-summary-unit-btn:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.4);
+      }
+
+      .assemble-summary-unit-btn.active {
+        color: #09111e;
+        background: linear-gradient(45deg, rgba(0, 200, 160, 0.85), rgba(0, 168, 140, 0.9));
+        border-color: transparent;
+        font-weight: 600;
+      }
+
       .assemble-alert {
         margin: 0 0 12px;
         padding: 10px 12px;
@@ -1297,15 +1343,28 @@
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
                 <p class="muted" style="margin: 0 0 6px; font-size: 12px">Позиции заказа и остаток к распределению</p>
+                <div class="assemble-summary-toolbar muted" id="assemble-summary-unit-toolbar" hidden>
+                  <span>Единицы таблицы:</span>
+                  <div class="assemble-summary-unit-toggle" role="group" aria-label="Единицы измерения в сводке">
+                    <button type="button" class="assemble-summary-unit-btn" data-assemble-summary-unit="piece">
+                      Штуки
+                    </button>
+                    <button type="button" class="assemble-summary-unit-btn" data-assemble-summary-unit="box">
+                      Коробки
+                    </button>
+                    <button type="button" class="assemble-summary-unit-btn" data-assemble-summary-unit="set">
+                      Наборы
+                    </button>
+                  </div>
+                </div>
                 <table class="assemble-summary-table" id="assemble-lines-summary">
                   <thead>
                     <tr>
                       <th scope="col">#</th>
                       <th scope="col">Товар</th>
-                      <th scope="col">По заказу</th>
-                      <th scope="col">Лимит (шт)</th>
-                      <th scope="col">Распределено</th>
-                      <th scope="col">Остаток</th>
+                      <th scope="col" id="assemble-summary-th-order">По заказу</th>
+                      <th scope="col" id="assemble-summary-th-alloc">Распределено</th>
+                      <th scope="col" id="assemble-summary-th-rest">Остаток</th>
                     </tr>
                   </thead>
                   <tbody id="assemble-lines-summary-body"></tbody>
@@ -1615,6 +1674,10 @@
       const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
+      const assembleSummaryUnitToolbar = document.getElementById("assemble-summary-unit-toolbar");
+      const assembleSummaryThOrder = document.getElementById("assemble-summary-th-order");
+      const assembleSummaryThAlloc = document.getElementById("assemble-summary-th-alloc");
+      const assembleSummaryThRest = document.getElementById("assemble-summary-th-rest");
       const assemblePalletsRoot = document.getElementById("assemble-pallets");
       const assembleAddPalletBtn = document.getElementById("assemble-add-pallet");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
@@ -2136,6 +2199,25 @@
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
+      const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
+      const ASSEMBLE_SUMMARY_UNITS = {
+        piece: { label: "штуки", short: "шт" },
+        box: { label: "коробки", short: "кор" },
+        set: { label: "наборы", short: "наб" },
+      };
+
+      let assembleSummaryDisplayUnit = (function initAssembleSummaryUnit() {
+        try {
+          const v = sessionStorage.getItem(ASSEMBLE_SUMMARY_UNIT_STORAGE);
+          if (v === "piece" || v === "box" || v === "set") {
+            return v;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        return "piece";
+      })();
+
       let assembleOrderSnapshot = null;
       let assembleAllocState = null;
 
@@ -2236,19 +2318,6 @@
           });
         }
         return { id, palletNumber, slots };
-      }
-
-      function orderLineOrderedLabel(it) {
-        const u = (it.unit || "piece").toLowerCase();
-        const q = it.quantity;
-        const qs = Number.isFinite(Number(q)) ? String(q) : String(q);
-        if (u === "box") {
-          return `${qs} коробок`;
-        }
-        if (u === "set") {
-          return `${qs} наборов`;
-        }
-        return `${qs} шт`;
       }
 
       function orderLineMaxPieces(it) {
@@ -2402,25 +2471,135 @@
         return String(Math.round(n * 1000) / 1000);
       }
 
+      function summaryPiecesToUnit(it, pieces, unit) {
+        const p = Number(pieces);
+        if (!Number.isFinite(p)) {
+          return null;
+        }
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        if (unit === "piece") {
+          return p;
+        }
+        if (unit === "box") {
+          if (pib <= 0) {
+            return null;
+          }
+          return p / pib;
+        }
+        if (unit === "set") {
+          return p / pps;
+        }
+        return null;
+      }
+
+      function summaryLineNeedsFinePrecision(it, unit) {
+        const maxP = orderLineMaxPieces(it);
+        if (!Number.isFinite(maxP) || maxP <= 0) {
+          return false;
+        }
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        if (unit === "box" && pib > 0 && maxP < pib) {
+          return true;
+        }
+        if (unit === "set" && maxP < pps) {
+          return true;
+        }
+        if (unit === "piece" && maxP > 0 && maxP < 1) {
+          return true;
+        }
+        return false;
+      }
+
+      function formatSummaryQty(val, forceThreeDecimals) {
+        if (val === null || val === undefined) {
+          return "—";
+        }
+        const n = Number(val);
+        if (!Number.isFinite(n)) {
+          return "—";
+        }
+        if (forceThreeDecimals) {
+          return n.toLocaleString("ru-RU", {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3,
+          });
+        }
+        const rounded = Math.round(n);
+        if (Math.abs(n - rounded) < 1e-9) {
+          return String(rounded);
+        }
+        return n.toLocaleString("ru-RU", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 3,
+        });
+      }
+
+      function syncAssembleSummaryUnitButtons() {
+        if (!assembleSummaryUnitToolbar) {
+          return;
+        }
+        assembleSummaryUnitToolbar.querySelectorAll("[data-assemble-summary-unit]").forEach((btn) => {
+          btn.classList.toggle(
+            "active",
+            btn.dataset.assembleSummaryUnit === assembleSummaryDisplayUnit,
+          );
+        });
+      }
+
+      function updateAssembleSummaryTableHeaders() {
+        const u = ASSEMBLE_SUMMARY_UNITS[assembleSummaryDisplayUnit];
+        const lab = u ? u.label : "штуки";
+        if (assembleSummaryThOrder) {
+          assembleSummaryThOrder.textContent = `По заказу, ${lab}`;
+        }
+        if (assembleSummaryThAlloc) {
+          assembleSummaryThAlloc.textContent = `Распределено, ${lab}`;
+        }
+        if (assembleSummaryThRest) {
+          assembleSummaryThRest.textContent = `Остаток, ${lab}`;
+        }
+      }
+
+      function setAssembleSummaryDisplayUnit(next) {
+        if (next !== "piece" && next !== "box" && next !== "set") {
+          return;
+        }
+        assembleSummaryDisplayUnit = next;
+        try {
+          sessionStorage.setItem(ASSEMBLE_SUMMARY_UNIT_STORAGE, next);
+        } catch (e) {
+          /* ignore */
+        }
+        renderAssembleSummary();
+      }
+
       function renderAssembleSummary() {
         if (!assembleLinesSummaryBody || !assembleOrderSnapshot) {
           return;
         }
+        syncAssembleSummaryUnitButtons();
+        updateAssembleSummaryTableHeaders();
         const items = assembleOrderSnapshot.items;
+        const unit = assembleSummaryDisplayUnit;
         assembleLinesSummaryBody.innerHTML = items
           .map((it, li) => {
             const maxP = orderLineMaxPieces(it);
-            const alloc = lineAllocatedPiecesSum(li);
-            const rest = maxP - alloc;
-            const bad = alloc > maxP + 1e-4;
+            const allocP = lineAllocatedPiecesSum(li);
+            const restP = maxP - allocP;
+            const fine = summaryLineNeedsFinePrecision(it, unit);
+            const qOrd = summaryPiecesToUnit(it, maxP, unit);
+            const qAlloc = summaryPiecesToUnit(it, allocP, unit);
+            const qRest = summaryPiecesToUnit(it, restP, unit);
+            const bad = allocP > maxP + 1e-4;
             const title = `${escapeXml(it.article || "")}${it.article && it.name ? " — " : ""}${escapeXml(it.name || "—")}`;
             return `<tr>
               <td>${li + 1}</td>
               <td>${title}</td>
-              <td>${escapeXml(orderLineOrderedLabel(it))}</td>
-              <td>${escapeXml(formatAssembleNum(maxP))}</td>
-              <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatAssembleNum(alloc))}</td>
-              <td style="color:${rest < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatAssembleNum(rest))}</td>
+              <td>${escapeXml(formatSummaryQty(qOrd, fine))}</td>
+              <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qAlloc, fine))}</td>
+              <td style="color:${restP < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qRest, fine))}</td>
             </tr>`;
           })
           .join("");
@@ -2801,6 +2980,9 @@
         saveAssembleDraft();
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
+        if (assembleSummaryUnitToolbar) {
+          assembleSummaryUnitToolbar.hidden = false;
+        }
         menuTitle.textContent = `Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
         renderAssemblePalletCards();
         renderAssembleSummary();
@@ -2813,6 +2995,9 @@
         }
         assembleOrderSnapshot = null;
         assembleAllocState = null;
+        if (assembleSummaryUnitToolbar) {
+          assembleSummaryUnitToolbar.hidden = true;
+        }
         assembleEmptyEl.hidden = false;
         assembleLoadedEl.hidden = true;
         assembleEmptyEl.innerHTML =
@@ -2839,6 +3024,19 @@
       }
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
+      }
+      if (assembleWorkspace) {
+        assembleWorkspace.addEventListener("click", (ev) => {
+          const uBtn = ev.target.closest("[data-assemble-summary-unit]");
+          if (!uBtn || !assembleWorkspace.contains(uBtn)) {
+            return;
+          }
+          const u = uBtn.dataset.assembleSummaryUnit;
+          if (u === "piece" || u === "box" || u === "set") {
+            ev.preventDefault();
+            setAssembleSummaryDisplayUnit(u);
+          }
+        });
       }
 
       const orderSearchDebounce = new Map();

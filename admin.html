@@ -274,12 +274,33 @@
       .assemble-pallet-head {
         display: flex;
         flex-wrap: wrap;
-        align-items: center;
+        align-items: flex-end;
         justify-content: space-between;
         gap: 10px;
         margin-bottom: 12px;
         padding-bottom: 10px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.15);
+      }
+
+      .assemble-pallet-number-field {
+        flex: 1;
+        min-width: 180px;
+        max-width: 280px;
+      }
+
+      .assemble-order-line-select {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 13px;
+      }
+
+      .assemble-remove-slot {
+        margin-top: 10px;
       }
 
       .assemble-pallet-title {
@@ -1996,7 +2017,7 @@
         }
       }
 
-      const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v1_";
+      const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       let assembleOrderSnapshot = null;
       let assembleAllocState = null;
 
@@ -2012,6 +2033,59 @@
           fullRows: "",
           partialBoxes: "",
         };
+      }
+
+      function slotToAlloc(slot) {
+        return {
+          mode: slot.mode,
+          directUnit: slot.directUnit,
+          directQty: slot.directQty,
+          fullRows: slot.fullRows,
+          partialBoxes: slot.partialBoxes,
+        };
+      }
+
+      function normalizeSlot(s) {
+        const li = s.lineIndex;
+        let lineIndex = "";
+        if (li !== "" && li !== undefined && li !== null) {
+          const n = Number(li);
+          if (Number.isFinite(n) && n >= 0) {
+            lineIndex = n;
+          }
+        }
+        const b = defaultAssembleLineAlloc();
+        return {
+          lineIndex,
+          mode: s.mode === "rows" ? "rows" : "direct",
+          directUnit: s.directUnit === "piece" ? "piece" : "box",
+          directQty: s.directQty ?? b.directQty,
+          fullRows: s.fullRows ?? b.fullRows,
+          partialBoxes: s.partialBoxes ?? b.partialBoxes,
+        };
+      }
+
+      function migratePalletRecord(p) {
+        const id = p.id || 0;
+        const palletNumber = String(p.palletNumber ?? "");
+        if (Array.isArray(p.slots)) {
+          return {
+            id,
+            palletNumber,
+            slots: p.slots.map((s) => normalizeSlot(s)),
+          };
+        }
+        const slots = [];
+        if (p.lines && typeof p.lines === "object") {
+          Object.keys(p.lines).forEach((k) => {
+            const li = Number(k);
+            if (!Number.isFinite(li) || li < 0) {
+              return;
+            }
+            slots.push(normalizeSlot({ lineIndex: li, ...p.lines[k] }));
+          });
+        }
+        return { id, palletNumber, slots };
       }
 
       function orderLineOrderedLabel(it) {
@@ -2076,37 +2150,44 @@
         }
         let s = 0;
         assembleAllocState.pallets.forEach((p) => {
-          s += allocationToPieces(it, p.lines[String(lineIdx)]);
+          (p.slots || []).forEach((slot) => {
+            if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
+              return;
+            }
+            if (Number(slot.lineIndex) !== lineIdx) {
+              return;
+            }
+            s += allocationToPieces(it, slotToAlloc(slot));
+          });
         });
         return s;
       }
 
-      function ensureAssemblePalletStructure() {
+      function finalizeAssembleSlots() {
         if (!assembleAllocState || !assembleOrderSnapshot) {
           return;
         }
         const n = assembleOrderSnapshot.items.length;
-        const items = assembleOrderSnapshot.items;
         assembleAllocState.pallets.forEach((pal) => {
-          for (let i = 0; i < n; i += 1) {
-            const k = String(i);
-            if (!pal.lines[k]) {
-              pal.lines[k] = defaultAssembleLineAlloc();
+          if (!Array.isArray(pal.slots)) {
+            pal.slots = [];
+          }
+          pal.slots.forEach((slot) => {
+            if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
+              return;
             }
-            const a = pal.lines[k];
-            const it = items[i];
+            const li = Number(slot.lineIndex);
+            if (li < 0 || li >= n) {
+              return;
+            }
+            const it = assembleOrderSnapshot.items[li];
             const pib = Math.max(0, Number(it.pieces_in_box) || 0);
             const rowLay = Math.max(0, Number(it.row_layout) || 0);
-            if (a.mode === "rows" && (rowLay <= 0 || pib <= 0)) {
-              a.mode = "direct";
+            if (slot.mode === "rows" && (rowLay <= 0 || pib <= 0)) {
+              slot.mode = "direct";
             }
-            if (a.directUnit === "box" && pib <= 0) {
-              a.directUnit = "piece";
-            }
-          }
-          Object.keys(pal.lines).forEach((k) => {
-            if (Number(k) >= n || Number(k) < 0 || k !== String(Number(k))) {
-              delete pal.lines[k];
+            if (slot.directUnit === "box" && pib <= 0) {
+              slot.directUnit = "piece";
             }
           });
         });
@@ -2119,7 +2200,7 @@
             return null;
           }
           const data = JSON.parse(raw);
-          if (!data || !Array.isArray(data.pallets) || !data.pallets.length) {
+          if (!data || !Array.isArray(data.pallets)) {
             return null;
           }
           return data;
@@ -2136,7 +2217,7 @@
         try {
           localStorage.setItem(
             assembleStorageKey(oid),
-            JSON.stringify({ version: 1, pallets: assembleAllocState.pallets }),
+            JSON.stringify({ version: 2, pallets: assembleAllocState.pallets }),
           );
         } catch (e) {
           /* ignore quota */
@@ -2207,52 +2288,98 @@
         assembleAllocAlert.textContent = msgs.join(" ");
       }
 
-      function renderOneAssembleLineControls(pIdx, li, it) {
-        const alloc = assembleAllocState.pallets[pIdx].lines[String(li)] || defaultAssembleLineAlloc();
+      function renderLineSelectOptions(items, pIdx, rowIdxInPallet, selectedLineIdx) {
+        const pal = assembleAllocState.pallets[pIdx];
+        const used = new Set();
+        (pal.slots || []).forEach((sl, j) => {
+          if (j === rowIdxInPallet) {
+            return;
+          }
+          if (sl.lineIndex === "" || sl.lineIndex === undefined || sl.lineIndex === null) {
+            return;
+          }
+          const n = Number(sl.lineIndex);
+          if (!Number.isFinite(n)) {
+            return;
+          }
+          used.add(n);
+        });
+        let html = '<option value="">— Выберите позицию заказа —</option>';
+        items.forEach((it, idx) => {
+          if (used.has(idx) && idx !== selectedLineIdx) {
+            return;
+          }
+          const label = `${idx + 1}. ${formatOrderItemSearchInput(it.article, it.name)}`;
+          const sel = idx === selectedLineIdx ? " selected" : "";
+          html += `<option value="${idx}"${sel}>${escapeXml(label)}</option>`;
+        });
+        return html;
+      }
+
+      function renderOneAssembleSlotRow(pIdx, sIdx, slot, items) {
+        const selIdx =
+          slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))
+            ? -1
+            : Number(slot.lineIndex);
+        const it = selIdx >= 0 ? items[selIdx] : null;
+        const selectHtml = renderLineSelectOptions(items, pIdx, sIdx, selIdx);
+        const removeSlotBtn = `<button type="button" class="menu-button assemble-remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать с паллета</button>`;
+        if (!it) {
+          return `<div class="assemble-line-block" data-assemble-slot-row>
+            <div class="assemble-field" style="max-width:100%">
+              <label>Позиция заказа</label>
+              <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="lineIndex">${selectHtml}</select>
+            </div>
+            ${removeSlotBtn}
+          </div>`;
+        }
         const pib = Math.max(0, Number(it.pieces_in_box) || 0);
         const rowLay = Math.max(0, Number(it.row_layout) || 0);
         const canRows = rowLay > 0 && pib > 0;
         const canBoxDirect = pib > 0;
-        const modeDirect = alloc.mode !== "rows";
-        const dirBoxChecked = alloc.directUnit !== "piece" && canBoxDirect ? " checked" : "";
-        const dirPieceChecked = alloc.directUnit === "piece" || !canBoxDirect ? " checked" : "";
-        const directQtyVal = escapeXml(String(alloc.directQty ?? ""));
-        const frVal = escapeXml(String(alloc.fullRows ?? ""));
-        const pbVal = escapeXml(String(alloc.partialBoxes ?? ""));
-        const title = `${escapeXml(it.article || "")}${it.article && it.name ? " — " : ""}${escapeXml(it.name || "—")}`;
+        const modeDirect = slot.mode !== "rows";
+        const dirBoxChecked = slot.directUnit !== "piece" && canBoxDirect ? " checked" : "";
+        const dirPieceChecked = slot.directUnit === "piece" || !canBoxDirect ? " checked" : "";
+        const directQtyVal = escapeXml(String(slot.directQty ?? ""));
+        const frVal = escapeXml(String(slot.fullRows ?? ""));
+        const pbVal = escapeXml(String(slot.partialBoxes ?? ""));
         const packHint =
           pib > 0
             ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
             : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
-        return `<div class="assemble-line-block" data-pallet-line="${pIdx}-${li}">
-          <p class="assemble-line-title">${title}</p>
+        return `<div class="assemble-line-block" data-assemble-slot-row>
+          <div class="assemble-field" style="max-width:100%;margin-bottom:10px">
+            <label>Позиция заказа</label>
+            <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="lineIndex">${selectHtml}</select>
+          </div>
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
           <div class="assemble-mode-row">
-            <label><input type="radio" class="assemble-mode-radio" name="amode-${pIdx}-${li}" value="direct" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="mode"${modeDirect ? " checked" : ""} /> Коробки или штуки на паллете</label>
-            <label><input type="radio" class="assemble-mode-radio" name="amode-${pIdx}-${li}" value="rows" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="mode"${!modeDirect ? " checked" : ""}${canRows ? "" : " disabled"} /> Полные ряды + неполный ряд (коробок)</label>
+            <label><input type="radio" name="amode-${pIdx}-${sIdx}" value="direct" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="mode"${modeDirect ? " checked" : ""} /> Коробки или штуки на паллете</label>
+            <label><input type="radio" name="amode-${pIdx}-${sIdx}" value="rows" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="mode"${!modeDirect ? " checked" : ""}${canRows ? "" : " disabled"} /> Полные ряды + неполный ряд (коробок)</label>
           </div>
           <div class="assemble-direct-panel"${modeDirect ? "" : " hidden"}>
             <div class="assemble-mode-row">
-              <label><input type="radio" name="adirect-${pIdx}-${li}" value="box" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directUnit"${dirBoxChecked}${canBoxDirect ? "" : " disabled"} /> Коробок</label>
-              <label><input type="radio" name="adirect-${pIdx}-${li}" value="piece" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directUnit"${dirPieceChecked} /> Штук</label>
+              <label><input type="radio" name="adirect-${pIdx}-${sIdx}" value="box" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="directUnit"${dirBoxChecked}${canBoxDirect ? "" : " disabled"} /> Коробок</label>
+              <label><input type="radio" name="adirect-${pIdx}-${sIdx}" value="piece" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="directUnit"${dirPieceChecked} /> Штук</label>
             </div>
             <div class="assemble-field" style="max-width:220px">
-              <label for="adq-${pIdx}-${li}">Количество</label>
-              <input id="adq-${pIdx}-${li}" type="number" min="0" step="any" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="directQty" value="${directQtyVal}" />
+              <label for="adq-${pIdx}-${sIdx}">Количество</label>
+              <input id="adq-${pIdx}-${sIdx}" type="number" min="0" step="any" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="directQty" value="${directQtyVal}" />
             </div>
           </div>
           <div class="assemble-rows-panel"${modeDirect ? " hidden" : ""}>
             <div class="assemble-inputs-grid">
               <div class="assemble-field">
-                <label for="afr-${pIdx}-${li}">Полных рядов коробок</label>
-                <input id="afr-${pIdx}-${li}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="fullRows" value="${frVal}" />
+                <label for="afr-${pIdx}-${sIdx}">Полных рядов коробок</label>
+                <input id="afr-${pIdx}-${sIdx}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="fullRows" value="${frVal}" />
               </div>
               <div class="assemble-field">
-                <label for="apb-${pIdx}-${li}">Коробок в неполном ряду (0–${rowLay || 0})</label>
-                <input id="apb-${pIdx}-${li}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-line="${li}" data-field="partialBoxes" value="${pbVal}" />
+                <label for="apb-${pIdx}-${sIdx}">Коробок в неполном ряду (0–${rowLay || 0})</label>
+                <input id="apb-${pIdx}-${sIdx}" type="number" min="0" step="1" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="partialBoxes" value="${pbVal}" />
               </div>
             </div>
           </div>
+          ${removeSlotBtn}
         </div>`;
       }
 
@@ -2261,19 +2388,31 @@
           return;
         }
         const items = assembleOrderSnapshot.items;
+        if (!assembleAllocState.pallets.length) {
+          assemblePalletsRoot.innerHTML =
+            '<p class="muted">Нет паллет. Нажмите «+ Добавить паллет».</p>';
+          return;
+        }
         assemblePalletsRoot.innerHTML = assembleAllocState.pallets
-          .map((_, pIdx) => {
-            const linesHtml = items.map((it, li) => renderOneAssembleLineControls(pIdx, li, it)).join("");
-            const removeBtn =
-              assembleAllocState.pallets.length > 1
-                ? `<button type="button" class="menu-button assemble-remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`
-                : "";
+          .map((pal, pIdx) => {
+            const numVal = escapeXml(String(pal.palletNumber ?? ""));
+            const removeBtn = `<button type="button" class="menu-button assemble-remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`;
+            const slots = Array.isArray(pal.slots) ? pal.slots : [];
+            const slotsHtml =
+              slots.length === 0
+                ? '<p class="muted">На паллете нет товаров — добавьте позицию из заказа.</p>'
+                : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
+            const addBtn = `<button type="button" class="menu-button" data-add-slot data-pallet="${pIdx}">+ Добавить товар на паллет</button>`;
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
-              <h3 class="assemble-pallet-title">Паллета ${pIdx + 1}</h3>
+              <div class="assemble-field assemble-pallet-number-field">
+                <label for="pn-${pIdx}">Номер паллета</label>
+                <input id="pn-${pIdx}" type="text" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="Укажите номер" value="${numVal}" />
+              </div>
               ${removeBtn}
             </div>
-            ${linesHtml}
+            ${slotsHtml}
+            <div style="margin-top:10px">${addBtn}</div>
           </div>`;
           })
           .join("");
@@ -2283,39 +2422,49 @@
         if (!assemblePalletsRoot || !assembleAllocState || !assembleOrderSnapshot) {
           return;
         }
-        const n = assembleOrderSnapshot.items.length;
-        assembleAllocState.pallets.forEach((pal, pIdx) => {
-          for (let li = 0; li < n; li += 1) {
-            const card = assemblePalletsRoot.querySelector(`[data-pallet-line="${pIdx}-${li}"]`);
-            if (!card) {
-              continue;
-            }
-            const k = String(li);
-            if (!pal.lines[k]) {
-              pal.lines[k] = defaultAssembleLineAlloc();
-            }
-            const a = pal.lines[k];
-            const modeChecked = card.querySelector(`input[name="amode-${pIdx}-${li}"]:checked`);
-            if (modeChecked) {
-              a.mode = modeChecked.value === "rows" ? "rows" : "direct";
-            }
-            const duChecked = card.querySelector(`input[name="adirect-${pIdx}-${li}"]:checked`);
-            if (duChecked) {
-              a.directUnit = duChecked.value === "piece" ? "piece" : "box";
-            }
-            const dq = card.querySelector(`[data-field="directQty"]`);
-            if (dq) {
-              a.directQty = dq.value;
-            }
-            const fr = card.querySelector(`[data-field="fullRows"]`);
-            if (fr) {
-              a.fullRows = fr.value;
-            }
-            const pb = card.querySelector(`[data-field="partialBoxes"]`);
-            if (pb) {
-              a.partialBoxes = pb.value;
-            }
+        assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
+          const pIdx = Number(card.dataset.palletCard);
+          const pal = assembleAllocState.pallets[pIdx];
+          if (!pal) {
+            return;
           }
+          const numEl = card.querySelector("[data-assemble-pallet-number]");
+          if (numEl) {
+            pal.palletNumber = numEl.value;
+          }
+          const newSlots = [];
+          card.querySelectorAll("[data-assemble-slot-row]").forEach((row) => {
+            const sIdx = newSlots.length;
+            const slot = normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() });
+            const sel = row.querySelector("select[data-field='lineIndex']");
+            if (sel && sel.value !== "") {
+              slot.lineIndex = Number(sel.value);
+            } else {
+              slot.lineIndex = "";
+            }
+            const modeChecked = row.querySelector(`input[name="amode-${pIdx}-${sIdx}"]:checked`);
+            if (modeChecked) {
+              slot.mode = modeChecked.value === "rows" ? "rows" : "direct";
+            }
+            const duChecked = row.querySelector(`input[name="adirect-${pIdx}-${sIdx}"]:checked`);
+            if (duChecked) {
+              slot.directUnit = duChecked.value === "piece" ? "piece" : "box";
+            }
+            const dq = row.querySelector("[data-field='directQty']");
+            if (dq) {
+              slot.directQty = dq.value;
+            }
+            const fr = row.querySelector("[data-field='fullRows']");
+            if (fr) {
+              slot.fullRows = fr.value;
+            }
+            const pb = row.querySelector("[data-field='partialBoxes']");
+            if (pb) {
+              slot.partialBoxes = pb.value;
+            }
+            newSlots.push(normalizeSlot(slot));
+          });
+          pal.slots = newSlots;
         });
       }
 
@@ -2324,19 +2473,12 @@
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
           return;
         }
-        if (t.matches("[data-remove-pallet]")) {
-          const pi = Number(t.dataset.removePallet);
-          if (assembleAllocState.pallets.length <= 1) {
+        if (t.matches("[data-assemble-input]")) {
+          if (t.dataset.field === "palletNumber") {
+            syncAssembleStateFromDom();
+            saveAssembleDraft();
             return;
           }
-          assembleAllocState.pallets.splice(pi, 1);
-          saveAssembleDraft();
-          renderAssemblePalletCards();
-          renderAssembleSummary();
-          renderAssembleAlerts();
-          return;
-        }
-        if (t.matches("[data-assemble-input]")) {
           if (
             (t.dataset.field === "mode" || t.dataset.field === "directUnit") &&
             t.type === "radio" &&
@@ -2346,15 +2488,20 @@
           }
           syncAssembleStateFromDom();
           saveAssembleDraft();
+          if (t.dataset.field === "lineIndex") {
+            finalizeAssembleSlots();
+            renderAssemblePalletCards();
+            renderAssembleSummary();
+            renderAssembleAlerts();
+            return;
+          }
           renderAssembleSummary();
           renderAssembleAlerts();
           if (t.dataset.field === "mode") {
-            const pIdx = Number(t.dataset.pallet);
-            const li = Number(t.dataset.line);
-            const card = assemblePalletsRoot.querySelector(`[data-pallet-line="${pIdx}-${li}"]`);
-            if (card) {
-              const direct = card.querySelector(".assemble-direct-panel");
-              const rows = card.querySelector(".assemble-rows-panel");
+            const row = t.closest("[data-assemble-slot-row]");
+            if (row) {
+              const direct = row.querySelector(".assemble-direct-panel");
+              const rows = row.querySelector(".assemble-rows-panel");
               const isRows = t.value === "rows";
               if (direct) {
                 direct.hidden = isRows;
@@ -2367,14 +2514,77 @@
         }
       }
 
+      function onAssemblePalletClick(ev) {
+        const t = ev.target;
+        if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
+          return;
+        }
+        const rmPal = t.closest("[data-remove-pallet]");
+        if (rmPal) {
+          ev.preventDefault();
+          syncAssembleStateFromDom();
+          const pi = Number(rmPal.dataset.removePallet);
+          if (!Number.isFinite(pi)) {
+            return;
+          }
+          assembleAllocState.pallets.splice(pi, 1);
+          saveAssembleDraft();
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+          return;
+        }
+        const rmSlot = t.closest("[data-remove-slot]");
+        if (rmSlot) {
+          ev.preventDefault();
+          syncAssembleStateFromDom();
+          const pi = Number(rmSlot.dataset.pallet);
+          const si = Number(rmSlot.dataset.slot);
+          if (!Number.isFinite(pi) || !assembleAllocState.pallets[pi]) {
+            return;
+          }
+          const pal = assembleAllocState.pallets[pi];
+          if (!Array.isArray(pal.slots) || !Number.isFinite(si)) {
+            return;
+          }
+          pal.slots.splice(si, 1);
+          saveAssembleDraft();
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+          return;
+        }
+        const addS = t.closest("[data-add-slot]");
+        if (addS) {
+          ev.preventDefault();
+          syncAssembleStateFromDom();
+          const pi = Number(addS.dataset.pallet);
+          if (!Number.isFinite(pi) || !assembleAllocState.pallets[pi]) {
+            return;
+          }
+          assembleAllocState.pallets[pi].slots.push(
+            normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() }),
+          );
+          saveAssembleDraft();
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+        }
+      }
+
       function addAssemblePallet() {
         if (!assembleAllocState) {
           return;
         }
+        syncAssembleStateFromDom();
         const nextId =
           assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
-        assembleAllocState.pallets.push({ id: nextId, lines: {} });
-        ensureAssemblePalletStructure();
+        assembleAllocState.pallets.push({
+          id: nextId,
+          palletNumber: "",
+          slots: [],
+        });
+        finalizeAssembleSlots();
         saveAssembleDraft();
         renderAssemblePalletCards();
         renderAssembleSummary();
@@ -2429,15 +2639,14 @@
         const draft = loadAssembleDraft(orderId, items.length);
         if (draft && Array.isArray(draft.pallets)) {
           assembleAllocState = {
-            pallets: draft.pallets.map((p) => ({
-              id: p.id || 0,
-              lines: typeof p.lines === "object" && p.lines ? { ...p.lines } : {},
-            })),
+            pallets: draft.pallets.map((p) => migratePalletRecord(p)),
           };
         } else {
-          assembleAllocState = { pallets: [{ id: 1, lines: {} }] };
+          assembleAllocState = {
+            pallets: [{ id: 1, palletNumber: "", slots: [] }],
+          };
         }
-        ensureAssemblePalletStructure();
+        finalizeAssembleSlots();
         saveAssembleDraft();
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
@@ -2474,6 +2683,7 @@
       if (assemblePalletsRoot) {
         assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
         assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
+        assemblePalletsRoot.addEventListener("click", onAssemblePalletClick);
       }
       if (assembleAddPalletBtn) {
         assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());

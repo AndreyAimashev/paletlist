@@ -1,0 +1,15 @@
+---
+description: Деплой paletlist после изменений (git + GitHub Actions)
+alwaysApply: true
+---
+
+# Деплой
+
+После правок, которые должны попасть на прод:
+
+1. Закоммитить осмысленным сообщением (не включать `__pycache__/` и прочий мусор).
+2. Выполнить `git push origin main`.
+3. Пуш в `main` сам запускает workflow **Deploy to server** (`.github/workflows/deploy.yml`): SSH на сервер, `git pull` в `/var/www/paletlist`, `nginx reload`, `systemctl try-restart paletlist-api.service`.
+4. Не ограничиваться фразой «запушьте сами» — агент сам делает commit/push, когда задача готова и это уместно.
+
+Если деплой не прошёл, пользователь проверяет **Actions** в репозитории и секреты `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`.

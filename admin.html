@@ -1026,19 +1026,20 @@
             <textarea id="edit-name" name="name" rows="3"></textarea>
           </div>
           <div class="arnest-field" style="grid-column: 1 / -1">
-            <label for="edit-pieces-per-set-mode">Штук в наборе</label>
+            <label for="edit-sets-in-box-mode">Количество наборов в коробке</label>
             <p class="muted" style="font-size: 12px; margin: 0 0 6px; line-height: 1.35">
-              Сначала штуки складывают в наборы, наборы — в коробки. Если наборов нет, штуки сразу в коробке.
+              «Штук в наборе» не вводится — считается автоматически: штук в коробке ÷ количество наборов. Если
+              наборов больше одного, штук в коробке должно делиться на это число без остатка.
             </p>
-            <select id="edit-pieces-per-set-mode" aria-label="Режим: наборы или нет">
+            <select id="edit-sets-in-box-mode" aria-label="Наборы в коробке">
               <option value="none">Нет наборов</option>
-              <option value="custom">Указать число</option>
+              <option value="custom">Указать число наборов</option>
             </select>
             <input
-              id="edit-pieces-per-set"
-              name="pieces_per_set"
+              id="edit-sets-in-box"
+              name="sets_in_box"
               type="number"
-              min="1"
+              min="2"
               step="1"
               value="2"
               style="margin-top: 8px"
@@ -1088,19 +1089,20 @@
             <textarea id="create-name" name="name" rows="3"></textarea>
           </div>
           <div class="arnest-field" style="grid-column: 1 / -1">
-            <label for="create-pieces-per-set-mode">Штук в наборе</label>
+            <label for="create-sets-in-box-mode">Количество наборов в коробке</label>
             <p class="muted" style="font-size: 12px; margin: 0 0 6px; line-height: 1.35">
-              Сначала штуки складывают в наборы, наборы — в коробки. Если наборов нет, штуки сразу в коробке.
+              «Штук в наборе» не вводится — считается автоматически: штук в коробке ÷ количество наборов. Если
+              наборов больше одного, штук в коробке должно делиться на это число без остатка.
             </p>
-            <select id="create-pieces-per-set-mode" aria-label="Режим: наборы или нет">
+            <select id="create-sets-in-box-mode" aria-label="Наборы в коробке">
               <option value="none" selected>Нет наборов</option>
-              <option value="custom">Указать число</option>
+              <option value="custom">Указать число наборов</option>
             </select>
             <input
-              id="create-pieces-per-set"
-              name="pieces_per_set"
+              id="create-sets-in-box"
+              name="sets_in_box"
               type="number"
-              min="1"
+              min="2"
               step="1"
               value="2"
               style="margin-top: 8px"
@@ -1228,8 +1230,8 @@
       const nomenclatureCreateError = document.getElementById("nomenclature-create-error");
       const createArticleInput = document.getElementById("create-article");
       const createNameInput = document.getElementById("create-name");
-      const createPiecesPerSetMode = document.getElementById("create-pieces-per-set-mode");
-      const createPiecesPerSetInput = document.getElementById("create-pieces-per-set");
+      const createSetsInBoxMode = document.getElementById("create-sets-in-box-mode");
+      const createSetsInBoxInput = document.getElementById("create-sets-in-box");
       const createPiecesInput = document.getElementById("create-pieces-in-box");
       const createRowLayoutInput = document.getElementById("create-row-layout");
       const createMaxRowsInput = document.getElementById("create-max-rows");
@@ -1263,8 +1265,8 @@
       const nomenclatureEditCancel = document.getElementById("nomenclature-edit-cancel");
       const editArticleInput = document.getElementById("edit-article");
       const editNameInput = document.getElementById("edit-name");
-      const editPiecesPerSetMode = document.getElementById("edit-pieces-per-set-mode");
-      const editPiecesPerSetInput = document.getElementById("edit-pieces-per-set");
+      const editSetsInBoxMode = document.getElementById("edit-sets-in-box-mode");
+      const editSetsInBoxInput = document.getElementById("edit-sets-in-box");
       const editPiecesInput = document.getElementById("edit-pieces-in-box");
       const editRowLayoutInput = document.getElementById("edit-row-layout");
       const editMaxRowsInput = document.getElementById("edit-max-rows");
@@ -1497,37 +1499,37 @@
         return String(Math.round(v * 100) / 100);
       }
 
-      function syncPiecesPerSetField(modeEl, valueEl) {
+      function syncSetsInBoxField(modeEl, valueEl) {
         const custom = modeEl.value === "custom";
         valueEl.toggleAttribute("hidden", !custom);
         valueEl.style.marginTop = custom ? "8px" : "0";
         valueEl.disabled = !custom;
       }
 
-      function getPiecesPerSetFromForm(modeEl, valueEl) {
+      function getSetsInBoxFromForm(modeEl, valueEl) {
         if (modeEl.value === "none") {
           return 1;
         }
-        return Math.max(1, Math.trunc(Number(valueEl.value)) || 1);
+        return Math.max(2, Math.trunc(Number(valueEl.value)) || 2);
       }
 
-      function applyPiecesPerSetToForm(modeEl, valueEl, stored) {
-        const n = Math.max(1, Math.trunc(Number(stored)) || 1);
-        if (n <= 1) {
+      function applySetsInBoxToForm(modeEl, valueEl, storedSetsInBox) {
+        const sib = Math.max(1, Math.trunc(Number(storedSetsInBox)) || 1);
+        if (sib <= 1) {
           modeEl.value = "none";
           valueEl.value = "2";
         } else {
           modeEl.value = "custom";
-          valueEl.value = String(n);
+          valueEl.value = String(sib);
         }
-        syncPiecesPerSetField(modeEl, valueEl);
+        syncSetsInBoxField(modeEl, valueEl);
       }
 
       function openNomenclatureEdit(item) {
         nomenclatureEditId = item.id;
         editArticleInput.value = item.article || "";
         editNameInput.value = item.name || "";
-        applyPiecesPerSetToForm(editPiecesPerSetMode, editPiecesPerSetInput, item.pieces_per_set);
+        applySetsInBoxToForm(editSetsInBoxMode, editSetsInBoxInput, item.sets_in_box ?? 1);
         editPiecesInput.value = formatPackInt(item.pieces_in_box);
         editRowLayoutInput.value = formatPackInt(item.row_layout);
         editMaxRowsInput.value = formatPackInt(item.max_rows);
@@ -1611,9 +1613,9 @@
 
       function openNomenclatureCreate() {
         nomenclatureCreateForm.reset();
-        createPiecesPerSetMode.value = "none";
-        createPiecesPerSetInput.value = "2";
-        syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
+        createSetsInBoxMode.value = "none";
+        createSetsInBoxInput.value = "2";
+        syncSetsInBoxField(createSetsInBoxMode, createSetsInBoxInput);
         createPiecesInput.value = "0";
         createRowLayoutInput.value = "0";
         createMaxRowsInput.value = "0";
@@ -1635,18 +1637,15 @@
         const maxR = formatPackInt(item.max_rows);
         const w = formatPackWeight(item.box_weight);
         const pib = Math.max(0, Math.trunc(Number(item.pieces_in_box)) || 0);
-        const pps = Math.max(1, Math.trunc(Number(item.pieces_per_set)) || 1);
+        const sib = Math.max(1, Math.trunc(Number(item.sets_in_box)) || 1);
         let setBlock = "";
-        if (pps > 1 && pib > 0) {
-          const setCount = Math.trunc(pib / pps);
-          if (setCount > 1) {
-            const ppcStr = formatPackRatio(pib, setCount);
-            const setTitle = "Количество наборов в коробке (штук в коробке ÷ штук в наборе)";
-            const ppcTitle = "Штук в наборе (штук в коробке ÷ количество наборов)";
-            setBlock = `
-          <span class="pack-stat" title="${escapeXml(setTitle)}">${NOMENCLATURE_PACK_ICONS.setCount}<span>${escapeXml(formatPackInt(setCount))}</span></span>
+        if (sib > 1 && pib > 0) {
+          const ppcStr = formatPackRatio(pib, sib);
+          const setTitle = "Количество наборов в коробке";
+          const ppcTitle = "Штук в наборе (штук в коробке ÷ количество наборов)";
+          setBlock = `
+          <span class="pack-stat" title="${escapeXml(setTitle)}">${NOMENCLATURE_PACK_ICONS.setCount}<span>${escapeXml(formatPackInt(sib))}</span></span>
           <span class="pack-stat" title="${escapeXml(ppcTitle)}">${NOMENCLATURE_PACK_ICONS.piecesPerSet}<span>${escapeXml(ppcStr)}</span></span>`;
-          }
         }
         return `<div class="nomenclature-pack-line">
           <span class="pack-stat" title="Штук в коробке">${NOMENCLATURE_PACK_ICONS.pieces}<span>${escapeXml(p)}</span></span>
@@ -2276,13 +2275,23 @@
           body: JSON.stringify({
             article: editArticleInput.value.trim(),
             name: editNameInput.value.trim(),
-            pieces_per_set: getPiecesPerSetFromForm(editPiecesPerSetMode, editPiecesPerSetInput),
+            sets_in_box: getSetsInBoxFromForm(editSetsInBoxMode, editSetsInBoxInput),
             pieces_in_box: Math.trunc(Number(editPiecesInput.value)) || 0,
             row_layout: Math.trunc(Number(editRowLayoutInput.value)) || 0,
             max_rows: Math.trunc(Number(editMaxRowsInput.value)) || 0,
             box_weight: parsedBoxWeight,
           }),
         });
+        let editPayload = null;
+        try {
+          editPayload = await response.json();
+        } catch (err) {
+          editPayload = null;
+        }
+        if (response.status === 400 && editPayload && editPayload.message) {
+          alert(editPayload.message);
+          return;
+        }
         if (!response.ok) {
           alert("Не удалось обновить номенклатуру в БД.");
           return;
@@ -2291,11 +2300,11 @@
         await loadNomenclature();
       });
 
-      createPiecesPerSetMode.addEventListener("change", () => {
-        syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
+      createSetsInBoxMode.addEventListener("change", () => {
+        syncSetsInBoxField(createSetsInBoxMode, createSetsInBoxInput);
       });
-      editPiecesPerSetMode.addEventListener("change", () => {
-        syncPiecesPerSetField(editPiecesPerSetMode, editPiecesPerSetInput);
+      editSetsInBoxMode.addEventListener("change", () => {
+        syncSetsInBoxField(editSetsInBoxMode, editSetsInBoxInput);
       });
 
       nomenclatureEditCancel.addEventListener("click", () => {
@@ -2327,7 +2336,7 @@
             body: JSON.stringify({
               article: article.trim(),
               name: name.trim(),
-              pieces_per_set: getPiecesPerSetFromForm(createPiecesPerSetMode, createPiecesPerSetInput),
+              sets_in_box: getSetsInBoxFromForm(createSetsInBoxMode, createSetsInBoxInput),
               pieces_in_box: Math.trunc(Number(createPiecesInput.value)) || 0,
               row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
               max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
@@ -2380,8 +2389,8 @@
         closeNomenclatureCreate();
       });
 
-      syncPiecesPerSetField(createPiecesPerSetMode, createPiecesPerSetInput);
-      syncPiecesPerSetField(editPiecesPerSetMode, editPiecesPerSetInput);
+      syncSetsInBoxField(createSetsInBoxMode, createSetsInBoxInput);
+      syncSetsInBoxField(editSetsInBoxMode, editSetsInBoxInput);
 
       renderNavOrder();
       setStage("main", false);

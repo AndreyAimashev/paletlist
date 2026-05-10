@@ -59,6 +59,71 @@ def _migrate_products(cur):
         cur.execute(
             "ALTER TABLE products ADD COLUMN pieces_per_set INTEGER NOT NULL DEFAULT 1"
         )
+    if "sets_in_box" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN sets_in_box INTEGER NOT NULL DEFAULT 1"
+        )
+        for row in cur.execute(
+            "SELECT id, pieces_in_box, pieces_per_set FROM products"
+        ).fetchall():
+            pid = int(row["id"])
+            pib = int(row["pieces_in_box"] or 0)
+            pps = max(1, int(row["pieces_per_set"] or 1))
+            if pps <= 1 or pib <= 0:
+                sib = 1
+            else:
+                sib = pib // pps
+                if sib < 1:
+                    sib = 1
+                if pps > 0 and pib % pps != 0:
+                    sib = max(1, int(round(float(pib) / pps)))
+            cur.execute(
+                "UPDATE products SET sets_in_box = ? WHERE id = ?",
+                (sib, pid),
+            )
+        for row in cur.execute(
+            "SELECT id, pieces_in_box, sets_in_box FROM products"
+        ).fetchall():
+            pid = int(row["id"])
+            pib = int(row["pieces_in_box"] or 0)
+            sib = max(1, int(row["sets_in_box"] or 1))
+            if sib <= 1 or pib <= 0:
+                pps = 1
+            elif pib % sib == 0:
+                pps = max(1, pib // sib)
+            else:
+                pps = max(1, int(round(float(pib) / sib)))
+            cur.execute(
+                "UPDATE products SET pieces_per_set = ? WHERE id = ?",
+                (pps, pid),
+            )
+
+
+def _normalize_packaging(pieces_in_box: int, sets_in_box: int):
+    """Возвращает (pib, sib, pps) или dict с error/message при ошибке валидации."""
+    pib = max(0, int(pieces_in_box))
+    sib = max(1, int(sets_in_box))
+    if sib <= 1:
+        return (pib, sib, 1)
+    if pib <= 0:
+        return (pib, sib, 1)
+    if pib % sib != 0:
+        return {
+            "error": "validation",
+            "message": "Штук в коробке должно делиться на количество наборов без остатка.",
+        }
+    pps = max(1, pib // sib)
+    return (pib, sib, pps)
+
+
+def _computed_pieces_per_set_for_api(pib: int, sib: int):
+    sib = max(1, int(sib))
+    pib = int(pib)
+    if sib <= 1 or pib <= 0:
+        return 1
+    if pib % sib == 0:
+        return max(1, pib // sib)
+    return round(pib / sib, 2)
 
 
 def init_db():
@@ -72,6 +137,7 @@ def init_db():
               article TEXT NOT NULL DEFAULT '',
               name TEXT NOT NULL DEFAULT '',
               pieces_in_box INTEGER NOT NULL DEFAULT 0,
+              sets_in_box INTEGER NOT NULL DEFAULT 1,
               pieces_per_set INTEGER NOT NULL DEFAULT 1,
               row_layout INTEGER NOT NULL DEFAULT 0,
               max_rows INTEGER NOT NULL DEFAULT 0,
@@ -86,13 +152,21 @@ def init_db():
             rows = []
             for item in seed_items:
                 try:
+                    pib = int(item.get("pieces_in_box") or 0)
+                    sib = max(1, int(item.get("sets_in_box") or 1))
+                    norm = _normalize_packaging(pib, sib)
+                    if isinstance(norm, dict):
+                        pib, sib, pps = pib, 1, 1
+                    else:
+                        pib, sib, pps = norm
                     rows.append(
                         (
                             int(item.get("id")),
                             (item.get("article") or "").strip(),
                             (item.get("name") or "").strip(),
-                            int(item.get("pieces_in_box") or 0),
-                            max(1, int(item.get("pieces_per_set") or 1)),
+                            pib,
+                            sib,
+                            pps,
                             int(item.get("row_layout") or 0),
                             int(item.get("max_rows") or 0),
                             float(item.get("box_weight") or 0),
@@ -105,8 +179,8 @@ def init_db():
                     """
                     INSERT INTO products (
                       id, article, name,
-                      pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                      pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -306,24 +380,30 @@ def fetch_nomenclature():
         rows = con.execute(
             """
             SELECT id, article, name,
-                   pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
+                   pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
             FROM products ORDER BY id
             """
         ).fetchall()
         con.close()
-    return [
-        {
-            "id": row["id"],
-            "article": row["article"] or "",
-            "name": row["name"] or "",
-            "pieces_in_box": int(row["pieces_in_box"] or 0),
-            "pieces_per_set": max(1, int(row["pieces_per_set"] or 1)),
-            "row_layout": int(row["row_layout"] or 0),
-            "max_rows": int(row["max_rows"] or 0),
-            "box_weight": float(row["box_weight"] or 0),
-        }
-        for row in rows
-    ]
+    out = []
+    for row in rows:
+        pib = int(row["pieces_in_box"] or 0)
+        sib = max(1, int(row["sets_in_box"] or 1))
+        pps = _computed_pieces_per_set_for_api(pib, sib)
+        out.append(
+            {
+                "id": row["id"],
+                "article": row["article"] or "",
+                "name": row["name"] or "",
+                "pieces_in_box": pib,
+                "sets_in_box": sib,
+                "pieces_per_set": pps,
+                "row_layout": int(row["row_layout"] or 0),
+                "max_rows": int(row["max_rows"] or 0),
+                "box_weight": float(row["box_weight"] or 0),
+            }
+        )
+    return out
 
 
 def update_nomenclature_row(
@@ -331,12 +411,15 @@ def update_nomenclature_row(
     article: str,
     name: str,
     pieces_in_box: int = 0,
-    pieces_per_set: int = 1,
+    sets_in_box: int = 1,
     row_layout: int = 0,
     max_rows: int = 0,
     box_weight: float = 0,
 ):
-    pps = max(1, int(pieces_per_set))
+    norm = _normalize_packaging(pieces_in_box, sets_in_box)
+    if isinstance(norm, dict):
+        return norm
+    pib, sib, pps = norm
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -344,13 +427,14 @@ def update_nomenclature_row(
             """
             UPDATE products SET
               article = ?, name = ?,
-              pieces_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?
+              pieces_in_box = ?, sets_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?
             WHERE id = ?
             """,
             (
                 article.strip(),
                 name.strip(),
-                int(pieces_in_box),
+                pib,
+                sib,
                 pps,
                 int(row_layout),
                 int(max_rows),
@@ -361,11 +445,11 @@ def update_nomenclature_row(
         affected = cur.rowcount
         con.commit()
         con.close()
-    return affected > 0
+    return True if affected > 0 else False
 
 
 def soft_delete_row(row_id: int):
-    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0)
+    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0) is True
 
 
 def _normalize_str(value: str) -> str:
@@ -418,7 +502,7 @@ def insert_nomenclature_row(
     article: str,
     name: str,
     pieces_in_box: int,
-    pieces_per_set: int,
+    sets_in_box: int,
     row_layout: int,
     max_rows: int,
     box_weight: float,
@@ -426,25 +510,29 @@ def insert_nomenclature_row(
     conflict = find_nomenclature_create_conflicts(article, name)
     if conflict:
         return conflict
+    norm = _normalize_packaging(pieces_in_box, sets_in_box)
+    if isinstance(norm, dict):
+        return norm
+    pib, sib, pps = norm
     article_n = _normalize_str(article)
     name_n = _normalize_str(name)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         next_id = cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM products").fetchone()[0]
-        pps = max(1, int(pieces_per_set))
         cur.execute(
             """
             INSERT INTO products (
               id, article, name,
-              pieces_in_box, pieces_per_set, row_layout, max_rows, box_weight
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(next_id),
                 article_n,
                 name_n,
-                int(pieces_in_box),
+                pib,
+                sib,
                 pps,
                 int(row_layout),
                 int(max_rows),
@@ -536,9 +624,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
-        def _pieces_per_set_body() -> int:
+        def _sets_in_box_body() -> int:
             try:
-                v = int(body.get("pieces_per_set", 1))
+                v = int(body.get("sets_in_box", 1))
             except (TypeError, ValueError):
                 return 1
             return max(1, v)
@@ -548,7 +636,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 body.get("article", ""),
                 body.get("name", ""),
                 _int_body("pieces_in_box"),
-                _pieces_per_set_body(),
+                _sets_in_box_body(),
                 _int_body("row_layout"),
                 _int_body("max_rows"),
                 _float_body("box_weight"),
@@ -595,9 +683,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
-        def _pieces_per_set_body() -> int:
+        def _sets_in_box_body() -> int:
             try:
-                v = int(body.get("pieces_per_set", 1))
+                v = int(body.get("sets_in_box", 1))
             except (TypeError, ValueError):
                 return 1
             return max(1, v)
@@ -607,11 +695,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             body.get("article", ""),
             body.get("name", ""),
             _int_body("pieces_in_box"),
-            _pieces_per_set_body(),
+            _sets_in_box_body(),
             _int_body("row_layout"),
             _int_body("max_rows"),
             _float_body("box_weight"),
         )
+        if isinstance(ok, dict) and ok.get("error") == "validation":
+            self._send_json(400, ok)
+            return
         if not ok:
             self._send_json(404, {"error": "Item not found"})
             return

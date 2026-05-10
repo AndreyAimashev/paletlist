@@ -251,9 +251,135 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: flex-start;
         gap: 12px;
-        margin-bottom: 14px;
+        margin-bottom: 18px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      /* Кнопки сборки: разные роли, без «одинаковых» градиентов подряд */
+      .assemble-workspace .assemble-btn {
+        box-sizing: border-box;
+        margin: 0;
+        cursor: pointer;
+        font-family: "Roboto", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        text-decoration: none;
+        border-radius: 10px;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .assemble-workspace .assemble-btn:focus-visible {
+        outline: 2px solid rgba(0, 200, 160, 0.55);
+        outline-offset: 2px;
+      }
+
+      .assemble-btn--nav {
+        padding: 9px 14px;
+        color: var(--text-muted);
+        background: rgba(12, 18, 28, 0.75);
+        border: 1px solid rgba(0, 200, 160, 0.2);
+      }
+
+      .assemble-btn--nav:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.42);
+        background: rgba(0, 200, 160, 0.07);
+      }
+
+      .assemble-btn--add-pallet {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 340px;
+        margin: 28px auto 0;
+        padding: 14px 22px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.55px;
+        text-transform: uppercase;
+        color: #09111e;
+        border: none;
+        background: linear-gradient(120deg, var(--accent-teal), #00a878 45%, var(--accent-purple));
+        box-shadow: 0 4px 18px rgba(0, 200, 160, 0.22);
+      }
+
+      .assemble-btn--add-pallet:hover {
+        box-shadow: 0 6px 22px rgba(0, 200, 160, 0.32);
+        filter: brightness(1.05);
+      }
+
+      .assemble-btn--add-slot {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--accent-teal);
+        background: rgba(0, 200, 160, 0.06);
+        border: 1px dashed rgba(0, 200, 160, 0.45);
+      }
+
+      .assemble-btn--add-slot:hover {
+        background: rgba(0, 200, 160, 0.12);
+        border-style: solid;
+        border-color: rgba(0, 200, 160, 0.65);
+      }
+
+      .assemble-btn--remove-pallet {
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #f0b4a8;
+        background: rgba(200, 72, 64, 0.12);
+        border: 1px solid rgba(255, 130, 110, 0.38);
+      }
+
+      .assemble-btn--remove-pallet:hover {
+        color: #ffe8e4;
+        background: rgba(200, 72, 64, 0.22);
+        border-color: rgba(255, 150, 130, 0.55);
+      }
+
+      .assemble-line-slot-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(0, 200, 160, 0.08);
+      }
+
+      .assemble-btn--remove-slot {
+        padding: 6px 11px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: transparent;
+        border: 1px solid rgba(140, 150, 180, 0.28);
+      }
+
+      .assemble-btn--remove-slot:hover {
+        color: #e8a598;
+        border-color: rgba(230, 120, 100, 0.45);
+        background: rgba(90, 40, 45, 0.15);
+      }
+
+      .assemble-pallet-add-row {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(0, 200, 160, 0.1);
       }
 
       .assemble-pallet-card {
@@ -290,10 +416,6 @@
         background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
         font-size: 13px;
-      }
-
-      .assemble-remove-slot {
-        margin-top: 10px;
       }
 
       .assemble-pallet-title {
@@ -1168,7 +1290,9 @@
             </div>
             <div id="assemble-loaded" hidden>
               <div class="assemble-head">
-                <button type="button" id="assemble-back-orders" class="menu-button">К списку заказов</button>
+                <button type="button" id="assemble-back-orders" class="assemble-btn assemble-btn--nav">
+                  ← К списку заказов
+                </button>
               </div>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
@@ -1189,7 +1313,9 @@
               </div>
               <p class="muted" style="margin: 0 0 8px; font-size: 12px">Распределение по паллетам</p>
               <div id="assemble-pallets"></div>
-              <button type="button" id="assemble-add-pallet" class="menu-button">+ Добавить паллет</button>
+              <button type="button" id="assemble-add-pallet" class="assemble-btn assemble-btn--add-pallet">
+                + Добавить паллет
+              </button>
             </div>
           </section>
 
@@ -2351,7 +2477,7 @@
       function renderOneAssembleSlotRow(pIdx, sIdx, slot, items) {
         const it = resolveSlotAssembleItem(slot, items);
         const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
-        const removeSlotBtn = `<button type="button" class="menu-button assemble-remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать с паллета</button>`;
+        const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
         if (!it) {
           return `<div class="assemble-line-block" data-assemble-slot-row>
             <div class="assemble-field" style="max-width:100%">
@@ -2418,19 +2544,19 @@
         const items = assembleOrderSnapshot.items;
         if (!assembleAllocState.pallets.length) {
           assemblePalletsRoot.innerHTML =
-            '<p class="muted">Нет паллет. Нажмите «+ Добавить паллет».</p>';
+            '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу.</p>';
           return;
         }
         assemblePalletsRoot.innerHTML = assembleAllocState.pallets
           .map((pal, pIdx) => {
             const numVal = escapeXml(String(pal.palletNumber ?? ""));
-            const removeBtn = `<button type="button" class="menu-button assemble-remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`;
+            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet="${pIdx}">Удалить всю паллету</button>`;
             const slots = Array.isArray(pal.slots) ? pal.slots : [];
             const slotsHtml =
               slots.length === 0
-                ? '<p class="muted">На паллете нет товаров — добавьте позицию из заказа («+ Добавить товар на паллет»).</p>'
+                ? '<p class="muted">На паллете нет позиций — нажмите «Ещё позицию на эту паллету» ниже.</p>'
                 : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
-            const addBtn = `<button type="button" class="menu-button" data-add-slot data-pallet="${pIdx}">+ Добавить товар на паллет</button>`;
+            const addBtn = `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Ещё позицию на эту паллету</button>`;
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">
@@ -2440,7 +2566,7 @@
               ${removeBtn}
             </div>
             ${slotsHtml}
-            <div style="margin-top:10px">${addBtn}</div>
+            <div class="assemble-pallet-add-row">${addBtn}</div>
           </div>`;
           })
           .join("");

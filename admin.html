@@ -1964,6 +1964,23 @@
         return t || fallback;
       }
 
+      async function fetchRenderedUnirusDocxForPallet(palletNumber) {
+        const res = await fetch("/api/unirus-pallet-sheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pallet_number: palletNumber ?? "" }),
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.message || j.error || "";
+          } catch (e) {}
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return res.arrayBuffer();
+      }
+
       async function refreshPalletSheetsPanel() {
         const oid = activeStageOrderId;
         if (!palletSheetsWorkspace || oid == null || !Number.isFinite(oid)) {
@@ -2030,19 +2047,15 @@
         }
 
         try {
-          const res = await fetch("/templates/Unirus.docx");
-          if (!res.ok) {
-            throw new Error("template");
-          }
-          const buf = await res.arrayBuffer();
           if (token !== palletSheetsLoadToken) {
             return;
           }
           unirusDocxContainer.innerHTML = "";
           if (typeof docx !== "undefined" && typeof docx.renderAsync === "function") {
             for (let i = 0; i < palletCount; i += 1) {
-              const slotBuf = buf.slice(0);
               const pal = assemblePallets[i];
+              const buf = await fetchRenderedUnirusDocxForPallet(pal.palletNumber ?? "");
+              const slotBuf = buf.slice(0);
               const numLabel = String(pal.palletNumber ?? "").trim();
               const card = document.createElement("article");
               card.className = "pallet-sheet-card";
@@ -2063,7 +2076,7 @@
             }
           } else {
             unirusDocxContainer.innerHTML =
-              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. Используйте «Скачать паллетные листы» или <a href="/templates/Unirus.docx">файл шаблона</a>.</p>';
+              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. Используйте «Скачать паллетные листы» — документ формируется на сервере со штрих-кодом.</p>';
           }
           palletSheetsUnirusWrap.hidden = false;
           if (palletSheetsDownloadBtn) {
@@ -2075,7 +2088,10 @@
           }
           palletSheetsError.hidden = false;
           palletSheetsError.textContent =
-            "Не удалось показать шаблон. Убедитесь, что на сервере есть файл templates/Unirus.docx.";
+            "Не удалось показать паллетный лист: " +
+            (e && e.message
+              ? String(e.message)
+              : "проверьте python-docx на сервере, шаблон Unirus и доступ к генератору штрих-кодов.");
         } finally {
           if (token === palletSheetsLoadToken) {
             palletSheetsLoading.hidden = true;
@@ -2287,19 +2303,19 @@
             );
             return;
           }
-          let res;
-          try {
-            res = await fetch("/templates/Unirus.docx");
-          } catch (e) {
-            window.alert("Не удалось загрузить шаблон с сервера.");
-            return;
-          }
-          if (!res.ok) {
-            window.alert("Шаблон Unirus недоступен на сервере.");
-            return;
-          }
-          const buf = await res.arrayBuffer();
           const n = pallets.length;
+          const buffers = [];
+          try {
+            for (let i = 0; i < n; i += 1) {
+              buffers.push(await fetchRenderedUnirusDocxForPallet(pallets[i].palletNumber ?? ""));
+            }
+          } catch (e) {
+            window.alert(
+              "Не удалось сформировать паллетные листы: " +
+                (e && e.message ? String(e.message) : "ошибка сервера."),
+            );
+            return;
+          }
 
           const triggerDownload = (blob, filename) => {
             const url = URL.createObjectURL(blob);
@@ -2316,7 +2332,7 @@
           if (n === 1) {
             const suffix = sanitizePalletFilenamePart(pallets[0].palletNumber, "1");
             triggerDownload(
-              new Blob([buf], {
+              new Blob([buffers[0]], {
                 type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
               }),
               `Паллет_${suffix}_заказ_${oid}_Unirus.docx`,
@@ -2329,7 +2345,7 @@
               const zip = new JSZip();
               pallets.forEach((pal, i) => {
                 const suffix = sanitizePalletFilenamePart(pal.palletNumber, String(i + 1));
-                zip.file(`Паллет_${suffix}_заказ_${oid}.docx`, buf.slice(0));
+                zip.file(`Паллет_${suffix}_заказ_${oid}.docx`, buffers[i].slice(0));
               });
               const blob = await zip.generateAsync({ type: "blob" });
               triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_шт.zip`);
@@ -2342,7 +2358,7 @@
           for (let i = 0; i < n; i += 1) {
             const suffix = sanitizePalletFilenamePart(pallets[i].palletNumber, String(i + 1));
             triggerDownload(
-              new Blob([buf.slice(0)], {
+              new Blob([buffers[i].slice(0)], {
                 type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
               }),
               `Паллет_${suffix}_заказ_${oid}.docx`,

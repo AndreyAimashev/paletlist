@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
+import io
 import json
 import re
 import sqlite3
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
+
+try:
+    from docx import Document as DocxDocument
+    from docx.shared import Mm
+
+    HAVE_DOCX = True
+except ImportError:
+    HAVE_DOCX = False
+    DocxDocument = None  # type: ignore
+    Mm = None  # type: ignore
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,6 +48,123 @@ def _unirus_template_path() -> Path:
 
 def _is_unirus_template_path(path: str) -> bool:
     return _norm_api_path(path) == "/templates/Unirus.docx"
+
+
+def _is_unirus_pallet_sheet_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/unirus-pallet-sheet"
+
+
+UNIRUS_PALLET_BARCODE_PLACEHOLDER = "###ШТРИХКОД_ПАЛЛЕТА###"
+UNIRUS_BARCODE_PREFIX = "1500000"
+BARCODE_FETCH_TIMEOUT_S = 20
+BARCODE_USER_AGENT = "paletlist-api/1"
+
+
+def _format_pallet_suffix_vba(n: int) -> str:
+    """Эквивалент VBA Format(n, \"000\"): минимум три знака с ведущими нулями."""
+    if n < 0:
+        n = -n
+    s = str(n)
+    if len(s) < 3:
+        return s.zfill(3)
+    return s
+
+
+def build_pallet_barcode_data(pallet_number: str) -> str | None:
+    """Строка данных Code128: 1500000 + суффикс номера паллеты; None если номер пустой."""
+    raw = str(pallet_number).strip()
+    if not raw:
+        return None
+    try:
+        n = int(float(raw.replace(",", ".")))
+    except ValueError:
+        digits = re.sub(r"\D", "", raw)
+        if not digits:
+            return None
+        try:
+            n = int(digits)
+        except ValueError:
+            return None
+    return UNIRUS_BARCODE_PREFIX + _format_pallet_suffix_vba(n)
+
+
+def fetch_barcode_png(barcode_data: str) -> bytes:
+    url = (
+        "https://barcode.tec-it.com/barcode.ashx?data="
+        + quote(barcode_data, safe="")
+        + "&code=Code128&translate-esc=on"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": BARCODE_USER_AGENT})
+    with urllib.request.urlopen(req, timeout=BARCODE_FETCH_TIMEOUT_S) as resp:
+        return resp.read()
+
+
+def _replace_paragraph_placeholder(paragraph, placeholder: str, image_bytes: bytes) -> None:
+    before, _, after = paragraph.text.partition(placeholder)
+    p_elm = paragraph._element
+    for child in list(p_elm):
+        p_elm.remove(child)
+    if before:
+        paragraph.add_run(before)
+    run = paragraph.add_run()
+    run.add_picture(io.BytesIO(image_bytes), width=Mm(52))
+    if after:
+        paragraph.add_run(after)
+
+
+def _walk_unirus_replace_barcode(doc, placeholder: str, image_bytes: bytes) -> None:
+    def proc_block(parent):
+        for p in parent.paragraphs:
+            while placeholder in p.text:
+                _replace_paragraph_placeholder(p, placeholder, image_bytes)
+        for t in parent.tables:
+            for row in t.rows:
+                for cell in row.cells:
+                    proc_block(cell)
+
+    proc_block(doc)
+    for sec in doc.sections:
+        proc_block(sec.header)
+        proc_block(sec.footer)
+
+
+def _unirus_render_error_message(code: str) -> str:
+    return {
+        "no_docx_lib": "На сервере не установлен пакет python-docx.",
+        "template_missing": "Шаблон Unirus не найден на сервере.",
+        "template_read": "Не удалось прочитать шаблон Unirus.",
+        "barcode_fetch": "Не удалось загрузить изображение штрих-кода (tec-it).",
+        "docx_save": "Не удалось сформировать документ Word.",
+    }.get(code, "Ошибка генерации паллетного листа.")
+
+
+def render_unirus_docx_with_pallet_barcode(pallet_number: str) -> tuple[bytes | None, str]:
+    """
+    Возвращает (байты .docx, код ошибки). Пустой код — успех.
+    Если номер паллеты пустой, штрих-код не вставляется (как в макросе).
+    """
+    if not HAVE_DOCX:
+        return None, "no_docx_lib"
+    tpl = _unirus_template_path()
+    if not tpl.is_file():
+        return None, "template_missing"
+    try:
+        doc = DocxDocument(io.BytesIO(tpl.read_bytes()))
+    except Exception:
+        return None, "template_read"
+    data = build_pallet_barcode_data(pallet_number)
+    if data:
+        try:
+            img = fetch_barcode_png(data)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None, "barcode_fetch"
+        _walk_unirus_replace_barcode(doc, UNIRUS_PALLET_BARCODE_PLACEHOLDER, img)
+    out = io.BytesIO()
+    try:
+        doc.save(out)
+    except Exception:
+        return None, "docx_save"
+    return out.getvalue(), ""
 
 
 def _parse_orders_detail_id(path: str):
@@ -912,6 +1042,55 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_unirus_pallet_sheet_path(path):
+            if not HAVE_DOCX:
+                self._send_json(
+                    503,
+                    {
+                        "error": "no_docx_lib",
+                        "message": _unirus_render_error_message("no_docx_lib"),
+                    },
+                )
+                return
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            raw_pn = body.get("pallet_number", "")
+            if raw_pn is not None and not isinstance(raw_pn, (str, int, float)):
+                self._send_json(
+                    400,
+                    {
+                        "error": "validation",
+                        "message": "Поле pallet_number должно быть строкой или числом.",
+                    },
+                )
+                return
+            pn_str = str(raw_pn).strip() if raw_pn is not None else ""
+            blob, err = render_unirus_docx_with_pallet_barcode(pn_str)
+            if err:
+                status_map = {
+                    "template_missing": 404,
+                    "barcode_fetch": 502,
+                    "no_docx_lib": 503,
+                }
+                status = status_map.get(err, 500)
+                self._send_json(
+                    status,
+                    {"error": err, "message": _unirus_render_error_message(err)},
+                )
+                return
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            self.send_header("Content-Length", str(len(blob)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(blob)
+            return
         if _is_orders_list_path(path):
             try:
                 body = self._read_json_body()

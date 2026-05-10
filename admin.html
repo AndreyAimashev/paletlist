@@ -588,6 +588,24 @@
         min-width: 0;
       }
 
+      .order-item-labels {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.45;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        color: var(--text-muted);
+      }
+
+      .order-item-labels[hidden] {
+        display: none !important;
+      }
+
+      .order-item-label-line {
+        overflow-wrap: anywhere;
+      }
+
       .order-item-search {
         box-sizing: border-box;
         width: 100%;
@@ -1210,6 +1228,10 @@
             placeholder="Артикул или наименование…"
             autocomplete="off"
           />
+          <div class="order-item-labels" hidden>
+            <span class="order-item-label-line">Артикул: <span class="order-item-label-article"></span></span>
+            <span class="order-item-label-line">Наименование: <span class="order-item-label-name"></span></span>
+          </div>
           <input type="hidden" class="order-item-product-id" value="" />
           <ul class="order-item-suggestions" hidden></ul>
         </div>
@@ -1792,6 +1814,7 @@
           hid.value = "";
           delete row.dataset.article;
           delete row.dataset.name;
+          syncOrderItemRowLabels(row);
           row._orderSuggest = null;
           const q = input.value.trim();
           const prev = orderSearchDebounce.get(input);
@@ -1847,12 +1870,10 @@
           input.value = `${item.article || "—"} — ${item.name || ""}`;
           ul.hidden = true;
           ul.innerHTML = "";
+          syncOrderItemRowLabels(row);
         });
 
         removeBtn.addEventListener("click", () => {
-          if (newOrderItems.querySelectorAll(".order-item-row").length <= 1) {
-            return;
-          }
           row.remove();
         });
       }
@@ -1861,6 +1882,24 @@
         const row = orderItemRowTemplate.content.firstElementChild.cloneNode(true);
         newOrderItems.appendChild(row);
         attachOrderItemRowListeners(row);
+      }
+
+      function syncOrderItemRowLabels(row) {
+        const wrap = row.querySelector(".order-item-labels");
+        if (!wrap) {
+          return;
+        }
+        const art = row.dataset.article || "";
+        const nam = row.dataset.name || "";
+        const artEl = wrap.querySelector(".order-item-label-article");
+        const namEl = wrap.querySelector(".order-item-label-name");
+        if (artEl) {
+          artEl.textContent = art || "—";
+        }
+        if (namEl) {
+          namEl.textContent = nam || "—";
+        }
+        wrap.hidden = !(art || nam);
       }
 
       function orderShipDateStorageToInput(ship) {
@@ -1891,6 +1930,7 @@
         qtyEl.value = q != null && String(q) !== "" ? String(q) : "1";
         const u = String(it.unit || "piece").toLowerCase();
         unitEl.value = u === "box" || u === "set" || u === "piece" ? u : "piece";
+        syncOrderItemRowLabels(row);
       }
 
       async function openEditOrderModal(orderId) {
@@ -1920,8 +1960,8 @@
         }
         editingOrderId = orderId;
         newOrderTitle.textContent = "Редактирование заказа";
-        newOrderForm.reset();
         newOrderItems.innerHTML = "";
+        newOrderForm.reset();
         const parsedDate = orderShipDateStorageToInput(data.ship_date);
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
@@ -1992,6 +2032,10 @@
           return;
         }
         const rows = [...newOrderItems.querySelectorAll(".order-item-row")];
+        if (!rows.length) {
+          showNewOrderError("Добавьте хотя бы одну позицию или восстановите удалённые строки.");
+          return;
+        }
         const items = rows.map((r) => ({
           product_id: r.querySelector(".order-item-product-id").value,
           article: r.dataset.article || "",

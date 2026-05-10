@@ -29,6 +29,14 @@ def _is_orders_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders"
 
 
+def _unirus_template_path() -> Path:
+    return BASE_DIR / "templates" / "Unirus.docx"
+
+
+def _is_unirus_template_path(path: str) -> bool:
+    return _norm_api_path(path) == "/templates/Unirus.docx"
+
+
 def _parse_orders_detail_id(path: str):
     """Для /api/orders/12 возвращает 12; для списка или чужих путей — None."""
     p = _norm_api_path(path)
@@ -867,6 +875,22 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if _is_orders_list_path(path):
             self._send_json(200, fetch_orders())
+            return
+        if _is_unirus_template_path(path):
+            tpl = _unirus_template_path()
+            if not tpl.is_file():
+                self._send_json(404, {"error": "Not found", "message": "Шаблон Unirus не найден."})
+                return
+            data = tpl.read_bytes()
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
             return
         if not _is_nomenclature_list_path(path):
             self._send_json(404, {"error": "Not found"})

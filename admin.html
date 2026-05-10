@@ -233,6 +233,49 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .pallet-sheets-workspace {
+        display: none;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .pallet-sheets-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .pallet-sheets-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .docx-preview-shell {
+        border: 1px solid rgba(0, 200, 160, 0.2);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.97);
+        color: #111;
+        padding: 16px;
+        max-height: min(72vh, 720px);
+        overflow: auto;
+      }
+
+      .docx-preview-root {
+        font-family: "Segoe UI", "Roboto", sans-serif;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .docx-preview-root .docx-wrapper {
+        background: transparent;
+      }
+
       .assemble-workspace {
         display: none;
         margin-top: 20px;
@@ -1405,6 +1448,30 @@
             </div>
           </section>
 
+          <section
+            id="pallet-sheets-workspace"
+            class="pallet-sheets-workspace"
+            aria-label="Паллетные листы заказа"
+          >
+            <div class="pallet-sheets-toolbar">
+              <button type="button" id="pallet-sheets-back-orders" class="assemble-btn assemble-btn--nav">
+                ← К списку заказов
+              </button>
+              <span class="muted" id="pallet-sheets-order-meta"></span>
+            </div>
+            <p id="pallet-sheets-loading" class="muted" hidden>Загрузка шаблона…</p>
+            <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
+            <div id="pallet-sheets-unirus-wrap" class="docx-preview-shell" hidden>
+              <div id="unirus-docx-container" class="docx-preview-root"></div>
+            </div>
+            <div id="pallet-sheets-other-client" hidden>
+              <p class="muted">
+                Шаблон паллетных листов для этого клиента пока не подключён. Для заказов «Арнест Юнирусь»
+                используется шаблон Unirus.
+              </p>
+            </div>
+          </section>
+
           <section id="assemble-workspace" class="assemble-workspace" aria-label="Распределение заказа по паллетам">
             <div id="assemble-empty" class="assemble-empty muted" hidden>
               <p>Чтобы открыть сборку заказа, перейдите в «Заказы» и нажмите иконку «Сборка» в строке нужного заказа.</p>
@@ -1701,6 +1768,8 @@
       </div>
     </template>
 
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
     <script>
       const params = new URLSearchParams(window.location.search);
       const login = params.get("login");
@@ -1742,6 +1811,14 @@
       const navNomenclature = document.getElementById("nav-nomenclature");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
+      const palletSheetsWorkspace = document.getElementById("pallet-sheets-workspace");
+      const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
+      const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
+      const palletSheetsUnirusWrap = document.getElementById("pallet-sheets-unirus-wrap");
+      const unirusDocxContainer = document.getElementById("unirus-docx-container");
+      const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
+      const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
+      const palletSheetsError = document.getElementById("pallet-sheets-error");
       const assembleWorkspace = document.getElementById("assemble-workspace");
       const assembleEmptyEl = document.getElementById("assemble-empty");
       const assembleLoadedEl = document.getElementById("assemble-loaded");
@@ -1814,6 +1891,86 @@
       let currentStage = "main";
       let sidebarCollapsed = false;
       let nomenclatureItems = [];
+
+      let palletSheetsLoadToken = 0;
+
+      function isArnestUnirusClient(client) {
+        const n = String(client || "").trim().replace(/\s+/g, " ").toLowerCase();
+        return n === "арнест юнирусь";
+      }
+
+      async function refreshPalletSheetsPanel() {
+        const oid = activeStageOrderId;
+        if (!palletSheetsWorkspace || oid == null || !Number.isFinite(oid)) {
+          return;
+        }
+        const token = ++palletSheetsLoadToken;
+        palletSheetsError.hidden = true;
+        palletSheetsError.textContent = "";
+        palletSheetsUnirusWrap.hidden = true;
+        palletSheetsOtherClient.hidden = true;
+        palletSheetsLoading.hidden = false;
+        unirusDocxContainer.innerHTML = "";
+        palletSheetsOrderMeta.textContent = "";
+
+        let order;
+        try {
+          const res = await fetch(`/api/orders/${oid}`);
+          if (!res.ok) {
+            throw new Error("not_found");
+          }
+          order = await res.json();
+        } catch (e) {
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          palletSheetsLoading.hidden = true;
+          palletSheetsError.hidden = false;
+          palletSheetsError.textContent = "Не удалось загрузить заказ.";
+          return;
+        }
+        if (token !== palletSheetsLoadToken) {
+          return;
+        }
+
+        palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"}`;
+
+        if (!isArnestUnirusClient(order.client)) {
+          palletSheetsLoading.hidden = true;
+          palletSheetsOtherClient.hidden = false;
+          return;
+        }
+
+        try {
+          const res = await fetch("/templates/Unirus.docx");
+          if (!res.ok) {
+            throw new Error("template");
+          }
+          const buf = await res.arrayBuffer();
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          unirusDocxContainer.innerHTML = "";
+          if (typeof docx !== "undefined" && typeof docx.renderAsync === "function") {
+            await docx.renderAsync(buf, unirusDocxContainer, undefined, { inWrapper: true });
+          } else {
+            unirusDocxContainer.innerHTML =
+              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. <a href="/templates/Unirus.docx">Скачать Unirus.docx</a></p>';
+          }
+          palletSheetsUnirusWrap.hidden = false;
+        } catch (e) {
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          palletSheetsError.hidden = false;
+          palletSheetsError.textContent =
+            "Не удалось показать шаблон. Убедитесь, что на сервере есть файл templates/Unirus.docx.";
+        } finally {
+          if (token === palletSheetsLoadToken) {
+            palletSheetsLoading.hidden = true;
+          }
+        }
+      }
 
       const savedOrder = localStorage.getItem(navOrderStorageKey);
       if (savedOrder) {
@@ -1901,6 +2058,7 @@
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         ordersWorkspace.classList.remove("visible");
+        palletSheetsWorkspace.classList.remove("visible");
         assembleWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
 
@@ -1908,8 +2066,16 @@
           menuTitle.textContent = "Паллетные листы";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
-          createPalletButton.classList.add("visible");
-          backToMainButton.classList.add("visible");
+          const hasOrderCtx =
+            activeStageOrderId != null && Number.isFinite(activeStageOrderId);
+          if (hasOrderCtx) {
+            createPalletButton.classList.remove("visible");
+            backToMainButton.classList.remove("visible");
+            palletSheetsWorkspace.classList.add("visible");
+          } else {
+            createPalletButton.classList.add("visible");
+            backToMainButton.classList.add("visible");
+          }
         }
 
         if (stage === "create" || stage === "arnest") {
@@ -1970,6 +2136,14 @@
 
         currentStage = stage;
 
+        if (
+          stage === "pallet" &&
+          activeStageOrderId != null &&
+          Number.isFinite(activeStageOrderId)
+        ) {
+          void refreshPalletSheetsPanel();
+        }
+
         if (stageOrderContextEl) {
           if (stage === "pallet" && activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
             stageOrderContextEl.hidden = false;
@@ -1981,8 +2155,17 @@
         }
 
         if (adminLoginNote) {
-          adminLoginNote.hidden = stage === "assemble";
+          const hideNote =
+            stage === "assemble" ||
+            (stage === "pallet" &&
+              activeStageOrderId != null &&
+              Number.isFinite(activeStageOrderId));
+          adminLoginNote.hidden = hideNote;
         }
+      }
+
+      if (palletSheetsBackOrdersBtn) {
+        palletSheetsBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
 
       ordersButton.addEventListener("click", () => setStage("orders"));

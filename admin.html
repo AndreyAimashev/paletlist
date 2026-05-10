@@ -567,6 +567,53 @@
         font-size: 13px;
       }
 
+      .orders-names-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px 14px;
+        margin-bottom: 8px;
+        font-size: 12px;
+      }
+
+      .orders-names-unit-toggle {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .orders-names-unit-btn {
+        margin: 0;
+        padding: 6px 12px;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 8px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .orders-names-unit-btn:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.4);
+      }
+
+      .orders-names-unit-btn.active {
+        color: #09111e;
+        background: linear-gradient(45deg, rgba(0, 200, 160, 0.85), rgba(0, 168, 140, 0.9));
+        border-color: transparent;
+        font-weight: 600;
+      }
+
       .orders-table-wrap {
         overflow-x: auto;
         max-height: min(52vh, 560px);
@@ -1328,6 +1375,20 @@
           </div>
 
           <section id="orders-workspace" class="orders-workspace" aria-label="Список заказов">
+            <div class="orders-names-toolbar muted">
+              <span>Количество в «Наименования»:</span>
+              <div class="orders-names-unit-toggle" role="group" aria-label="Единицы в списке наименований">
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="piece">
+                  Штуки
+                </button>
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="box">
+                  Коробки
+                </button>
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="set">
+                  Наборы
+                </button>
+              </div>
+            </div>
             <div class="orders-table-wrap">
               <table class="orders-table">
                 <thead>
@@ -2174,6 +2235,108 @@
         return String(r);
       }
 
+      const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";
+      let cachedOrdersListRows = null;
+
+      let ordersNamesDisplayUnit = (function initOrdersNamesUnit() {
+        try {
+          const v = sessionStorage.getItem(ORDERS_NAMES_UNIT_STORAGE);
+          if (v === "piece" || v === "box" || v === "set") {
+            return v;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        return "piece";
+      })();
+
+      function orderItemQtyInPieces(it) {
+        const q = Number(it.quantity);
+        if (!Number.isFinite(q) || q <= 0) {
+          return 0;
+        }
+        const u = (it.unit || "piece").toLowerCase();
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        if (u === "box") {
+          return pib > 0 ? q * pib : q;
+        }
+        if (u === "set") {
+          return q * pps;
+        }
+        return q;
+      }
+
+      function orderItemQuantityInDisplayUnit(it, displayUnit) {
+        const pieces = orderItemQtyInPieces(it);
+        if (pieces <= 0) {
+          return null;
+        }
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        if (displayUnit === "piece") {
+          return pieces;
+        }
+        if (displayUnit === "box") {
+          if (pib <= 0) {
+            return null;
+          }
+          return pieces / pib;
+        }
+        if (displayUnit === "set") {
+          return pieces / pps;
+        }
+        return null;
+      }
+
+      function formatOrderNamesCell(o, unit) {
+        const items = Array.isArray(o.items) ? o.items : [];
+        if (!items.length) {
+          return escapeXml(o.names || "—");
+        }
+        const suf = unit === "box" ? "кор" : unit === "set" ? "наб" : "шт";
+        return items
+          .map((it) => {
+            const title = formatOrderItemSearchInput(it.article, it.name) || "—";
+            const v = orderItemQuantityInDisplayUnit(it, unit);
+            if (v === null || !Number.isFinite(v)) {
+              return `${escapeXml(title)} —`;
+            }
+            const rounded = Math.round(v);
+            const numStr =
+              Math.abs(v - rounded) < 1e-9
+                ? String(rounded)
+                : v.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+            return `${escapeXml(title)} × ${escapeXml(numStr)} ${escapeXml(suf)}`;
+          })
+          .join("; ");
+      }
+
+      function syncOrdersNamesUnitButtons() {
+        if (!ordersWorkspace) {
+          return;
+        }
+        ordersWorkspace.querySelectorAll("[data-orders-names-unit]").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.ordersNamesUnit === ordersNamesDisplayUnit);
+        });
+      }
+
+      function setOrdersNamesDisplayUnit(next) {
+        if (next !== "piece" && next !== "box" && next !== "set") {
+          return;
+        }
+        ordersNamesDisplayUnit = next;
+        try {
+          sessionStorage.setItem(ORDERS_NAMES_UNIT_STORAGE, next);
+        } catch (e) {
+          /* ignore */
+        }
+        syncOrdersNamesUnitButtons();
+        if (cachedOrdersListRows && cachedOrdersListRows.length) {
+          renderOrdersTable(cachedOrdersListRows);
+        }
+      }
+
       function renderOrderRowActions(orderId) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
@@ -2186,6 +2349,8 @@
       }
 
       function renderOrdersTable(rows) {
+        cachedOrdersListRows = Array.isArray(rows) ? rows : [];
+        syncOrdersNamesUnitButtons();
         if (!rows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
@@ -2199,11 +2364,12 @@
               );
               const pctCellClass =
                 pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
+              const namesHtml = formatOrderNamesCell(o, ordersNamesDisplayUnit);
               return `<tr>
                   <td class="col-date">${escapeXml(o.ship_date || "—")}</td>
                   <td>${escapeXml(o.client || "—")}</td>
                   <td class="${pctCellClass}">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
-                  <td>${escapeXml(o.names || "—")}</td>
+                  <td>${namesHtml}</td>
                   <td>${escapeXml(o.extra_info || "—")}</td>
                   <td class="col-actions">${renderOrderRowActions(o.id)}</td>
                 </tr>`;
@@ -2483,31 +2649,39 @@
               if (!pallets) {
                 return o;
               }
-              let detailRes;
-              try {
-                detailRes = await fetch(`/api/orders/${o.id}`);
-              } catch (e) {
-                return o;
+              let items = Array.isArray(o.items) && o.items.length ? o.items : null;
+              if (!items) {
+                let detailRes;
+                try {
+                  detailRes = await fetch(`/api/orders/${o.id}`);
+                } catch (e) {
+                  return o;
+                }
+                if (!detailRes.ok) {
+                  return o;
+                }
+                let data;
+                try {
+                  data = await detailRes.json();
+                } catch (e) {
+                  return o;
+                }
+                items = Array.isArray(data.items) ? data.items : [];
               }
-              if (!detailRes.ok) {
-                return o;
-              }
-              let data;
-              try {
-                data = await detailRes.json();
-              } catch (e) {
-                return o;
-              }
-              const items = Array.isArray(data.items) ? data.items : [];
               if (!items.length) {
                 return o;
               }
               const pct = computeAssembledPercentFromDraftItems(items, pallets);
-              return { ...o, assembled_percent: pct };
+              return {
+                ...o,
+                assembled_percent: pct,
+                items: Array.isArray(o.items) && o.items.length ? o.items : items,
+              };
             }),
           );
           renderOrdersTable(enriched);
         } catch (error) {
+          cachedOrdersListRows = [];
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
         }
@@ -3166,6 +3340,19 @@
           if (u === "piece" || u === "box" || u === "set") {
             ev.preventDefault();
             setAssembleSummaryDisplayUnit(u);
+          }
+        });
+      }
+      if (ordersWorkspace) {
+        ordersWorkspace.addEventListener("click", (ev) => {
+          const b = ev.target.closest("[data-orders-names-unit]");
+          if (!b || !ordersWorkspace.contains(b)) {
+            return;
+          }
+          const u = b.dataset.ordersNamesUnit;
+          if (u === "piece" || u === "box" || u === "set") {
+            ev.preventDefault();
+            setOrdersNamesDisplayUnit(u);
           }
         });
       }

@@ -540,6 +540,23 @@ def update_order_with_items(order_id: int, body: dict):
     return {"ok": True, "id": int(order_id)}
 
 
+def _order_item_row_to_dict(ir):
+    """Строка JOIN order_items + products → dict как в fetch_order_detail."""
+    pid = ir["product_id"]
+    return {
+        "product_id": int(pid) if pid is not None else None,
+        "article": ir["article"] or "",
+        "name": ir["name"] or "",
+        "quantity": float(ir["quantity"] or 0),
+        "unit": (ir["unit"] or "piece").strip().lower(),
+        "pieces_in_box": max(0, int(ir["pieces_in_box"] or 0)),
+        "sets_in_box": max(1, int(ir["sets_in_box"] or 1)),
+        "pieces_per_set": max(1, int(ir["pieces_per_set"] or 1)),
+        "row_layout": max(0, int(ir["row_layout"] or 0)),
+        "max_rows": max(0, int(ir["max_rows"] or 0)),
+    }
+
+
 def fetch_order_detail(order_id: int):
     with DB_LOCK:
         con = get_connection()
@@ -570,23 +587,7 @@ def fetch_order_detail(order_id: int):
             (order_id,),
         ).fetchall()
         con.close()
-    items = []
-    for ir in item_rows:
-        pid = ir["product_id"]
-        items.append(
-            {
-                "product_id": int(pid) if pid is not None else None,
-                "article": ir["article"] or "",
-                "name": ir["name"] or "",
-                "quantity": float(ir["quantity"] or 0),
-                "unit": (ir["unit"] or "piece").strip().lower(),
-                "pieces_in_box": max(0, int(ir["pieces_in_box"] or 0)),
-                "sets_in_box": max(1, int(ir["sets_in_box"] or 1)),
-                "pieces_per_set": max(1, int(ir["pieces_per_set"] or 1)),
-                "row_layout": max(0, int(ir["row_layout"] or 0)),
-                "max_rows": max(0, int(ir["max_rows"] or 0)),
-            }
-        )
+    items = [_order_item_row_to_dict(ir) for ir in item_rows]
     if not items and (row["names"] or "").strip():
         items = _synthetic_items_from_order_names(row["names"] or "")
     return {
@@ -621,18 +622,50 @@ def fetch_orders():
             FROM orders ORDER BY id DESC
             """
         ).fetchall()
+        ids = [int(r["id"]) for r in rows]
+        items_by_oid = {oid: [] for oid in ids}
+        if ids:
+            placeholders = ",".join("?" * len(ids))
+            item_rows = con.execute(
+                f"""
+                SELECT oi.order_id AS order_id, oi.product_id AS product_id,
+                       oi.article AS article, oi.name AS name,
+                       oi.quantity AS quantity, oi.unit AS unit,
+                       p.pieces_in_box AS pieces_in_box,
+                       p.sets_in_box AS sets_in_box,
+                       p.pieces_per_set AS pieces_per_set,
+                       p.row_layout AS row_layout,
+                       p.max_rows AS max_rows
+                FROM order_items oi
+                LEFT JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id IN ({placeholders})
+                ORDER BY oi.order_id, oi.id
+                """,
+                ids,
+            ).fetchall()
+            for ir in item_rows:
+                oid = int(ir["order_id"])
+                if oid in items_by_oid:
+                    items_by_oid[oid].append(_order_item_row_to_dict(ir))
         con.close()
-    return [
-        {
-            "id": row["id"],
-            "ship_date": row["ship_date"] or "",
-            "client": row["client"] or "",
-            "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
-            "names": row["names"] or "",
-            "extra_info": row["extra_info"] or "",
-        }
-        for row in rows
-    ]
+    out = []
+    for row in rows:
+        oid = int(row["id"])
+        items = items_by_oid.get(oid, [])
+        if not items and (row["names"] or "").strip():
+            items = _synthetic_items_from_order_names(row["names"] or "")
+        out.append(
+            {
+                "id": oid,
+                "ship_date": row["ship_date"] or "",
+                "client": row["client"] or "",
+                "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+                "names": row["names"] or "",
+                "extra_info": row["extra_info"] or "",
+                "items": items,
+            }
+        )
+    return out
 
 
 def fetch_nomenclature():

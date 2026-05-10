@@ -2011,7 +2011,6 @@
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       let assembleOrderSnapshot = null;
-      let assembleNomenclatureList = null;
       let assembleAllocState = null;
 
       function assembleStorageKey(orderId) {
@@ -2047,23 +2046,9 @@
             lineIndex = n;
           }
         }
-        let nomId = "";
-        const nid = s.nomId;
-        if (nid !== "" && nid !== undefined && nid !== null) {
-          const nn = Number(nid);
-          if (Number.isFinite(nn) && nn > 0) {
-            nomId = nn;
-          }
-        }
-        if (lineIndex !== "") {
-          nomId = "";
-        } else if (nomId !== "") {
-          lineIndex = "";
-        }
         const b = defaultAssembleLineAlloc();
         return {
           lineIndex,
-          nomId,
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -2075,65 +2060,22 @@
       function parseSlotSelectValue(raw) {
         const v = String(raw || "").trim();
         if (!v) {
-          return { lineIndex: "", nomId: "" };
+          return { lineIndex: "" };
         }
-        const i = v.indexOf(":");
-        if (i < 1) {
-          return { lineIndex: "", nomId: "" };
+        if (v.startsWith("order:")) {
+          const num = Number(v.slice(6));
+          if (Number.isFinite(num) && num >= 0) {
+            return { lineIndex: num };
+          }
         }
-        const kind = v.slice(0, i);
-        const num = Number(v.slice(i + 1));
-        if (!Number.isFinite(num)) {
-          return { lineIndex: "", nomId: "" };
-        }
-        if (kind === "order" && num >= 0) {
-          return { lineIndex: num, nomId: "" };
-        }
-        if (kind === "nom" && num > 0) {
-          return { lineIndex: "", nomId: num };
-        }
-        return { lineIndex: "", nomId: "" };
+        return { lineIndex: "" };
       }
 
       function formatSlotSelectValue(slot) {
         if (slot.lineIndex !== "" && Number.isFinite(Number(slot.lineIndex))) {
           return `order:${Number(slot.lineIndex)}`;
         }
-        if (slot.nomId !== "" && Number.isFinite(Number(slot.nomId))) {
-          return `nom:${Number(slot.nomId)}`;
-        }
         return "";
-      }
-
-      function findNomItemById(id) {
-        const list = assembleNomenclatureList;
-        if (!Array.isArray(list)) {
-          return null;
-        }
-        const nid = Number(id);
-        if (!Number.isFinite(nid)) {
-          return null;
-        }
-        return list.find((x) => Number(x.id) === nid) || null;
-      }
-
-      function nomRecordToAssembleItem(rec) {
-        if (!rec) {
-          return null;
-        }
-        return {
-          product_id: rec.id,
-          article: rec.article,
-          name: rec.name,
-          quantity: 1e12,
-          unit: "piece",
-          pieces_in_box: Math.max(0, Number(rec.pieces_in_box) || 0),
-          sets_in_box: Math.max(1, Number(rec.sets_in_box) || 1),
-          pieces_per_set: Math.max(1, Number(rec.pieces_per_set) || 1),
-          row_layout: Math.max(0, Number(rec.row_layout) || 0),
-          max_rows: Math.max(0, Number(rec.max_rows) || 0),
-          nomExtra: true,
-        };
       }
 
       function resolveSlotAssembleItem(slot, orderItems) {
@@ -2143,9 +2085,6 @@
         if (slot.lineIndex !== "" && Number.isFinite(Number(slot.lineIndex))) {
           const li = Number(slot.lineIndex);
           return orderItems[li] || null;
-        }
-        if (slot.nomId !== "" && Number.isFinite(Number(slot.nomId))) {
-          return nomRecordToAssembleItem(findNomItemById(slot.nomId));
         }
         return null;
       }
@@ -2375,7 +2314,7 @@
         assembleAllocAlert.textContent = msgs.join(" ");
       }
 
-      function renderSlotSourceOptions(orderItems, nomList, pIdx, rowIdxInPallet, slot) {
+      function renderSlotSourceOptions(orderItems, pIdx, rowIdxInPallet, slot) {
         const pal = assembleAllocState.pallets[pIdx];
         const usedOrder = new Set();
         (pal.slots || []).forEach((sl, j) => {
@@ -2396,8 +2335,7 @@
             ? Number(slot.lineIndex)
             : -1;
         const curVal = formatSlotSelectValue(slot);
-        let html = '<option value="">— Выберите наименование —</option>';
-        html += '<optgroup label="Позиции заказа">';
+        let html = '<option value="">— Выберите позицию заказа —</option>';
         orderItems.forEach((it, idx) => {
           if (usedOrder.has(idx) && idx !== curOrder) {
             return;
@@ -2407,33 +2345,12 @@
           const sel = v === curVal ? " selected" : "";
           html += `<option value="${v}"${sel}>${escapeXml(label)}</option>`;
         });
-        html += "</optgroup>";
-        if (Array.isArray(nomList) && nomList.length) {
-          html += '<optgroup label="Другое из номенклатуры">';
-          nomList.forEach((rec) => {
-            const id = Number(rec.id);
-            if (!Number.isFinite(id)) {
-              return;
-            }
-            const label = formatOrderItemSearchInput(rec.article, rec.name);
-            const v = `nom:${id}`;
-            const sel = v === curVal ? " selected" : "";
-            html += `<option value="${v}"${sel}>${escapeXml(label)}</option>`;
-          });
-          html += "</optgroup>";
-        }
         return html;
       }
 
       function renderOneAssembleSlotRow(pIdx, sIdx, slot, items) {
         const it = resolveSlotAssembleItem(slot, items);
-        const selectHtml = renderSlotSourceOptions(
-          items,
-          assembleNomenclatureList,
-          pIdx,
-          sIdx,
-          slot,
-        );
+        const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
         const removeSlotBtn = `<button type="button" class="menu-button assemble-remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать с паллета</button>`;
         if (!it) {
           return `<div class="assemble-line-block" data-assemble-slot-row>
@@ -2454,11 +2371,10 @@
         const directQtyVal = escapeXml(String(slot.directQty ?? ""));
         const frVal = escapeXml(String(slot.fullRows ?? ""));
         const pbVal = escapeXml(String(slot.partialBoxes ?? ""));
-        const nomNote = it.nomExtra ? " Не в строках заказа — остаток по заказу для этой позиции не считается." : "";
         const packHint =
-          (pib > 0
+          pib > 0
             ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
-            : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.") + nomNote;
+            : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
         return `<div class="assemble-line-block" data-assemble-slot-row>
           <div class="assemble-field" style="max-width:100%;margin-bottom:10px">
             <label>Наименование</label>
@@ -2512,7 +2428,7 @@
             const slots = Array.isArray(pal.slots) ? pal.slots : [];
             const slotsHtml =
               slots.length === 0
-                ? '<p class="muted">На паллете нет товаров — добавьте строку заказа или наименование из номенклатуры («+ Добавить товар на паллет»).</p>'
+                ? '<p class="muted">На паллете нет товаров — добавьте позицию из заказа («+ Добавить товар на паллет»).</p>'
                 : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
             const addBtn = `<button type="button" class="menu-button" data-add-slot data-pallet="${pIdx}">+ Добавить товар на паллет</button>`;
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
@@ -2547,11 +2463,10 @@
           const newSlots = [];
           card.querySelectorAll("[data-assemble-slot-row]").forEach((row) => {
             const sIdx = newSlots.length;
-            const slot = normalizeSlot({ lineIndex: "", nomId: "", ...defaultAssembleLineAlloc() });
+            const slot = normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() });
             const sel = row.querySelector("select[data-field='slotSource']");
             const parsed = parseSlotSelectValue(sel ? sel.value : "");
             slot.lineIndex = parsed.lineIndex;
-            slot.nomId = parsed.nomId;
             const modeChecked = row.querySelector(`input[name="amode-${pIdx}-${sIdx}"]:checked`);
             if (modeChecked) {
               slot.mode = modeChecked.value === "rows" ? "rows" : "direct";
@@ -2673,7 +2588,7 @@
             return;
           }
           assembleAllocState.pallets[pi].slots.push(
-            normalizeSlot({ lineIndex: "", nomId: "", ...defaultAssembleLineAlloc() }),
+            normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() }),
           );
           saveAssembleDraft();
           renderAssemblePalletCards();
@@ -2703,7 +2618,6 @@
 
       async function loadAssembleOrderWorkspace(orderId) {
         assembleOrderSnapshot = null;
-        assembleNomenclatureList = null;
         assembleAllocState = null;
         if (!assembleLoadedEl || !assembleEmptyEl) {
           return;
@@ -2747,18 +2661,6 @@
           client: data.client,
           items,
         };
-        assembleNomenclatureList = [];
-        try {
-          const nr = await fetch("/api/nomenclature");
-          if (nr.ok) {
-            const nx = await nr.json();
-            if (Array.isArray(nx)) {
-              assembleNomenclatureList = nx;
-            }
-          }
-        } catch (e) {
-          /* справочник необязателен для строк заказа */
-        }
         const draft = loadAssembleDraft(orderId, items.length);
         if (draft && Array.isArray(draft.pallets)) {
           assembleAllocState = {
@@ -2784,7 +2686,6 @@
           return;
         }
         assembleOrderSnapshot = null;
-        assembleNomenclatureList = null;
         assembleAllocState = null;
         assembleEmptyEl.hidden = false;
         assembleLoadedEl.hidden = true;

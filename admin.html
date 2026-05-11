@@ -2105,12 +2105,12 @@
         return "";
       }
 
-      async function fetchRenderedUnirusDocxForPallet(palletNumber, articleText) {
-        const q = encodeURIComponent(String(palletNumber ?? ""));
-        const a = encodeURIComponent(String(articleText ?? ""));
-        const res = await fetch(
-          `/api/unirus-pallet-sheet?pallet_number=${q}${a ? `&article=${a}` : ""}`,
-        );
+      async function fetchRenderedUnirusDocxForPallet(payload) {
+        const res = await fetch("/api/unirus-pallet-sheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(payload),
+        });
         if (!res.ok) {
           let detail = "";
           try {
@@ -2196,8 +2196,9 @@
             const orderItems = Array.isArray(order.items) ? order.items : [];
             for (let i = 0; i < palletCount; i += 1) {
               const pal = assemblePallets[i];
-              const art = unirusArticleFromAssemblyPallet(pal, orderItems);
-              const buf = await fetchRenderedUnirusDocxForPallet(pal.palletNumber ?? "", art);
+              const buf = await fetchRenderedUnirusDocxForPallet(
+                buildUnirusSheetPayload(pal, orderItems),
+              );
               const slotBuf = buf.slice(0);
               const numLabel = String(pal.palletNumber ?? "").trim();
               const card = document.createElement("article");
@@ -2464,9 +2465,10 @@
           }
           try {
             for (let i = 0; i < n; i += 1) {
-              const art = unirusArticleFromAssemblyPallet(pallets[i], orderItems);
               buffers.push(
-                await fetchRenderedUnirusDocxForPallet(pallets[i].palletNumber ?? "", art),
+                await fetchRenderedUnirusDocxForPallet(
+                  buildUnirusSheetPayload(pallets[i], orderItems),
+                ),
               );
             }
           } catch (e) {
@@ -3086,6 +3088,96 @@
           return pib > 0 ? dq * pib : 0;
         }
         return dq;
+      }
+
+      /**
+       * Поля «коробок в ряду / полных рядов / сверх» для Unirus (как в макросе Word: Val(a)*Val(b)+Val(c)).
+       * В режиме «напрямую» раскладываем общее число коробок по row_layout, если он задан.
+       */
+      function unirusBoxesBreakdown(it, slot) {
+        const alloc = slotToAlloc(slot);
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const rowLay = Math.max(0, Number(it.row_layout) || 0);
+        if (alloc.mode === "rows" && rowLay > 0 && pib > 0) {
+          const fr = Math.max(0, parseInt(String(alloc.fullRows), 10) || 0);
+          const pb = Math.max(0, parseInt(String(alloc.partialBoxes), 10) || 0);
+          const totalBoxes = fr * rowLay + pb;
+          return {
+            boxesInFullRows: String(rowLay),
+            fullRowsCount: String(fr),
+            extraBoxes: String(pb),
+            totalBoxes,
+          };
+        }
+        const pieces = allocationToPieces(it, alloc);
+        const totalBoxes = pib > 0 ? pieces / pib : 0;
+        if (!Number.isFinite(totalBoxes) || totalBoxes <= 0) {
+          return {
+            boxesInFullRows: "",
+            fullRowsCount: "",
+            extraBoxes: "",
+            totalBoxes: 0,
+          };
+        }
+        if (rowLay > 0) {
+          const fr = Math.floor(totalBoxes / rowLay);
+          const ex = Math.max(0, Math.round(totalBoxes - fr * rowLay));
+          return {
+            boxesInFullRows: String(rowLay),
+            fullRowsCount: String(fr),
+            extraBoxes: String(ex),
+            totalBoxes,
+          };
+        }
+        const tb = Math.round(totalBoxes);
+        return {
+          boxesInFullRows: "1",
+          fullRowsCount: String(tb),
+          extraBoxes: "0",
+          totalBoxes: tb,
+        };
+      }
+
+      function buildUnirusSheetPayload(pal, orderItems) {
+        const article = unirusArticleFromAssemblyPallet(pal, orderItems);
+        const payload = {
+          pallet_number: String(pal.palletNumber ?? "").trim(),
+          article,
+        };
+        const rows = Array.isArray(pal.slots) ? pal.slots : [];
+        let slot = null;
+        let item = null;
+        for (let i = 0; i < rows.length; i += 1) {
+          const s = rows[i];
+          if (s.lineIndex === "" || s.lineIndex === undefined || s.lineIndex === null) {
+            continue;
+          }
+          const li = Number(s.lineIndex);
+          if (!Number.isFinite(li) || li < 0) {
+            continue;
+          }
+          slot = normalizeSlot(s);
+          item = orderItems[li] || null;
+          break;
+        }
+        if (!slot || !item) {
+          return payload;
+        }
+        payload.manufacturing_date_raw = normalizeUnirusDate6(slot.unirusMfgDate);
+        payload.expiry_date_raw = normalizeUnirusDate6(slot.unirusExpiryDate);
+        payload.batch_number = String(slot.batchNumber ?? "").trim();
+        const bd = unirusBoxesBreakdown(item, slot);
+        payload.boxes_in_full_rows = bd.boxesInFullRows;
+        payload.full_rows_count = bd.fullRowsCount;
+        payload.extra_boxes = bd.extraBoxes;
+        payload.pieces_per_box = String(Math.max(0, Number(item.pieces_in_box) || 0));
+        const bw = Number(item.box_weight);
+        payload.box_weight = Number.isFinite(bw) && bw > 0 ? String(bw) : "";
+        const nm = String(item.name ?? "").trim();
+        if (nm) {
+          payload.product_name = nm;
+        }
+        return payload;
       }
 
       function lineAllocatedPiecesSum(lineIdx) {

@@ -60,6 +60,31 @@ def _is_unirus_pallet_sheet_path(path: str) -> bool:
 
 
 UNIRUS_PALLET_BARCODE_PLACEHOLDER = "###ШТРИХКОД_ПАЛЛЕТА###"
+UNIRUS_BOX_BARCODE_PLACEHOLDER = "###ШТРИХКОД_КОРОБОК###"
+UNIRUS_COMPLEX_BARCODE_PLACEHOLDER = "###СЛОЖНЫЙ_ШТРИХКОД###"
+UNIRUS_PH_MFG = "###ДАТА_ИЗГОТОВЛЕНИЯ###"
+UNIRUS_PH_EXP = "###ДАТА_ГОДНОСТИ###"
+UNIRUS_PH_BOXES_IN_ROWS = "###КОРОБОК_В_РЯДАХ###"
+UNIRUS_PH_FULL_ROWS = "###ПОЛНЫХ_РЯДОВ###"
+UNIRUS_PH_EXTRA_BOXES = "###КОРОБОК_СВЕРХ###"
+UNIRUS_PH_TOTAL_BOXES = "###ВСЕГО_КОРОБОК###"
+UNIRUS_PH_TOTAL_PIECES = "###ВСЕГО_ШТУК###"
+UNIRUS_PH_PALLET_WEIGHT = "###ВЕС_ПАЛЛЕТА###"
+UNIRUS_PH_BATCH = "###НОМЕР_ПАРТИИ###"
+UNIRUS_PH_PRODUCT_NAME = "###\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435###"
+UNIRUS_OPTIONAL_BODY_KEYS = frozenset(
+    {
+        "manufacturing_date_raw",
+        "expiry_date_raw",
+        "boxes_in_full_rows",
+        "full_rows_count",
+        "extra_boxes",
+        "pieces_per_box",
+        "box_weight",
+        "batch_number",
+        "product_name",
+    }
+)
 # В шаблоне «Артикул» часто разбит на три <w:r>: ### | Артикул | ###
 UNIRUS_ARTICLE_CORE = "\u0410\u0440\u0442\u0438\u043a\u0443\u043b"
 # Без re.DOTALL: не «проглатываем» лишние узлы между run'ами.
@@ -114,6 +139,154 @@ def fetch_barcode_png(barcode_data: str) -> bytes:
         return resp.read()
 
 
+def _unirus_strip_str(v) -> str:
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
+def _unirus_extra_from_body(body: dict) -> dict:
+    out: dict[str, str] = {}
+    for k in UNIRUS_OPTIONAL_BODY_KEYS:
+        if k not in body:
+            continue
+        v = body.get(k)
+        if v is None:
+            continue
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = str(v).strip()
+        else:
+            out[k] = _unirus_strip_str(v)
+    return out
+
+
+def _unirus_val(s: str) -> float:
+    t = _unirus_strip_str(s).replace(",", ".")
+    if not t:
+        return 0.0
+    try:
+        return float(t)
+    except ValueError:
+        return 0.0
+
+
+def format_date_for_sheet_vba(date_input: str) -> str:
+    """Как FormatDateForSheet в макросе Word (6 цифр → YY.MM.20XX)."""
+    raw = _unirus_strip_str(date_input)
+    if not raw:
+        return ""
+    if len(raw) == 6 and raw.isdigit():
+        return f"{raw[:2]}.{raw[2:4]}.20{raw[4:6]}"
+    return raw
+
+
+def convert_date_block_for_complex_vba(date_input: str) -> str:
+    """Как ConvertDateToYYMMDD: YYMMDD → DDMMYY (три пары переставлены)."""
+    raw = _unirus_strip_str(date_input)
+    if not raw or len(raw) != 6 or not raw.isdigit():
+        return ""
+    return raw[4:6] + raw[2:4] + raw[:2]
+
+
+def final_batch_vba(batch: str, mfg_raw: str) -> str:
+    """Как в ProcessBarcodeData для ###НОМЕР_ПАРТИИ###."""
+    b = _unirus_strip_str(batch)
+    if not b:
+        return ""
+    mfg = _unirus_strip_str(mfg_raw)
+    if len(b) <= 2 and len(mfg) == 6 and mfg.isdigit():
+        try:
+            bn = int(float(b.replace(",", ".")))
+        except ValueError:
+            return b
+        return convert_date_block_for_complex_vba(mfg) + f"{bn % 100:02d}"
+    return b
+
+
+def first_number_for_complex_barcode(article: str) -> str:
+    """Аналог FindFirstNumber: первое целое число из артикула (цифры подряд)."""
+    t = _unirus_strip_str(article)
+    if not t:
+        return ""
+    if t.isdigit():
+        return t
+    m = re.search(r"\d+", t)
+    return m.group(0) if m else ""
+
+
+def _unirus_cstr_number(n: float) -> str:
+    if abs(n - round(n)) < 1e-9:
+        return str(int(round(n)))
+    return str(n).replace(",", ".")
+
+
+def _compute_unirus_text_replacements(
+    article: str, extra: dict | None
+) -> tuple[dict[str, str], str, str]:
+    """
+    (текстовые замены, строка для сложного Code128, total_boxes_str).
+    Пустое значение в словаре = не подставлять (как InsertDateAtPlaceholder в макросе).
+    """
+    x = extra or {}
+    mfg_raw = _unirus_strip_str(x.get("manufacturing_date_raw", ""))
+    exp_raw = _unirus_strip_str(x.get("expiry_date_raw", ""))
+    boxes_in_row = _unirus_strip_str(x.get("boxes_in_full_rows", ""))
+    rows_count = _unirus_strip_str(x.get("full_rows_count", ""))
+    extra_boxes = _unirus_strip_str(x.get("extra_boxes", ""))
+    pieces = _unirus_strip_str(x.get("pieces_per_box", ""))
+    weight = _unirus_strip_str(x.get("box_weight", ""))
+    batch_raw = _unirus_strip_str(x.get("batch_number", ""))
+    product_name = _unirus_strip_str(x.get("product_name", ""))
+
+    out: dict[str, str] = {}
+    if mfg_raw:
+        out[UNIRUS_PH_MFG] = format_date_for_sheet_vba(mfg_raw)
+    if exp_raw:
+        out[UNIRUS_PH_EXP] = format_date_for_sheet_vba(exp_raw)
+    if boxes_in_row:
+        out[UNIRUS_PH_BOXES_IN_ROWS] = boxes_in_row
+    if rows_count:
+        out[UNIRUS_PH_FULL_ROWS] = rows_count
+    if extra_boxes:
+        out[UNIRUS_PH_EXTRA_BOXES] = extra_boxes
+
+    total_boxes_str = ""
+    if boxes_in_row and rows_count and extra_boxes:
+        tb = _unirus_val(boxes_in_row) * _unirus_val(rows_count) + _unirus_val(extra_boxes)
+        total_boxes_str = _unirus_cstr_number(tb)
+    if total_boxes_str:
+        out[UNIRUS_PH_TOTAL_BOXES] = total_boxes_str
+
+    total_pieces_str = ""
+    if total_boxes_str and pieces:
+        tp = _unirus_val(total_boxes_str) * _unirus_val(pieces)
+        total_pieces_str = _unirus_cstr_number(tp)
+    if total_pieces_str:
+        out[UNIRUS_PH_TOTAL_PIECES] = total_pieces_str
+
+    total_weight_str = ""
+    if total_boxes_str and weight:
+        tw = _unirus_val(total_boxes_str) * _unirus_val(weight)
+        total_weight_str = _unirus_cstr_number(tw)
+    if total_weight_str:
+        out[UNIRUS_PH_PALLET_WEIGHT] = total_weight_str
+
+    final_b = final_batch_vba(batch_raw, mfg_raw)
+    if final_b:
+        out[UNIRUS_PH_BATCH] = final_b
+
+    if product_name:
+        out[UNIRUS_PH_PRODUCT_NAME] = product_name
+
+    first_n = first_number_for_complex_barcode(article)
+    mfg_blk = convert_date_block_for_complex_vba(mfg_raw)
+    exp_blk = convert_date_block_for_complex_vba(exp_raw)
+    complex_data = ""
+    if first_n and final_b and mfg_blk and exp_blk:
+        complex_data = f"{first_n} {final_b} {mfg_blk} {exp_blk}"
+    return out, complex_data, total_boxes_str
+
+
 def _replace_paragraph_placeholder(paragraph, placeholder: str, image_bytes: bytes) -> None:
     before, _, after = paragraph.text.partition(placeholder)
     p_elm = paragraph._element
@@ -132,6 +305,37 @@ def _walk_unirus_replace_barcode(doc, placeholder: str, image_bytes: bytes) -> N
         for p in parent.paragraphs:
             while placeholder in p.text:
                 _replace_paragraph_placeholder(p, placeholder, image_bytes)
+        for t in parent.tables:
+            for row in t.rows:
+                for cell in row.cells:
+                    proc_block(cell)
+
+    proc_block(doc)
+    for sec in doc.sections:
+        proc_block(sec.header)
+        proc_block(sec.footer)
+
+
+def _replace_paragraph_text_placeholder(paragraph, placeholder: str, text_value: str) -> None:
+    before, _, after = paragraph.text.partition(placeholder)
+    p_elm = paragraph._element
+    for child in list(p_elm):
+        p_elm.remove(child)
+    if before:
+        paragraph.add_run(before)
+    paragraph.add_run(text_value)
+    if after:
+        paragraph.add_run(after)
+
+
+def _walk_unirus_replace_text(doc, placeholder: str, text_value: str) -> None:
+    if not text_value:
+        return
+
+    def proc_block(parent):
+        for p in parent.paragraphs:
+            while placeholder in p.text:
+                _replace_paragraph_text_placeholder(p, placeholder, text_value)
         for t in parent.tables:
             for row in t.rows:
                 for cell in row.cells:
@@ -208,11 +412,15 @@ def _patch_unirus_docx_article_bytes(docx_bytes: bytes, article: str) -> tuple[b
 
 
 def render_unirus_docx_with_pallet_barcode(
-    pallet_number: str, article: str = ""
+    pallet_number: str,
+    article: str = "",
+    extra: dict | None = None,
 ) -> tuple[bytes | None, str]:
     """
     Возвращает (байты .docx, код ошибки). Пустой код — успех.
-    Если номер паллеты пустой, штрих-код не вставляется (как в макросе).
+    Подстановки по макросу Word: даты, ряды, итоги, партия, три Code128 (коробки, паллета, сложный).
+    extra — опциональные поля из JSON (manufacturing_date_raw, expiry_date_raw, …).
+    Если номер паллеты пустой, штрих-код паллеты не вставляется (как в макросе).
     """
     if not HAVE_DOCX:
         return None, "no_docx_lib"
@@ -227,13 +435,35 @@ def render_unirus_docx_with_pallet_barcode(
         doc = DocxDocument(io.BytesIO(patched_tpl))
     except Exception:
         return None, "template_read"
-    data = build_pallet_barcode_data(pallet_number)
-    if data:
+
+    text_map, complex_data, total_boxes_str = _compute_unirus_text_replacements(
+        article, extra
+    )
+    for ph, val in text_map.items():
+        _walk_unirus_replace_text(doc, ph, val)
+
+    if total_boxes_str:
         try:
-            img = fetch_barcode_png(data)
+            img_boxes = fetch_barcode_png(total_boxes_str)
         except (urllib.error.URLError, TimeoutError, OSError):
             return None, "barcode_fetch"
-        _walk_unirus_replace_barcode(doc, UNIRUS_PALLET_BARCODE_PLACEHOLDER, img)
+        _walk_unirus_replace_barcode(doc, UNIRUS_BOX_BARCODE_PLACEHOLDER, img_boxes)
+
+    pallet_bc = build_pallet_barcode_data(pallet_number)
+    if pallet_bc:
+        try:
+            img_pallet = fetch_barcode_png(pallet_bc)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None, "barcode_fetch"
+        _walk_unirus_replace_barcode(doc, UNIRUS_PALLET_BARCODE_PLACEHOLDER, img_pallet)
+
+    if complex_data:
+        try:
+            img_complex = fetch_barcode_png(complex_data)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None, "barcode_fetch"
+        _walk_unirus_replace_barcode(doc, UNIRUS_COMPLEX_BARCODE_PLACEHOLDER, img_complex)
+
     out = io.BytesIO()
     try:
         doc.save(out)
@@ -1067,8 +1297,10 @@ class ApiHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw else {}
 
-    def _respond_unirus_pallet_sheet(self, pn_str: str, article: str = ""):
-        """Отдаёт один .docx с подстановкой штрих-кода паллеты (GET и POST)."""
+    def _respond_unirus_pallet_sheet(
+        self, pn_str: str, article: str = "", extra: dict | None = None
+    ):
+        """Отдаёт один .docx: артикул в XML, поля и штрих-коды по макросу (POST extra), GET — только паллета+артикул."""
         if not HAVE_DOCX:
             self._send_json(
                 503,
@@ -1078,7 +1310,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-        blob, err = render_unirus_docx_with_pallet_barcode(pn_str, article)
+        blob, err = render_unirus_docx_with_pallet_barcode(pn_str, article, extra)
         if err:
             status_map = {
                 "template_missing": 404,
@@ -1180,7 +1412,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             pn_str = str(raw_pn).strip() if raw_pn is not None else ""
             raw_art = body.get("article", "")
             article = str(raw_art).strip() if raw_art is not None else ""
-            self._respond_unirus_pallet_sheet(pn_str, article)
+            extra = _unirus_extra_from_body(body)
+            self._respond_unirus_pallet_sheet(pn_str, article, extra)
             return
         if _is_orders_list_path(path):
             try:

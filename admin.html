@@ -597,6 +597,7 @@
         flex-wrap: wrap;
         gap: 12px;
         align-items: end;
+        margin-top: 10px;
         margin-bottom: 12px;
       }
 
@@ -3456,7 +3457,6 @@
           : "";
         if (!it) {
           return `<div class="assemble-line-block" data-assemble-slot-row>
-            ${unirusDatesHtml}
             <div class="${productRowClass}">
               <div class="assemble-field" style="max-width:100%">
                 <label>Наименование</label>
@@ -3464,6 +3464,7 @@
               </div>
               ${batchFieldHtml}
             </div>
+            ${unirusDatesHtml}
             ${removeSlotBtn}
           </div>`;
         }
@@ -3482,7 +3483,6 @@
             ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
             : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
         return `<div class="assemble-line-block" data-assemble-slot-row>
-          ${unirusDatesHtml}
           <div class="${productRowClass}">
             <div class="assemble-field" style="max-width:100%;margin-bottom:0">
               <label>Наименование</label>
@@ -3490,6 +3490,7 @@
             </div>
             ${batchFieldHtml}
           </div>
+          ${unirusDatesHtml}
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
           <div class="assemble-mode-row">
             <label><input type="radio" name="amode-${pIdx}-${sIdx}" value="direct" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="mode"${modeDirect ? " checked" : ""} /> Коробки или штуки на паллете</label>

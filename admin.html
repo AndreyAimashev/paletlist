@@ -592,6 +592,19 @@
         align-items: end;
       }
 
+      .assemble-unirus-dates {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+        margin-bottom: 12px;
+      }
+
+      .assemble-unirus-dates .assemble-field {
+        max-width: 220px;
+        flex: 1 1 160px;
+      }
+
       @media (max-width: 720px) {
         .assemble-slot-product-row--unirus {
           grid-template-columns: 1fr;
@@ -1981,6 +1994,13 @@
         return !!(assembleOrderSnapshot && isArnestUnirusClient(assembleOrderSnapshot.client));
       }
 
+      /** Даты для Unirus: только цифры, до 6 знаков (например 110526), без точек. */
+      function normalizeUnirusDate6(v) {
+        return String(v ?? "")
+          .replace(/\D/g, "")
+          .slice(0, 6);
+      }
+
       function sanitizePalletFilenamePart(s, fallback) {
         const t = String(s ?? "").trim().replace(/[/\\?%*:|"<>]/g, "_");
         return t || fallback;
@@ -2843,6 +2863,8 @@
         return {
           lineIndex,
           batchNumber: String(s.batchNumber ?? "").trim(),
+          unirusMfgDate: normalizeUnirusDate6(s.unirusMfgDate),
+          unirusExpiryDate: normalizeUnirusDate6(s.unirusExpiryDate),
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -3409,9 +3431,23 @@
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
         const unirus = isAssembleUnirusMode();
         const batchVal = escapeXml(String(slot.batchNumber ?? ""));
+        const mfgVal = escapeXml(String(slot.unirusMfgDate ?? ""));
+        const expVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
         const productRowClass = unirus
           ? "assemble-slot-product-row assemble-slot-product-row--unirus"
           : "assemble-slot-product-row";
+        const unirusDatesHtml = unirus
+          ? `<div class="assemble-unirus-dates">
+              <div class="assemble-field">
+                <label for="am-${pIdx}-${sIdx}">Дата изготовления</label>
+                <input id="am-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="110526" maxlength="6" inputmode="numeric" pattern="[0-9]*" title="6 цифр подряд, без точек (ДДММГГ)" autocomplete="off" value="${mfgVal}" />
+              </div>
+              <div class="assemble-field">
+                <label for="ae-${pIdx}-${sIdx}">Дата истечения срока годности</label>
+                <input id="ae-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="110526" maxlength="6" inputmode="numeric" pattern="[0-9]*" title="6 цифр подряд, без точек (ДДММГГ)" autocomplete="off" value="${expVal}" />
+              </div>
+            </div>`
+          : "";
         const batchFieldHtml = unirus
           ? `<div class="assemble-field" style="max-width:100%">
               <label for="ab-${pIdx}-${sIdx}">Партия</label>
@@ -3420,6 +3456,7 @@
           : "";
         if (!it) {
           return `<div class="assemble-line-block" data-assemble-slot-row>
+            ${unirusDatesHtml}
             <div class="${productRowClass}">
               <div class="assemble-field" style="max-width:100%">
                 <label>Наименование</label>
@@ -3445,6 +3482,7 @@
             ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
             : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
         return `<div class="assemble-line-block" data-assemble-slot-row>
+          ${unirusDatesHtml}
           <div class="${productRowClass}">
             <div class="assemble-field" style="max-width:100%;margin-bottom:0">
               <label>Наименование</label>
@@ -3565,6 +3603,18 @@
             } else if (pal.slots && pal.slots[sIdx]) {
               slot.batchNumber = String(pal.slots[sIdx].batchNumber ?? "").trim();
             }
+            const um = row.querySelector("[data-field='unirusMfgDate']");
+            if (um) {
+              slot.unirusMfgDate = um.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.unirusMfgDate = pal.slots[sIdx].unirusMfgDate;
+            }
+            const ue = row.querySelector("[data-field='unirusExpiryDate']");
+            if (ue) {
+              slot.unirusExpiryDate = ue.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.unirusExpiryDate = pal.slots[sIdx].unirusExpiryDate;
+            }
             newSlots.push(normalizeSlot(slot));
           });
           pal.slots = newSlots;
@@ -3580,6 +3630,17 @@
           if (t.dataset.field === "palletNumber") {
             syncAssembleStateFromDom();
             saveAssembleDraft();
+            return;
+          }
+          if (t.dataset.field === "unirusMfgDate" || t.dataset.field === "unirusExpiryDate") {
+            const next = normalizeUnirusDate6(t.value);
+            if (t.value !== next) {
+              t.value = next;
+            }
+            syncAssembleStateFromDom();
+            saveAssembleDraft();
+            renderAssembleSummary();
+            renderAssembleAlerts();
             return;
           }
           if (

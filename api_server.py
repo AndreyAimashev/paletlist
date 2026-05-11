@@ -95,6 +95,44 @@ def fetch_barcode_png(barcode_data: str) -> bytes:
         return resp.read()
 
 
+def _png_ihdr_pixel_size(png: bytes) -> tuple[int, int] | None:
+    """Ширина и высота растра из PNG IHDR (первый чанк)."""
+    if len(png) < 24 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    if png[12:16] != b"IHDR":
+        return None
+    w = int.from_bytes(png[16:20], "big")
+    h = int.from_bytes(png[20:24], "big")
+    if w <= 0 or h <= 0:
+        return None
+    return w, h
+
+
+def _gif_logical_screen_size(gif: bytes) -> tuple[int, int] | None:
+    """Логический экран GIF87a/GIF89a (ширина и высота в пикселях)."""
+    if len(gif) < 10 or gif[:6] not in (b"GIF87a", b"GIF89a"):
+        return None
+    w = int.from_bytes(gif[6:8], "little")
+    h = int.from_bytes(gif[8:10], "little")
+    if w <= 0 or h <= 0:
+        return None
+    return w, h
+
+
+def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
+    """Размеры растра штрих-кода (tec-it может отдать PNG или GIF)."""
+    z = _png_ihdr_pixel_size(raw)
+    if z:
+        return z
+    return _gif_logical_screen_size(raw)
+
+
+# A4 и поля как в типовом документе Word (≈2 см слева/справа).
+_ARNEST_A4_W_MM = 210.0
+_ARNEST_SIDE_MARGIN_MM = 20.0
+_ARNEST_BARCODE_HEIGHT_SCALE = 2.0
+
+
 def _arnest_pallet_pdf_error_message(code: str) -> str:
     return {
         "no_fpdf": "На сервере не установлен пакет fpdf2 (pip install fpdf2).",
@@ -149,7 +187,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     try:
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.set_auto_page_break(False)
-        barcode_w_mm = 62.0
+        barcode_w_mm = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
         y_top = 14.0
         for idx, row in enumerate(pallets, start=1):
             if not isinstance(row, dict):
@@ -165,13 +203,20 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                     "barcode_fetch",
                     f"Не удалось получить штрих-код для паллеты {idx}: {exc}",
                 )
+            dims = _barcode_raster_pixel_size(png)
+            if not dims:
+                return None, "pdf_build", ""
+            pw, ph = dims
+            h_base_mm = barcode_w_mm * (ph / pw)
+            h_mm = h_base_mm * _ARNEST_BARCODE_HEIGHT_SCALE
             pdf.add_page()
             pdf.image(
                 io.BytesIO(png),
                 x=Align.C,
                 y=y_top,
                 w=barcode_w_mm,
-                keep_aspect_ratio=True,
+                h=h_mm,
+                keep_aspect_ratio=False,
             )
         raw = pdf.output(dest="S")
     except Exception:

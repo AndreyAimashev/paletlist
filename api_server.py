@@ -149,6 +149,7 @@ _ARNEST_LINE8_BARCODE_W_MM = 45.0
 _ARNEST_LINE9_PALLET_QTY_LABEL = "Pallet Quantity"
 _ARNEST_LINE9_UNITS_PC_LABEL = "Units PC"
 _ARNEST_LINE9_TI_HI_LABEL = "TI*HI"
+_ARNEST_LINE10_KOR_LABEL = "кор."
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -327,7 +328,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 — Code128; 2–7 — текст 12 pt; 7 — даты ДД.ММ.ГГГГ и вес паллеты (табуляции)."""
+    """Один PDF: 1 и 8 — Code128; 2–10 — текст 12 pt (в т.ч. коробки, TI*HI, ряд*полные ряды)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -478,8 +479,6 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             dims_boxes = _barcode_raster_pixel_size(png_boxes)
             if not dims_boxes:
                 return None, "pdf_build", ""
-            pw2, ph2 = dims_boxes
-            h8 = _ARNEST_LINE8_BARCODE_W_MM * (ph2 / pw2)
             pdf.image(
                 io.BytesIO(png_boxes),
                 x=Align.C,
@@ -499,6 +498,38 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             x_tihi = x_units + pdf.get_string_width(_ARNEST_LINE9_UNITS_PC_LABEL) + tab
             pdf.set_xy(x_tihi, y9)
             pdf.cell(max(0.0, max_r - x_tihi), h_txt, _ARNEST_LINE9_TI_HI_LABEL)
+            y10 = y9 + h_txt + _ARNEST_LINE2_GAP_MM
+            boxes_str = _arnest_format_boxes_qty_for_barcode(row.get("pallet_boxes_qty", 0))
+            rl = int(row.get("row_layout", 0) or 0)
+            try:
+                boxes_f = float(row.get("pallet_boxes_qty", 0) or 0)
+            except (TypeError, ValueError):
+                boxes_f = 0.0
+            if rl > 0:
+                full_rows = int(math.floor(boxes_f / rl + 1e-9))
+                ti_hi_str = f"{rl}*{full_rows}"
+            else:
+                ti_hi_str = "—"
+            kor = _ARNEST_LINE10_KOR_LABEL
+            pdf.set_font("PLCalibri", "B", fs)
+            rem_l10 = max(0.0, x_units - x0 - 1.0)
+            pdf.set_xy(x0, y10)
+            if rem_l10 > 0:
+                boxes_draw = _arnest_clip_text_to_width_mm(pdf, boxes_str, rem_l10)
+                pdf.cell(rem_l10, h_txt, boxes_draw or boxes_str)
+            else:
+                pdf.cell(pdf.get_string_width(boxes_str), h_txt, boxes_str)
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x_units, y10)
+            pdf.cell(pdf.get_string_width(kor), h_txt, kor)
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x_tihi, y10)
+            rem_t10 = max(0.0, max_r - x_tihi)
+            if rem_t10 > 0:
+                ti_draw = _arnest_clip_text_to_width_mm(pdf, ti_hi_str, rem_t10)
+                pdf.cell(rem_t10, h_txt, ti_draw or ti_hi_str)
+            else:
+                pdf.cell(pdf.get_string_width(ti_hi_str), h_txt, ti_hi_str)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

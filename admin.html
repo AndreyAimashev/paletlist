@@ -2113,6 +2113,7 @@
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
           let name = "";
+          let rowLayout = 0;
           let batchNumber = "";
           let unirusMfgDate = "";
           let unirusExpiryDate = "";
@@ -2125,6 +2126,7 @@
             if (it) {
               article = String(it.article || "").trim();
               name = String(it.name || "").trim();
+              rowLayout = Math.max(0, Number(it.row_layout) || 0);
             }
             batchNumber = String(ns.batchNumber || "").trim();
             unirusMfgDate = String(ns.unirusMfgDate || "").trim();
@@ -2143,6 +2145,7 @@
             pallet_weight_kg: palletWeightKg,
             pallet_boxes_qty: palletBoxesQty,
             units_pc: unitsPc,
+            row_layout: rowLayout,
           };
         });
       }

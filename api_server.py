@@ -165,6 +165,7 @@ _ARNEST_LINE9_UNITS_PC_LABEL = "Units PC"
 _ARNEST_LINE9_TI_HI_LABEL = "TI*HI"
 _ARNEST_LINE10_KOR_LABEL = "кор."
 _ARNEST_LINE12_TOTAL_QUANTITY_LABEL = "Total Quantity"
+_ARNEST_LINE15_BATCH_NUMBER_LABEL = "Batch Number"
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -360,7 +361,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1, 8, 14 — Code128; 2–13 — текст 12 pt; 14 — номер паллеты слева (если указан)."""
+    """Один PDF: 1, 8, 14 — Code128; 2–16 — текст 12 pt; 14 — паллета слева (если номер); 15–16 — партия у колонки «кор.»."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     if not HAVE_CODE128_BARCODE:
@@ -597,6 +598,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             pallet_bc = build_pallet_barcode_data(
                 str(row.get("pallet_number", row.get("palletNumber", "")))
             )
+            y_after_line14 = y14
             if pallet_bc:
                 try:
                     png_pn = render_code128_barcode_png(pallet_bc)
@@ -617,6 +619,23 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                     h=h_mm,
                     keep_aspect_ratio=False,
                 )
+                y_after_line14 = y14 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
+            y15 = y_after_line14
+            rem_bn = max(0.0, max_r - x_units)
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x_units, y15)
+            pdf.cell(rem_bn, h_txt, _ARNEST_LINE15_BATCH_NUMBER_LABEL, align="L")
+            y16 = y15 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
+            batch_disp = str(
+                row.get("batch_number", row.get("batchNumber", ""))
+            ).strip() or "—"
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x_units, y16)
+            if rem_bn > 0:
+                b16 = _arnest_clip_text_to_width_mm(pdf, batch_disp, rem_bn)
+                pdf.cell(rem_bn, h_txt, b16 or batch_disp)
+            else:
+                pdf.cell(pdf.get_string_width(batch_disp), h_txt, batch_disp)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

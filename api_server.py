@@ -137,6 +137,7 @@ _ARNEST_LINE2_FONT_PT = 12.0
 _ARNEST_LINE2_TEXT_H_MM = 7.0
 _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
 _ARNEST_ASEPTICA_LABEL = "ASEPTICA"
+_ARNEST_LINE3_DESCRIPTION_LABEL = "Description"
 
 
 def _arnest_line2_bold_font_path() -> Path | None:
@@ -248,7 +249,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: строка 1 — Code128; строка 2 — Calibri Bold 12 pt: артикул слева (подчёркнут), ASEPTICA по центру."""
+    """Один PDF: 1 — Code128; 2 — жирный Calibri/запасной: артикул слева (подчёркнут), ASEPTICA по центру; 3 — «Description» слева."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -309,6 +310,11 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             w_ase = pdf.get_string_width(ase)
             pdf.set_xy((_ARNEST_A4_W_MM - w_ase) / 2.0, y2)
             pdf.cell(w_ase, h_txt, ase)
+            y3 = y2 + h_txt + _ARNEST_LINE2_GAP_MM
+            content_w = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(_ARNEST_SIDE_MARGIN_MM, y3)
+            pdf.cell(content_w, h_txt, _ARNEST_LINE3_DESCRIPTION_LABEL, align="L")
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

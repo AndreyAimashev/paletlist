@@ -430,21 +430,22 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             exp_txt = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
             w_kg_str = _arnest_format_weight_kg_ru(row.get("pallet_weight_kg", 0))
             pdf.set_font("PLCalibri", "B", fs)
-            w_m7 = pdf.get_string_width(mfg_txt)
-            w_e7 = pdf.get_string_width(exp_txt)
-            w_w7 = pdf.get_string_width(w_kg_str)
-            pdf.set_xy(x0, y7)
-            pdf.cell(w_m7, h_txt, mfg_txt)
-            x_e7 = x0 + w_m7 + tab
-            pdf.set_xy(x_e7, y7)
-            pdf.cell(w_e7, h_txt, exp_txt)
-            x_w7 = x_e7 + w_e7 + 3 * tab
-            pdf.set_xy(x_w7, y7)
+            # Выравниваем строку 7 по тем же колонкам, что и строку 6.
+            x_e7 = x_exp
+            x_w7 = x_cwk
+            rem_m7 = max(0.0, x_e7 - x0)
+            rem_e7 = max(0.0, x_w7 - x_e7)
             rem_w7 = max(0.0, max_r - x_w7)
+            pdf.set_xy(x0, y7)
+            mfg_draw = _arnest_clip_text_to_width_mm(pdf, mfg_txt, rem_m7) if rem_m7 > 0 else ""
+            pdf.cell(rem_m7, h_txt, mfg_draw or mfg_txt)
+            pdf.set_xy(x_e7, y7)
+            exp_draw = _arnest_clip_text_to_width_mm(pdf, exp_txt, rem_e7) if rem_e7 > 0 else ""
+            pdf.cell(rem_e7, h_txt, exp_draw or exp_txt)
+            pdf.set_xy(x_w7, y7)
             if rem_w7 > 0:
-                if rem_w7 < w_w7:
-                    w_kg_str = _arnest_clip_text_to_width_mm(pdf, w_kg_str, rem_w7) or w_kg_str
-                pdf.cell(rem_w7, h_txt, w_kg_str)
+                w_kg_draw = _arnest_clip_text_to_width_mm(pdf, w_kg_str, rem_w7)
+                pdf.cell(rem_w7, h_txt, w_kg_draw or w_kg_str)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

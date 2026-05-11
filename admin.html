@@ -295,6 +295,25 @@
         max-width: 52rem;
       }
 
+      .pallet-sheets-pdf-preview-wrap {
+        margin-top: 14px;
+        border: 1px solid rgba(0, 200, 160, 0.28);
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(10, 14, 23, 0.55);
+        min-height: 320px;
+        max-height: min(78vh, 920px);
+      }
+
+      .pallet-sheets-pdf-preview-wrap iframe {
+        display: block;
+        width: 100%;
+        height: min(72vh, 880px);
+        min-height: 280px;
+        border: none;
+        background: #2a2a2e;
+      }
+
       .assemble-workspace {
         display: none;
         margin-top: 20px;
@@ -1542,6 +1561,12 @@
             <p id="pallet-sheets-loading" class="muted" hidden>Загрузка…</p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
             <p id="pallet-sheets-pdf-info" class="muted pallet-sheets-pdf-info" hidden></p>
+            <div id="pallet-sheets-pdf-preview-wrap" class="pallet-sheets-pdf-preview-wrap" hidden>
+              <iframe
+                id="pallet-sheets-pdf-iframe"
+                title="Предпросмотр PDF паллетных листов"
+              ></iframe>
+            </div>
             <div id="pallet-sheets-other-client" hidden>
               <p class="muted">
                 Паллетные листы в PDF для этого клиента не предусмотрены. Для заказов «Арнест Юнирусь» доступен
@@ -1900,6 +1925,8 @@
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
       const palletSheetsPdfInfo = document.getElementById("pallet-sheets-pdf-info");
+      const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
+      const palletSheetsPdfIframe = document.getElementById("pallet-sheets-pdf-iframe");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
       const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
@@ -1980,6 +2007,39 @@
       let nomenclatureItems = [];
 
       let palletSheetsLoadToken = 0;
+      let palletSheetsPdfObjectUrl = null;
+
+      function releasePalletSheetsPdfPreview() {
+        if (palletSheetsPdfObjectUrl) {
+          URL.revokeObjectURL(palletSheetsPdfObjectUrl);
+          palletSheetsPdfObjectUrl = null;
+        }
+        if (palletSheetsPdfIframe) {
+          palletSheetsPdfIframe.src = "about:blank";
+        }
+        if (palletSheetsPdfPreviewWrap) {
+          palletSheetsPdfPreviewWrap.hidden = true;
+        }
+      }
+
+      async function fetchArnestPalletSheetsPdfBlob(pageCount) {
+        const res = await fetch("/api/arnest-unirus-pallet-sheets-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ page_count: pageCount }),
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.message || j.error || "";
+          } catch (e2) {
+            /* ignore */
+          }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return res.blob();
+      }
 
       function isArnestUnirusClient(client) {
         const n = String(client || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -2025,6 +2085,7 @@
           return;
         }
         const token = ++palletSheetsLoadToken;
+        releasePalletSheetsPdfPreview();
         palletSheetsError.hidden = true;
         palletSheetsError.textContent = "";
         palletSheetsOtherClient.hidden = true;
@@ -2091,13 +2152,34 @@
         }
         if (palletSheetsPdfInfo) {
           palletSheetsPdfInfo.hidden = false;
-          palletSheetsPdfInfo.textContent = `Сейчас формируется один PDF с ${palletCount} пустыми страницами (по одной на паллету). Нажмите «Скачать PDF паллетных листов».`;
+          palletSheetsPdfInfo.textContent = `Один PDF: ${palletCount} стр. (по паллете). Ниже предпросмотр; при необходимости скачайте файл кнопкой справа.`;
         }
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = false;
         }
-        if (token === palletSheetsLoadToken) {
-          palletSheetsLoading.hidden = true;
+
+        try {
+          const blob = await fetchArnestPalletSheetsPdfBlob(palletCount);
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          palletSheetsPdfObjectUrl = URL.createObjectURL(blob);
+          if (palletSheetsPdfIframe && palletSheetsPdfPreviewWrap) {
+            palletSheetsPdfIframe.src = palletSheetsPdfObjectUrl;
+            palletSheetsPdfPreviewWrap.hidden = false;
+          }
+        } catch (e) {
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          palletSheetsError.hidden = false;
+          palletSheetsError.textContent =
+            "Не удалось сформировать PDF для предпросмотра: " +
+            (e && e.message ? String(e.message) : "ошибка сервера.");
+        } finally {
+          if (token === palletSheetsLoadToken) {
+            palletSheetsLoading.hidden = true;
+          }
         }
       }
 
@@ -2306,29 +2388,17 @@
             return;
           }
           const n = pallets.length;
-          let res;
+          let blob;
           try {
-            res = await fetch("/api/arnest-unirus-pallet-sheets-pdf", {
-              method: "POST",
-              headers: { "Content-Type": "application/json; charset=utf-8" },
-              body: JSON.stringify({ page_count: n }),
-            });
+            blob = await fetchArnestPalletSheetsPdfBlob(n);
           } catch (e) {
-            window.alert("Не удалось связаться с сервером.");
+            window.alert(
+              "Не удалось сформировать PDF: " + (e && e.message ? String(e.message) : "ошибка сервера."),
+            );
             return;
           }
-          if (!res.ok) {
-            let detail = "";
-            try {
-              const j = await res.json();
-              detail = j.message || j.error || "";
-            } catch (e2) {}
-            window.alert(detail || `Ошибка сервера (HTTP ${res.status}).`);
-            return;
-          }
-          const buf = await res.arrayBuffer();
-          const triggerDownload = (blob, filename) => {
-            const url = URL.createObjectURL(blob);
+          const triggerDownload = (b, filename) => {
+            const url = URL.createObjectURL(b);
             const a = document.createElement("a");
             a.href = url;
             a.download = filename;
@@ -2338,10 +2408,7 @@
             a.remove();
             URL.revokeObjectURL(url);
           };
-          triggerDownload(
-            new Blob([buf], { type: "application/pdf" }),
-            `Паллетные_листы_заказ_${oid}_${n}_стр.pdf`,
-          );
+          triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_стр.pdf`);
         });
       }
 

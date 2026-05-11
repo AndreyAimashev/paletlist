@@ -3,7 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Чтобы после обновления не подтягивался старый JS (GET вместо POST для Unirus). -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <title>Paletlist - Админ</title>
@@ -269,7 +268,7 @@
         min-width: 0;
       }
 
-      .assemble-btn--download-docx {
+      .assemble-btn--download-pdf {
         margin: 0;
         padding: 10px 18px;
         font-family: "Orbitron", sans-serif;
@@ -286,49 +285,14 @@
         white-space: nowrap;
       }
 
-      .assemble-btn--download-docx:hover {
+      .assemble-btn--download-pdf:hover {
         filter: brightness(1.06);
         box-shadow: 0 6px 18px rgba(0, 200, 160, 0.3);
       }
 
-      .docx-preview-shell {
-        border: 1px solid rgba(0, 200, 160, 0.2);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.97);
-        color: #111;
-        padding: 16px;
-        max-height: min(72vh, 720px);
-        overflow: auto;
-      }
-
-      .docx-preview-root {
-        font-family: "Segoe UI", "Roboto", sans-serif;
-        font-size: 12px;
-        line-height: 1.35;
-      }
-
-      .docx-preview-root .docx-wrapper {
-        background: transparent;
-      }
-
-      .pallet-sheet-card {
-        margin-bottom: 22px;
-        padding-bottom: 18px;
-        border-bottom: 1px solid rgba(0, 200, 160, 0.15);
-      }
-
-      .pallet-sheet-card:last-child {
-        margin-bottom: 0;
-        padding-bottom: 0;
-        border-bottom: none;
-      }
-
-      .pallet-sheet-card-title {
-        font-family: "Orbitron", sans-serif;
-        font-size: 12px;
-        color: var(--accent-teal);
-        margin: 0 0 10px;
-        letter-spacing: 0.04em;
+      .pallet-sheets-pdf-info {
+        margin: 12px 0 0;
+        max-width: 52rem;
       }
 
       .assemble-workspace {
@@ -636,33 +600,6 @@
       .assemble-slot-product-row {
         display: block;
         margin-bottom: 10px;
-      }
-
-      .assemble-slot-product-row--unirus {
-        display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
-        gap: 12px;
-        align-items: end;
-      }
-
-      .assemble-unirus-dates {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        align-items: end;
-        margin-top: 10px;
-        margin-bottom: 12px;
-      }
-
-      .assemble-unirus-dates .assemble-field {
-        max-width: 220px;
-        flex: 1 1 160px;
-      }
-
-      @media (max-width: 720px) {
-        .assemble-slot-product-row--unirus {
-          grid-template-columns: 1fr;
-        }
       }
 
       .assemble-rows-panel[hidden],
@@ -1596,21 +1533,19 @@
               </button>
               <div class="pallet-sheets-toolbar-right">
                 <span class="muted" id="pallet-sheets-order-meta"></span>
-                <button type="button" id="pallet-sheets-download" class="assemble-btn--download-docx" hidden>
-                  Скачать паллетные листы
+                <button type="button" id="pallet-sheets-download" class="assemble-btn--download-pdf" hidden>
+                  Скачать PDF паллетных листов
                 </button>
               </div>
             </div>
             <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
-            <p id="pallet-sheets-loading" class="muted" hidden>Загрузка шаблона…</p>
+            <p id="pallet-sheets-loading" class="muted" hidden>Загрузка…</p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
-            <div id="pallet-sheets-unirus-wrap" class="docx-preview-shell" hidden>
-              <div id="unirus-docx-container" class="docx-preview-root"></div>
-            </div>
+            <p id="pallet-sheets-pdf-info" class="muted pallet-sheets-pdf-info" hidden></p>
             <div id="pallet-sheets-other-client" hidden>
               <p class="muted">
-                Шаблон паллетных листов для этого клиента пока не подключён. Для заказов «Арнест Юнирусь»
-                используется шаблон Unirus.
+                Паллетные листы в PDF для этого клиента не предусмотрены. Для заказов «Арнест Юнирусь» доступен
+                пустой многостраничный PDF по числу паллет в сборке.
               </p>
             </div>
           </section>
@@ -1919,7 +1854,6 @@
     </template>
 
     <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://unpkg.com/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
     <script>
       const params = new URLSearchParams(window.location.search);
       const login = params.get("login");
@@ -1965,8 +1899,7 @@
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
-      const palletSheetsUnirusWrap = document.getElementById("pallet-sheets-unirus-wrap");
-      const unirusDocxContainer = document.getElementById("unirus-docx-container");
+      const palletSheetsPdfInfo = document.getElementById("pallet-sheets-pdf-info");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
       const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
@@ -2081,48 +2014,9 @@
         return isAssembleUnirusMode() || assembleOptionalBatchEnabled;
       }
 
-      /** Даты для Unirus: только цифры, до 6 знаков (например 110526), без точек. */
-      function normalizeUnirusDate6(v) {
-        return String(v ?? "")
-          .replace(/\D/g, "")
-          .slice(0, 6);
-      }
-
       function sanitizePalletFilenamePart(s, fallback) {
         const t = String(s ?? "").trim().replace(/[/\\?%*:|"<>]/g, "_");
         return t || fallback;
-      }
-
-      function unirusArticleFromAssemblyPallet(pal, items) {
-        const rows = Array.isArray(pal.slots) ? pal.slots : [];
-        for (let i = 0; i < rows.length; i += 1) {
-          const li = rows[i].lineIndex;
-          if (li === "" || li === undefined || li === null || !Number.isFinite(Number(li))) {
-            continue;
-          }
-          const it = items[Number(li)];
-          if (it && String(it.article || "").trim()) {
-            return String(it.article).trim();
-          }
-        }
-        return "";
-      }
-
-      async function fetchRenderedUnirusDocxForPallet(payload) {
-        const res = await fetch("/api/unirus-pallet-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          let detail = "";
-          try {
-            const j = await res.json();
-            detail = j.message || j.error || "";
-          } catch (e) {}
-          throw new Error(detail || `HTTP ${res.status}`);
-        }
-        return res.arrayBuffer();
       }
 
       async function refreshPalletSheetsPanel() {
@@ -2133,14 +2027,16 @@
         const token = ++palletSheetsLoadToken;
         palletSheetsError.hidden = true;
         palletSheetsError.textContent = "";
-        palletSheetsUnirusWrap.hidden = true;
         palletSheetsOtherClient.hidden = true;
         palletSheetsLoading.hidden = false;
+        if (palletSheetsPdfInfo) {
+          palletSheetsPdfInfo.hidden = true;
+          palletSheetsPdfInfo.textContent = "";
+        }
         if (palletSheetsDraftHint) {
           palletSheetsDraftHint.hidden = true;
           palletSheetsDraftHint.textContent = "";
         }
-        unirusDocxContainer.innerHTML = "";
         palletSheetsOrderMeta.textContent = "";
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = true;
@@ -2185,64 +2081,23 @@
           if (palletSheetsDraftHint) {
             palletSheetsDraftHint.hidden = false;
             palletSheetsDraftHint.textContent =
-              "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число паллетных листов совпадает с числом паллет.";
+              "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число страниц PDF совпадает с числом паллет.";
           }
           return;
         }
 
-        try {
-          if (token !== palletSheetsLoadToken) {
-            return;
-          }
-          unirusDocxContainer.innerHTML = "";
-          if (typeof docx !== "undefined" && typeof docx.renderAsync === "function") {
-            const orderItems = Array.isArray(order.items) ? order.items : [];
-            for (let i = 0; i < palletCount; i += 1) {
-              const pal = assemblePallets[i];
-              const buf = await fetchRenderedUnirusDocxForPallet(
-                buildUnirusSheetPayload(pal, orderItems),
-              );
-              const slotBuf = buf.slice(0);
-              const numLabel = String(pal.palletNumber ?? "").trim();
-              const card = document.createElement("article");
-              card.className = "pallet-sheet-card";
-              const title = document.createElement("div");
-              title.className = "pallet-sheet-card-title";
-              title.textContent = numLabel
-                ? `Паллетный лист · паллет «${numLabel}»`
-                : `Паллетный лист · паллет ${i + 1}`;
-              const inner = document.createElement("div");
-              inner.className = "docx-preview-root";
-              card.appendChild(title);
-              card.appendChild(inner);
-              unirusDocxContainer.appendChild(card);
-              await docx.renderAsync(slotBuf, inner, undefined, { inWrapper: true });
-              if (token !== palletSheetsLoadToken) {
-                return;
-              }
-            }
-          } else {
-            unirusDocxContainer.innerHTML =
-              '<p class="muted" style="margin:0">Просмотр недоступен в браузере. Используйте «Скачать паллетные листы» — документ формируется на сервере со штрих-кодом.</p>';
-          }
-          palletSheetsUnirusWrap.hidden = false;
-          if (palletSheetsDownloadBtn) {
-            palletSheetsDownloadBtn.hidden = false;
-          }
-        } catch (e) {
-          if (token !== palletSheetsLoadToken) {
-            return;
-          }
-          palletSheetsError.hidden = false;
-          palletSheetsError.textContent =
-            "Не удалось показать паллетный лист: " +
-            (e && e.message
-              ? String(e.message)
-              : "проверьте python-docx на сервере, шаблон Unirus и доступ к генератору штрих-кодов.");
-        } finally {
-          if (token === palletSheetsLoadToken) {
-            palletSheetsLoading.hidden = true;
-          }
+        if (token !== palletSheetsLoadToken) {
+          return;
+        }
+        if (palletSheetsPdfInfo) {
+          palletSheetsPdfInfo.hidden = false;
+          palletSheetsPdfInfo.textContent = `Сейчас формируется один PDF с ${palletCount} пустыми страницами (по одной на паллету). Нажмите «Скачать PDF паллетных листов».`;
+        }
+        if (palletSheetsDownloadBtn) {
+          palletSheetsDownloadBtn.hidden = false;
+        }
+        if (token === palletSheetsLoadToken) {
+          palletSheetsLoading.hidden = true;
         }
       }
 
@@ -2451,37 +2306,27 @@
             return;
           }
           const n = pallets.length;
-          const buffers = [];
-          let orderItems = [];
-          if (assembleOrderSnapshot && assembleOrderSnapshot.id === oid) {
-            orderItems = assembleOrderSnapshot.items || [];
-          } else {
-            try {
-              const or = await fetch(`/api/orders/${oid}`);
-              if (or.ok) {
-                const od = await or.json();
-                orderItems = Array.isArray(od.items) ? od.items : [];
-              }
-            } catch (e) {
-              orderItems = [];
-            }
-          }
+          let res;
           try {
-            for (let i = 0; i < n; i += 1) {
-              buffers.push(
-                await fetchRenderedUnirusDocxForPallet(
-                  buildUnirusSheetPayload(pallets[i], orderItems),
-                ),
-              );
-            }
+            res = await fetch("/api/arnest-unirus-pallet-sheets-pdf", {
+              method: "POST",
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+              body: JSON.stringify({ page_count: n }),
+            });
           } catch (e) {
-            window.alert(
-              "Не удалось сформировать паллетные листы: " +
-                (e && e.message ? String(e.message) : "ошибка сервера."),
-            );
+            window.alert("Не удалось связаться с сервером.");
             return;
           }
-
+          if (!res.ok) {
+            let detail = "";
+            try {
+              const j = await res.json();
+              detail = j.message || j.error || "";
+            } catch (e2) {}
+            window.alert(detail || `Ошибка сервера (HTTP ${res.status}).`);
+            return;
+          }
+          const buf = await res.arrayBuffer();
           const triggerDownload = (blob, filename) => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -2493,42 +2338,10 @@
             a.remove();
             URL.revokeObjectURL(url);
           };
-
-          if (n === 1) {
-            const suffix = sanitizePalletFilenamePart(pallets[0].palletNumber, "1");
-            triggerDownload(
-              new Blob([buffers[0]], {
-                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              }),
-              `Паллет_${suffix}_заказ_${oid}_Unirus.docx`,
-            );
-            return;
-          }
-
-          if (typeof JSZip !== "undefined") {
-            try {
-              const zip = new JSZip();
-              pallets.forEach((pal, i) => {
-                const suffix = sanitizePalletFilenamePart(pal.palletNumber, String(i + 1));
-                zip.file(`Паллет_${suffix}_заказ_${oid}.docx`, buffers[i].slice(0));
-              });
-              const blob = await zip.generateAsync({ type: "blob" });
-              triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_шт.zip`);
-            } catch (e) {
-              window.alert("Не удалось сформировать архив. Попробуйте ещё раз.");
-            }
-            return;
-          }
-
-          for (let i = 0; i < n; i += 1) {
-            const suffix = sanitizePalletFilenamePart(pallets[i].palletNumber, String(i + 1));
-            triggerDownload(
-              new Blob([buffers[i].slice(0)], {
-                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              }),
-              `Паллет_${suffix}_заказ_${oid}.docx`,
-            );
-          }
+          triggerDownload(
+            new Blob([buf], { type: "application/pdf" }),
+            `Паллетные_листы_заказ_${oid}_${n}_стр.pdf`,
+          );
         });
       }
 
@@ -2989,8 +2802,6 @@
         return {
           lineIndex,
           batchNumber: String(s.batchNumber ?? "").trim(),
-          unirusMfgDate: normalizeUnirusDate6(s.unirusMfgDate),
-          unirusExpiryDate: normalizeUnirusDate6(s.unirusExpiryDate),
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -3091,96 +2902,6 @@
           return pib > 0 ? dq * pib : 0;
         }
         return dq;
-      }
-
-      /**
-       * Поля «коробок в ряду / полных рядов / сверх» для Unirus (как в макросе Word: Val(a)*Val(b)+Val(c)).
-       * В режиме «напрямую» раскладываем общее число коробок по row_layout, если он задан.
-       */
-      function unirusBoxesBreakdown(it, slot) {
-        const alloc = slotToAlloc(slot);
-        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
-        const rowLay = Math.max(0, Number(it.row_layout) || 0);
-        if (alloc.mode === "rows" && rowLay > 0 && pib > 0) {
-          const fr = Math.max(0, parseInt(String(alloc.fullRows), 10) || 0);
-          const pb = Math.max(0, parseInt(String(alloc.partialBoxes), 10) || 0);
-          const totalBoxes = fr * rowLay + pb;
-          return {
-            boxesInFullRows: String(rowLay),
-            fullRowsCount: String(fr),
-            extraBoxes: String(pb),
-            totalBoxes,
-          };
-        }
-        const pieces = allocationToPieces(it, alloc);
-        const totalBoxes = pib > 0 ? pieces / pib : 0;
-        if (!Number.isFinite(totalBoxes) || totalBoxes <= 0) {
-          return {
-            boxesInFullRows: "",
-            fullRowsCount: "",
-            extraBoxes: "",
-            totalBoxes: 0,
-          };
-        }
-        if (rowLay > 0) {
-          const fr = Math.floor(totalBoxes / rowLay);
-          const ex = Math.max(0, Math.round(totalBoxes - fr * rowLay));
-          return {
-            boxesInFullRows: String(rowLay),
-            fullRowsCount: String(fr),
-            extraBoxes: String(ex),
-            totalBoxes,
-          };
-        }
-        const tb = Math.round(totalBoxes);
-        return {
-          boxesInFullRows: "1",
-          fullRowsCount: String(tb),
-          extraBoxes: "0",
-          totalBoxes: tb,
-        };
-      }
-
-      function buildUnirusSheetPayload(pal, orderItems) {
-        const article = unirusArticleFromAssemblyPallet(pal, orderItems);
-        const payload = {
-          pallet_number: String(pal.palletNumber ?? "").trim(),
-          article,
-        };
-        const rows = Array.isArray(pal.slots) ? pal.slots : [];
-        let slot = null;
-        let item = null;
-        for (let i = 0; i < rows.length; i += 1) {
-          const s = rows[i];
-          if (s.lineIndex === "" || s.lineIndex === undefined || s.lineIndex === null) {
-            continue;
-          }
-          const li = Number(s.lineIndex);
-          if (!Number.isFinite(li) || li < 0) {
-            continue;
-          }
-          slot = normalizeSlot(s);
-          item = orderItems[li] || null;
-          break;
-        }
-        if (!slot || !item) {
-          return payload;
-        }
-        payload.manufacturing_date_raw = normalizeUnirusDate6(slot.unirusMfgDate);
-        payload.expiry_date_raw = normalizeUnirusDate6(slot.unirusExpiryDate);
-        payload.batch_number = String(slot.batchNumber ?? "").trim();
-        const bd = unirusBoxesBreakdown(item, slot);
-        payload.boxes_in_full_rows = bd.boxesInFullRows;
-        payload.full_rows_count = bd.fullRowsCount;
-        payload.extra_boxes = bd.extraBoxes;
-        payload.pieces_per_box = String(Math.max(0, Number(item.pieces_in_box) || 0));
-        const bw = Number(item.box_weight);
-        payload.box_weight = Number.isFinite(bw) && bw > 0 ? String(bw) : "";
-        const nm = String(item.name ?? "").trim();
-        if (nm) {
-          payload.product_name = nm;
-        }
-        return payload;
       }
 
       function lineAllocatedPiecesSum(lineIdx) {
@@ -3645,26 +3366,9 @@
         const it = resolveSlotAssembleItem(slot, items);
         const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
-        const unirus = isAssembleUnirusMode();
         const showBatch = showAssembleBatchFieldInSlots();
         const batchVal = escapeXml(String(slot.batchNumber ?? ""));
-        const mfgVal = escapeXml(String(slot.unirusMfgDate ?? ""));
-        const expVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
-        const productRowClass = showBatch
-          ? "assemble-slot-product-row assemble-slot-product-row--unirus"
-          : "assemble-slot-product-row";
-        const unirusDatesHtml = unirus
-          ? `<div class="assemble-unirus-dates">
-              <div class="assemble-field">
-                <label for="am-${pIdx}-${sIdx}">Дата изготовления</label>
-                <input id="am-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="110526" maxlength="6" inputmode="numeric" pattern="[0-9]*" title="6 цифр подряд, без точек (ДДММГГ)" autocomplete="off" value="${mfgVal}" />
-              </div>
-              <div class="assemble-field">
-                <label for="ae-${pIdx}-${sIdx}">Дата истечения срока годности</label>
-                <input id="ae-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="110526" maxlength="6" inputmode="numeric" pattern="[0-9]*" title="6 цифр подряд, без точек (ДДММГГ)" autocomplete="off" value="${expVal}" />
-              </div>
-            </div>`
-          : "";
+        const productRowClass = "assemble-slot-product-row";
         const batchFieldHtml = showBatch
           ? `<div class="assemble-field" style="max-width:100%">
               <label for="ab-${pIdx}-${sIdx}">Партия</label>
@@ -3680,7 +3384,6 @@
               </div>
               ${batchFieldHtml}
             </div>
-            ${unirusDatesHtml}
             ${removeSlotBtn}
           </div>`;
         }
@@ -3706,7 +3409,6 @@
             </div>
             ${batchFieldHtml}
           </div>
-          ${unirusDatesHtml}
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
           <div class="assemble-mode-row">
             <label><input type="radio" name="amode-${pIdx}-${sIdx}" value="direct" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="mode"${modeDirect ? " checked" : ""} /> Коробки или штуки на паллете</label>
@@ -3820,18 +3522,6 @@
             } else if (pal.slots && pal.slots[sIdx]) {
               slot.batchNumber = String(pal.slots[sIdx].batchNumber ?? "").trim();
             }
-            const um = row.querySelector("[data-field='unirusMfgDate']");
-            if (um) {
-              slot.unirusMfgDate = um.value;
-            } else if (pal.slots && pal.slots[sIdx]) {
-              slot.unirusMfgDate = pal.slots[sIdx].unirusMfgDate;
-            }
-            const ue = row.querySelector("[data-field='unirusExpiryDate']");
-            if (ue) {
-              slot.unirusExpiryDate = ue.value;
-            } else if (pal.slots && pal.slots[sIdx]) {
-              slot.unirusExpiryDate = pal.slots[sIdx].unirusExpiryDate;
-            }
             newSlots.push(normalizeSlot(slot));
           });
           pal.slots = newSlots;
@@ -3847,17 +3537,6 @@
           if (t.dataset.field === "palletNumber") {
             syncAssembleStateFromDom();
             saveAssembleDraft();
-            return;
-          }
-          if (t.dataset.field === "unirusMfgDate" || t.dataset.field === "unirusExpiryDate") {
-            const next = normalizeUnirusDate6(t.value);
-            if (t.value !== next) {
-              t.value = next;
-            }
-            syncAssembleStateFromDom();
-            saveAssembleDraft();
-            renderAssembleSummary();
-            renderAssembleAlerts();
             return;
           }
           if (
@@ -4655,7 +4334,10 @@
         const expiryDateUI = formatDateYYMMDD(expiryDate);
         const complexBarcode = `${article} ${batch} ${formatDateForBarcode(productionDate)} ${formatDateForBarcode(expiryDate)}`;
         const boxesBarcode = String(totalBoxes);
-        const palletBarcode = `15000000${String(Math.max(0, palletNumber)).padStart(2, "0")}`;
+        const pnInt = Math.max(0, Math.trunc(Number(palletNumber)) || 0);
+        const sufStr = String(pnInt);
+        const palletSuffix = sufStr.length < 3 ? sufStr.padStart(3, "0") : sufStr;
+        const palletBarcode = `1500000${palletSuffix}`;
 
         output.innerHTML = `
           <strong>Предпросмотр паллетного листа</strong><br />

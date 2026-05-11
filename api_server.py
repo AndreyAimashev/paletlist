@@ -134,7 +134,8 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
 _ARNEST_BARCODE_HEIGHT_SCALE = 1.0
-_ARNEST_LINE2_GAP_MM = 10.0
+_ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
+_ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
 _ARNEST_TEXT_FONT_PT = 12.0  # все текстовые элементы паллетного листа (не штрих-код)
 _ARNEST_LINE2_TEXT_H_MM = 7.0
 _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
@@ -403,12 +404,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             w_ase = pdf.get_string_width(ase)
             pdf.set_xy((_ARNEST_A4_W_MM - w_ase) / 2.0, y2)
             pdf.cell(w_ase, h_txt, ase)
-            y3 = y2 + h_txt + _ARNEST_LINE2_GAP_MM
+            y3 = y2 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             content_w = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(_ARNEST_SIDE_MARGIN_MM, y3)
             pdf.cell(content_w, h_txt, _ARNEST_LINE3_DESCRIPTION_LABEL, align="L")
-            y4 = y3 + h_txt + _ARNEST_LINE2_GAP_MM
+            y4 = y3 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             x0 = _ARNEST_SIDE_MARGIN_MM
             max_r = _ARNEST_A4_W_MM - _ARNEST_SIDE_MARGIN_MM
             art_l4 = str(row.get("article", "")).strip() or "—"
@@ -430,11 +431,11 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             name_draw = _arnest_clip_text_to_width_mm(pdf, name_raw, rem_w) if rem_w > 0 else "—"
             pdf.set_xy(x_name, y4)
             pdf.cell(rem_w, h_txt, name_draw or "—")
-            y5 = y4 + h_txt + _ARNEST_LINE2_GAP_MM
+            y5 = y4 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x0, y5)
             pdf.cell(content_w, h_txt, _ARNEST_LINE5_GTIN_LABEL, align="L")
-            y6 = y5 + h_txt + _ARNEST_LINE2_GAP_MM
+            y6 = y5 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             tab = _ARNEST_TAB_MM
             mgt = _ARNEST_LINE6_MGT_DATE_LABEL
             exp = _ARNEST_LINE6_EXPIRY_DATE_LABEL
@@ -453,7 +454,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if rem_cwk > 0:
                 cwk_draw = _arnest_clip_text_to_width_mm(pdf, cwk, rem_cwk)
                 pdf.cell(rem_cwk, h_txt, cwk_draw or cwk)
-            y7 = y6 + h_txt + _ARNEST_LINE2_GAP_MM
+            y7 = y6 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             mfg_raw = str(
                 row.get("manufacturing_date_raw", row.get("unirusMfgDate", ""))
             )
@@ -478,7 +479,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if rem_w7 > 0:
                 w_kg_draw = _arnest_clip_text_to_width_mm(pdf, w_kg_str, rem_w7)
                 pdf.cell(rem_w7, h_txt, w_kg_draw or w_kg_str)
-            y8 = y7 + h_txt + _ARNEST_LINE2_GAP_MM
+            y8 = y7 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             boxes_qty = _arnest_format_boxes_qty_for_barcode(
                 row.get("pallet_boxes_qty", row.get("pallet_qty", 0))
             )
@@ -501,7 +502,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 h=h_mm,
                 keep_aspect_ratio=False,
             )
-            y9 = y8 + h_mm + _ARNEST_LINE2_GAP_MM
+            y9 = y8 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x0, y9)
             pdf.cell(content_w, h_txt, _ARNEST_LINE9_PALLET_QTY_LABEL, align="L")
@@ -512,7 +513,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             x_tihi = x_units + pdf.get_string_width(_ARNEST_LINE9_UNITS_PC_LABEL) + tab
             pdf.set_xy(x_tihi, y9)
             pdf.cell(max(0.0, max_r - x_tihi), h_txt, _ARNEST_LINE9_TI_HI_LABEL)
-            y10 = y9 + h_txt + _ARNEST_LINE2_GAP_MM
+            y10 = y9 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             boxes_str = _arnest_format_boxes_qty_for_barcode(row.get("pallet_boxes_qty", 0))
             rl = int(row.get("row_layout", 0) or 0)
             try:
@@ -544,7 +545,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 pdf.cell(rem_t10, h_txt, ti_draw or ti_hi_str)
             else:
                 pdf.cell(pdf.get_string_width(ti_hi_str), h_txt, ti_hi_str)
-            y11 = y10 + h_txt + _ARNEST_LINE2_GAP_MM
+            y11 = y10 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             rem_star = _arnest_remainder_boxes_star_one(boxes_f, rl)
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x_units, y11)
@@ -557,11 +558,11 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 pdf.cell(rem_t11, h_txt, r11 or rem_star)
             else:
                 pdf.cell(pdf.get_string_width(rem_star), h_txt, rem_star)
-            y12 = y11 + h_txt + _ARNEST_LINE2_GAP_MM
+            y12 = y11 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x0, y12)
             pdf.cell(content_w, h_txt, _ARNEST_LINE12_TOTAL_QUANTITY_LABEL, align="L")
-            y13 = y12 + h_txt + _ARNEST_LINE2_GAP_MM
+            y13 = y12 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
             units_str = _arnest_format_boxes_qty_for_barcode(
                 row.get("units_pc", row.get("unitsPc", 0))
             )

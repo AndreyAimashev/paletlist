@@ -2066,11 +2066,13 @@
         }
       }
 
-      async function fetchArnestPalletSheetsPdfBlob(pageCount) {
+      async function fetchArnestPalletSheetsPdfBlob(payload) {
+        const bodyObj =
+          typeof payload === "number" ? { page_count: payload } : payload;
         const res = await fetch("/api/arnest-unirus-pallet-sheets-pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ page_count: pageCount }),
+          body: JSON.stringify(bodyObj),
         });
         if (!res.ok) {
           let detail = "";
@@ -2092,6 +2094,48 @@
 
       function isAssembleUnirusMode() {
         return !!(assembleOrderSnapshot && isArnestUnirusClient(assembleOrderSnapshot.client));
+      }
+
+      function normalizeUnirusDateDigits(v) {
+        const d = String(v || "").replace(/\D/g, "");
+        if (d.length >= 6) {
+          return d.slice(-6);
+        }
+        return d;
+      }
+
+      function buildArnestPalletPdfPayloadFromDraft(orderItems, draftPallets) {
+        if (!Array.isArray(draftPallets) || !draftPallets.length) {
+          return [];
+        }
+        const items = Array.isArray(orderItems) ? orderItems : [];
+        return draftPallets.map((pal) => {
+          const slots = Array.isArray(pal.slots) ? pal.slots : [];
+          let article = "";
+          let batchNumber = "";
+          let unirusMfgDate = "";
+          let unirusExpiryDate = "";
+          for (const s of slots) {
+            const ns = normalizeSlot(s);
+            if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+              continue;
+            }
+            const it = items[Number(ns.lineIndex)];
+            if (it) {
+              article = String(it.article || "").trim();
+            }
+            batchNumber = String(ns.batchNumber || "").trim();
+            unirusMfgDate = String(ns.unirusMfgDate || "").trim();
+            unirusExpiryDate = String(ns.unirusExpiryDate || "").trim();
+            break;
+          }
+          return {
+            article,
+            batch_number: batchNumber,
+            manufacturing_date_raw: normalizeUnirusDateDigits(unirusMfgDate),
+            expiry_date_raw: normalizeUnirusDateDigits(unirusExpiryDate),
+          };
+        });
       }
 
       const ASSEMBLE_OPTIONAL_BATCH_KEY = "paletlist_assemble_optional_batch";
@@ -2195,7 +2239,11 @@
         }
 
         try {
-          const blob = await fetchArnestPalletSheetsPdfBlob(palletCount);
+          const palletsPayload = buildArnestPalletPdfPayloadFromDraft(
+            order.items || [],
+            assemblePallets,
+          );
+          const blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
           if (token !== palletSheetsLoadToken) {
             return;
           }
@@ -2434,7 +2482,15 @@
           const n = pallets.length;
           let blob;
           try {
-            blob = await fetchArnestPalletSheetsPdfBlob(n);
+            const res = await fetch(`/api/orders/${oid}`);
+            if (!res.ok) {
+              window.alert("Не удалось загрузить заказ для формирования штрих-кодов.");
+              return;
+            }
+            const ord = await res.json();
+            const orderItems = ord.items || [];
+            const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
+            blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
           } catch (e) {
             window.alert(
               "Не удалось сформировать PDF: " + (e && e.message ? String(e.message) : "ошибка сервера."),
@@ -2913,6 +2969,8 @@
         return {
           lineIndex,
           batchNumber: String(s.batchNumber ?? "").trim(),
+          unirusMfgDate: String(s.unirusMfgDate ?? "").trim(),
+          unirusExpiryDate: String(s.unirusExpiryDate ?? "").trim(),
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -3479,11 +3537,25 @@
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
         const showBatch = showAssembleBatchFieldInSlots();
         const batchVal = escapeXml(String(slot.batchNumber ?? ""));
+        const umVal = escapeXml(String(slot.unirusMfgDate ?? ""));
+        const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
         const productRowClass = "assemble-slot-product-row";
         const batchFieldHtml = showBatch
           ? `<div class="assemble-field" style="max-width:100%">
               <label for="ab-${pIdx}-${sIdx}">Партия</label>
               <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="Укажите партию" autocomplete="off" value="${batchVal}" />
+            </div>`
+          : "";
+        const unirusDatesHtml = isAssembleUnirusMode()
+          ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
+              <div class="assemble-field">
+                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (YYMMDD)</label>
+                <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. 250510" autocomplete="off" value="${umVal}" />
+              </div>
+              <div class="assemble-field">
+                <label for="aue-${pIdx}-${sIdx}">Срок годности (YYMMDD)</label>
+                <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. 260510" autocomplete="off" value="${ueVal}" />
+              </div>
             </div>`
           : "";
         if (!it) {
@@ -3494,6 +3566,7 @@
                 <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
               </div>
               ${batchFieldHtml}
+              ${unirusDatesHtml}
             </div>
             ${removeSlotBtn}
           </div>`;
@@ -3519,6 +3592,7 @@
               <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
             </div>
             ${batchFieldHtml}
+            ${unirusDatesHtml}
           </div>
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
           <div class="assemble-mode-row">
@@ -3632,6 +3706,18 @@
               slot.batchNumber = bn.value;
             } else if (pal.slots && pal.slots[sIdx]) {
               slot.batchNumber = String(pal.slots[sIdx].batchNumber ?? "").trim();
+            }
+            const um = row.querySelector("[data-field='unirusMfgDate']");
+            if (um) {
+              slot.unirusMfgDate = um.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.unirusMfgDate = String(pal.slots[sIdx].unirusMfgDate ?? "").trim();
+            }
+            const ue = row.querySelector("[data-field='unirusExpiryDate']");
+            if (ue) {
+              slot.unirusExpiryDate = ue.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.unirusExpiryDate = String(pal.slots[sIdx].unirusExpiryDate ?? "").trim();
             }
             newSlots.push(normalizeSlot(slot));
           });

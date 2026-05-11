@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import io
 import json
 import re
 import sqlite3
@@ -11,11 +12,13 @@ from urllib.parse import parse_qs, quote, urlparse
 
 try:
     from fpdf import FPDF
+    from fpdf.enums import Align
 
     HAVE_FPDF = True
 except ImportError:
     HAVE_FPDF = False
     FPDF = None  # type: ignore
+    Align = None  # type: ignore
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -96,8 +99,88 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
     return {
         "no_fpdf": "На сервере не установлен пакет fpdf2 (pip install fpdf2).",
         "validation": "Укажите число страниц от 1 до 500 (по одной на паллету).",
+        "validation_pallets": "Передайте непустой массив pallets (не более 500 паллет).",
         "pdf_build": "Не удалось сформировать PDF.",
+        "barcode_fetch": "Не удалось получить изображение штрих-кода.",
     }.get(code, "Ошибка генерации PDF.")
+
+
+def _arnest_first_digit_run(article: str) -> str | None:
+    m = re.search(r"\d+", article or "")
+    return m.group(0) if m else None
+
+
+def _arnest_yymmdd_digits(raw: str) -> str | None:
+    d = re.sub(r"\D", "", raw or "")
+    if len(d) >= 6:
+        d = d[-6:]
+    if len(d) != 6 or not d.isdigit():
+        return None
+    return d
+
+
+def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
+    """Строка Code128: «цифры из артикула» партия YYMMDD YYMMDD через пробел; (None, пояснение) при ошибке."""
+    article = str(row.get("article", "")).strip()
+    part_art = _arnest_first_digit_run(article)
+    if not part_art:
+        return None, "в артикуле нет цифр"
+    batch = str(row.get("batch_number", row.get("batchNumber", ""))).strip()
+    if not batch:
+        return None, "не указана партия"
+    mfg = _arnest_yymmdd_digits(str(row.get("manufacturing_date_raw", row.get("unirusMfgDate", ""))))
+    if not mfg:
+        return None, "дата изготовления: нужны 6 цифр YYMMDD"
+    exp = _arnest_yymmdd_digits(str(row.get("expiry_date_raw", row.get("unirusExpiryDate", ""))))
+    if not exp:
+        return None, "срок годности: нужны 6 цифр YYMMDD"
+    return f"{part_art} {batch} {mfg} {exp}", None
+
+
+def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
+    pallets: list[dict],
+) -> tuple[bytes | None, str, str]:
+    """Один PDF: на каждой странице сверху по центру Code128. Возвращает (blob, error_code, error_detail)."""
+    if not HAVE_FPDF or FPDF is None or Align is None:
+        return None, "no_fpdf", ""
+    n = len(pallets)
+    if n < 1 or n > MAX_PALLET_SHEET_PDF_PAGES:
+        return None, "validation_pallets", ""
+    try:
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        pdf.set_auto_page_break(False)
+        barcode_w_mm = 62.0
+        y_top = 14.0
+        for idx, row in enumerate(pallets, start=1):
+            if not isinstance(row, dict):
+                return None, "validation_pallet", f"Паллета {idx}: ожидался объект с полями."
+            data, err_detail = _arnest_line_barcode_data(row)
+            if err_detail:
+                return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
+            try:
+                png = fetch_barcode_png(data)
+            except Exception as exc:
+                return (
+                    None,
+                    "barcode_fetch",
+                    f"Не удалось получить штрих-код для паллеты {idx}: {exc}",
+                )
+            pdf.add_page()
+            pdf.image(
+                io.BytesIO(png),
+                x=Align.C,
+                y=y_top,
+                w=barcode_w_mm,
+                keep_aspect_ratio=True,
+            )
+        raw = pdf.output(dest="S")
+    except Exception:
+        return None, "pdf_build", ""
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw), "", ""
+    if isinstance(raw, str):
+        return raw.encode("latin-1"), "", ""
+    return None, "pdf_build", ""
 
 
 def build_blank_arnest_unirus_pallet_sheets_pdf(page_count: int) -> tuple[bytes | None, str]:
@@ -947,7 +1030,42 @@ class ApiHandler(BaseHTTPRequestHandler):
         return json.loads(raw) if raw else {}
 
     def _respond_arnest_unirus_pallet_sheets_pdf(self, body: dict):
-        """POST JSON: { \"page_count\": N } — один PDF с N пустыми страницами A4."""
+        """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
+        (даты — 6 цифр YYMMDD), либо только { \"page_count\": N } — пустые страницы A4."""
+        pallets_raw = body.get("pallets")
+        if isinstance(pallets_raw, list) and len(pallets_raw) > 0:
+            blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
+                pallets_raw
+            )
+            if err:
+                status_map = {
+                    "validation_pallets": 400,
+                    "validation_pallet": 400,
+                    "no_fpdf": 503,
+                    "pdf_build": 500,
+                    "barcode_fetch": 502,
+                }
+                status = status_map.get(err, 500)
+                msg = err_detail or _arnest_pallet_pdf_error_message(err)
+                self._send_json(status, {"error": err, "message": msg})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(blob)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(blob)
+            return
+        if isinstance(pallets_raw, list) and len(pallets_raw) == 0:
+            self._send_json(
+                400,
+                {
+                    "error": "validation_pallets",
+                    "message": _arnest_pallet_pdf_error_message("validation_pallets"),
+                },
+            )
+            return
+
         raw = body.get("page_count", body.get("pages", 0))
         try:
             page_count = int(raw)

@@ -150,6 +150,7 @@ _ARNEST_LINE9_PALLET_QTY_LABEL = "Pallet Quantity"
 _ARNEST_LINE9_UNITS_PC_LABEL = "Units PC"
 _ARNEST_LINE9_TI_HI_LABEL = "TI*HI"
 _ARNEST_LINE10_KOR_LABEL = "кор."
+_ARNEST_LINE12_TOTAL_QUANTITY_LABEL = "Total Quantity"
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -341,7 +342,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 и 8 — Code128; 2–11 — текст 12 pt (коробки, TI*HI, остаток*1)."""
+    """Один PDF: 1 и 8 — Code128; 2–13 — текст 12 pt (коробки, TI*HI, остаток*1, total qty)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -556,6 +557,22 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 pdf.cell(rem_t11, h_txt, r11 or rem_star)
             else:
                 pdf.cell(pdf.get_string_width(rem_star), h_txt, rem_star)
+            y12 = y11 + h_txt + _ARNEST_LINE2_GAP_MM
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x0, y12)
+            pdf.cell(content_w, h_txt, _ARNEST_LINE12_TOTAL_QUANTITY_LABEL, align="L")
+            y13 = y12 + h_txt + _ARNEST_LINE2_GAP_MM
+            units_str = _arnest_format_boxes_qty_for_barcode(
+                row.get("units_pc", row.get("unitsPc", 0))
+            )
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0, y13)
+            rem_13 = content_w
+            if rem_13 > 0:
+                u13 = _arnest_clip_text_to_width_mm(pdf, units_str, rem_13)
+                pdf.cell(rem_13, h_txt, u13 or units_str)
+            else:
+                pdf.cell(pdf.get_string_width(units_str), h_txt, units_str)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

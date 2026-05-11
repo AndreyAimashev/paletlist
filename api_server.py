@@ -343,7 +343,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 и 8 — Code128; 2–13 — текст 12 pt (коробки, TI*HI, остаток*1, total qty)."""
+    """Один PDF: 1, 8, 14 — Code128; 2–13 — текст 12 pt; 14 — номер паллеты слева (если указан)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -574,6 +574,30 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 pdf.cell(rem_13, h_txt, u13 or units_str)
             else:
                 pdf.cell(pdf.get_string_width(units_str), h_txt, units_str)
+            y14 = y13 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
+            pallet_bc = build_pallet_barcode_data(
+                str(row.get("pallet_number", row.get("palletNumber", "")))
+            )
+            if pallet_bc:
+                try:
+                    png_pn = fetch_barcode_png(pallet_bc)
+                except Exception as exc:
+                    return (
+                        None,
+                        "barcode_fetch",
+                        f"Не удалось получить штрих-код номера паллеты {idx}: {exc}",
+                    )
+                dims_pn = _barcode_raster_pixel_size(png_pn)
+                if not dims_pn:
+                    return None, "pdf_build", ""
+                pdf.image(
+                    io.BytesIO(png_pn),
+                    x=x0,
+                    y=y14,
+                    w=_ARNEST_LINE8_BARCODE_W_MM,
+                    h=h_mm,
+                    keep_aspect_ratio=False,
+                )
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""
@@ -1437,7 +1461,8 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _respond_arnest_unirus_pallet_sheets_pdf(self, body: dict):
         """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
-        (даты — 6 цифр ДДММГГ), либо только { \"page_count\": N } — пустые страницы A4."""
+        (даты — 6 цифр ДДММГГ), опционально pallet_number для штрих-кода строки 14 (1500000+суффикс),
+        либо только { \"page_count\": N } — пустые страницы A4."""
         pallets_raw = body.get("pallets")
         if isinstance(pallets_raw, list) and len(pallets_raw) > 0:
             blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_with_barcodes(

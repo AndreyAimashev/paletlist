@@ -2136,6 +2136,7 @@
           const palletWeightKg = computeArnestPalletWeightKg(pal, items);
           const palletBoxesQty = computeArnestPalletBoxesQty(pal, items);
           const unitsPc = computeArnestPalletUnitsPc(pal, items);
+          const pallet_number = String(pal.palletNumber ?? "").trim();
           return {
             article,
             name,
@@ -2146,6 +2147,7 @@
             pallet_boxes_qty: palletBoxesQty,
             units_pc: unitsPc,
             row_layout: rowLayout,
+            pallet_number,
           };
         });
       }

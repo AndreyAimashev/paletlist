@@ -130,7 +130,7 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 # A4 и поля как в типовом документе Word (≈2 см слева/справа).
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
-_ARNEST_BARCODE_HEIGHT_SCALE = 2.0
+_ARNEST_BARCODE_HEIGHT_SCALE = 1.0
 
 
 def _arnest_pallet_pdf_error_message(code: str) -> str:

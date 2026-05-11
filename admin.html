@@ -2112,6 +2112,7 @@
         return draftPallets.map((pal) => {
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
+          let name = "";
           let batchNumber = "";
           let unirusMfgDate = "";
           let unirusExpiryDate = "";
@@ -2123,6 +2124,7 @@
             const it = items[Number(ns.lineIndex)];
             if (it) {
               article = String(it.article || "").trim();
+              name = String(it.name || "").trim();
             }
             batchNumber = String(ns.batchNumber || "").trim();
             unirusMfgDate = String(ns.unirusMfgDate || "").trim();
@@ -2131,6 +2133,7 @@
           }
           return {
             article,
+            name,
             batch_number: batchNumber,
             manufacturing_date_raw: normalizeUnirusDateDigits(unirusMfgDate),
             expiry_date_raw: normalizeUnirusDateDigits(unirusExpiryDate),

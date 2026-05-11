@@ -133,15 +133,35 @@ _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
 _ARNEST_BARCODE_HEIGHT_SCALE = 1.0
 _ARNEST_LINE2_GAP_MM = 10.0
-_ARNEST_LINE2_FONT_PT = 12.0
+_ARNEST_TEXT_FONT_PT = 12.0  # все текстовые элементы паллетного листа (не штрих-код)
 _ARNEST_LINE2_TEXT_H_MM = 7.0
 _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
+_ARNEST_TAB_MM = 12.5  # одна стандартная табуляция (~1,25 см) между артикулом и наименованием в строке 4
 _ARNEST_ASEPTICA_LABEL = "ASEPTICA"
 _ARNEST_LINE3_DESCRIPTION_LABEL = "Description"
 
 
+def _arnest_regular_font_path() -> Path | None:
+    """Обычный Calibri / запасной DejaVu Sans / Liberation для наименования в строке 4."""
+    windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    win_fonts = windir / "Fonts"
+    candidates = [
+        BASE_DIR / "fonts" / "calibri.ttf",
+        BASE_DIR / "fonts" / "Calibri.ttf",
+        win_fonts / "calibri.ttf",
+        win_fonts / "CALIBRI.TTF",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
 def _arnest_line2_bold_font_path() -> Path | None:
-    """Жирный TTF для второй строки: Calibri Bold при наличии, иначе типичный системный запасной (DejaVu на Linux)."""
+    """Жирный TTF: Calibri Bold при наличии, иначе типичный системный запасной (DejaVu на Linux)."""
     windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
     win_fonts = windir / "Fonts"
     candidates = [
@@ -159,13 +179,18 @@ def _arnest_line2_bold_font_path() -> Path | None:
     return None
 
 
-def _arnest_pdf_register_line2_font(pdf: FPDF) -> str | None:
-    """Регистрирует жирный шрифт второй строки (семейство PLCalibri — стили B и BU)."""
-    path = _arnest_line2_bold_font_path()
-    if path is None:
+def _arnest_pdf_register_text_fonts(pdf: FPDF) -> str | None:
+    """Семейство PLCalibri: обычный (наименование) и жирный (артикул, ASEPTICA, Description)."""
+    bold_p = _arnest_line2_bold_font_path()
+    if bold_p is None:
         return "no_line2_font"
+    reg_p = _arnest_regular_font_path()
     try:
-        pdf.add_font("PLCalibri", "B", str(path))
+        pdf.add_font("PLCalibri", "B", str(bold_p))
+        if reg_p is not None:
+            pdf.add_font("PLCalibri", "", str(reg_p))
+        else:
+            pdf.add_font("PLCalibri", "", str(bold_p))
     except OSError:
         return "no_line2_font"
     return None
@@ -196,8 +221,8 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
         "pdf_build": "Не удалось сформировать PDF.",
         "barcode_fetch": "Не удалось получить изображение штрих-кода.",
         "no_line2_font": (
-            "Не найден жирный TTF для второй строки PDF. На сервере: apt install fonts-dejavu-core "
-            "или положите calibrib.ttf в каталог fonts/ рядом с api_server.py."
+            "Не найдены TTF для текста паллетного PDF (жирный обязателен). На сервере: apt install fonts-dejavu-core "
+            "или положите calibri.ttf и calibrib.ttf в каталог fonts/ рядом с api_server.py."
         ),
     }.get(code, "Ошибка генерации PDF.")
 
@@ -249,7 +274,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 — Code128; 2 — жирный Calibri/запасной: артикул слева (подчёркнут), ASEPTICA по центру; 3 — «Description» слева."""
+    """Один PDF: 1 — Code128; 2–4 — текст 12 pt: артикул/ASEPTICA; Description; артикул + наименование (таб)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -258,7 +283,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     try:
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.set_auto_page_break(False)
-        font_err = _arnest_pdf_register_line2_font(pdf)
+        font_err = _arnest_pdf_register_text_fonts(pdf)
         if font_err:
             return None, font_err, _arnest_pallet_pdf_error_message(font_err)
         barcode_w_mm = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
@@ -293,7 +318,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 keep_aspect_ratio=False,
             )
             y2 = y_top + h_mm + _ARNEST_LINE2_GAP_MM
-            fs = _ARNEST_LINE2_FONT_PT
+            fs = _ARNEST_TEXT_FONT_PT
             h_txt = _ARNEST_LINE2_TEXT_H_MM
             left_w = _ARNEST_LINE2_ARTICLE_MAX_W_MM
             art_full = str(row.get("article", "")).strip()
@@ -315,6 +340,28 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(_ARNEST_SIDE_MARGIN_MM, y3)
             pdf.cell(content_w, h_txt, _ARNEST_LINE3_DESCRIPTION_LABEL, align="L")
+            y4 = y3 + h_txt + _ARNEST_LINE2_GAP_MM
+            x0 = _ARNEST_SIDE_MARGIN_MM
+            max_r = _ARNEST_A4_W_MM - _ARNEST_SIDE_MARGIN_MM
+            art_l4 = str(row.get("article", "")).strip() or "—"
+            name_raw = str(row.get("name", row.get("product_name", ""))).strip() or "—"
+            pdf.set_font("PLCalibri", "B", fs)
+            w_art0 = pdf.get_string_width(art_l4)
+            max_art = max(10.0, max_r - x0 - _ARNEST_TAB_MM - 25.0)
+            art_l4_draw = (
+                _arnest_clip_text_to_width_mm(pdf, art_l4, max_art)
+                if w_art0 > max_art
+                else art_l4
+            )
+            w_art = pdf.get_string_width(art_l4_draw)
+            pdf.set_xy(x0, y4)
+            pdf.cell(w_art, h_txt, art_l4_draw)
+            x_name = x0 + w_art + _ARNEST_TAB_MM
+            pdf.set_font("PLCalibri", "", fs)
+            rem_w = max(0.0, max_r - x_name)
+            name_draw = _arnest_clip_text_to_width_mm(pdf, name_raw, rem_w) if rem_w > 0 else "—"
+            pdf.set_xy(x_name, y4)
+            pdf.cell(rem_w, h_txt, name_draw or "—")
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

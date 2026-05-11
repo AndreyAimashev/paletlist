@@ -23,6 +23,10 @@ jobs:
             git fetch origin
             git checkout main
             git pull --ff-only origin main
+            echo "Deployed: $(git log -1 --oneline)"
+            grep -q 'method: "POST"' admin.html || { echo "admin.html: нет POST для Unirus — проверьте pull"; exit 1; }
+            grep -q "buildUnirusSheetPayload" admin.html || { echo "admin.html: нет buildUnirusSheetPayload"; exit 1; }
+            grep -q "_compute_unirus_text_replacements" api_server.py || { echo "api_server.py: старая версия Unirus"; exit 1; }
             if [ -f requirements.txt ]; then
               if ! python3 -m pip --version 2>/dev/null; then
                 sudo apt-get update -qq
@@ -34,5 +38,5 @@ jobs:
               npm ci --omit=dev
             fi
             sudo systemctl reload nginx || true
-            # Подхватить новый код api_server.py (POST и т.д.); имя юнита задайте на сервере
-            sudo systemctl try-restart paletlist-api.service || true
+            # Обязательно перезапустить процесс Python, иначе останется старый api_server.py
+            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true

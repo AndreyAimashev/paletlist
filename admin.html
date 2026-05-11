@@ -12,6 +12,7 @@
     />
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <style>
       :root {
         --bg-primary: #0a0e17;
@@ -290,28 +291,31 @@
         box-shadow: 0 6px 18px rgba(0, 200, 160, 0.3);
       }
 
-      .pallet-sheets-pdf-info {
-        margin: 12px 0 0;
-        max-width: 52rem;
-      }
-
       .pallet-sheets-pdf-preview-wrap {
-        margin-top: 14px;
+        margin-top: 4px;
         border: 1px solid rgba(0, 200, 160, 0.28);
         border-radius: 12px;
-        overflow: hidden;
+        overflow: auto;
         background: rgba(10, 14, 23, 0.55);
-        min-height: 320px;
+        min-height: 280px;
         max-height: min(78vh, 920px);
       }
 
-      .pallet-sheets-pdf-preview-wrap iframe {
+      .pallet-sheets-pdf-pages {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 12px 18px;
+      }
+
+      .pallet-sheets-pdf-pages canvas {
         display: block;
-        width: 100%;
-        height: min(72vh, 880px);
-        min-height: 280px;
-        border: none;
-        background: #2a2a2e;
+        max-width: 100%;
+        height: auto;
+        background: #fff;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+        border-radius: 2px;
       }
 
       .assemble-workspace {
@@ -1560,12 +1564,13 @@
             <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
             <p id="pallet-sheets-loading" class="muted" hidden>Загрузка…</p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
-            <p id="pallet-sheets-pdf-info" class="muted pallet-sheets-pdf-info" hidden></p>
             <div id="pallet-sheets-pdf-preview-wrap" class="pallet-sheets-pdf-preview-wrap" hidden>
-              <iframe
-                id="pallet-sheets-pdf-iframe"
-                title="Предпросмотр PDF паллетных листов"
-              ></iframe>
+              <div
+                id="pallet-sheets-pdf-pages"
+                class="pallet-sheets-pdf-pages"
+                role="region"
+                aria-label="Предпросмотр паллетных листов"
+              ></div>
             </div>
             <div id="pallet-sheets-other-client" hidden>
               <p class="muted">
@@ -1924,9 +1929,8 @@
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
-      const palletSheetsPdfInfo = document.getElementById("pallet-sheets-pdf-info");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
-      const palletSheetsPdfIframe = document.getElementById("pallet-sheets-pdf-iframe");
+      const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
       const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
@@ -2007,18 +2011,58 @@
       let nomenclatureItems = [];
 
       let palletSheetsLoadToken = 0;
-      let palletSheetsPdfObjectUrl = null;
+      let palletSheetsPdfjsWorkerReady = false;
 
       function releasePalletSheetsPdfPreview() {
-        if (palletSheetsPdfObjectUrl) {
-          URL.revokeObjectURL(palletSheetsPdfObjectUrl);
-          palletSheetsPdfObjectUrl = null;
-        }
-        if (palletSheetsPdfIframe) {
-          palletSheetsPdfIframe.src = "about:blank";
+        if (palletSheetsPdfPages) {
+          palletSheetsPdfPages.innerHTML = "";
         }
         if (palletSheetsPdfPreviewWrap) {
           palletSheetsPdfPreviewWrap.hidden = true;
+        }
+      }
+
+      function ensurePdfjsWorker() {
+        if (palletSheetsPdfjsWorkerReady || typeof pdfjsLib === "undefined") {
+          return;
+        }
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+        palletSheetsPdfjsWorkerReady = true;
+      }
+
+      async function renderPalletSheetsPdfPreviewFromBlob(blob, loadToken, widthSourceEl) {
+        if (typeof pdfjsLib === "undefined") {
+          throw new Error("Не удалось загрузить PDF.js с CDN.");
+        }
+        ensurePdfjsWorker();
+        const data = await blob.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
+        if (!palletSheetsPdfPages) {
+          return;
+        }
+        palletSheetsPdfPages.innerHTML = "";
+        const cw =
+          widthSourceEl && widthSourceEl.clientWidth ? widthSourceEl.clientWidth : 900;
+        const maxW = Math.max(240, cw - 48);
+        for (let p = 1; p <= pdf.numPages; p += 1) {
+          if (loadToken !== palletSheetsLoadToken) {
+            palletSheetsPdfPages.innerHTML = "";
+            return;
+          }
+          const page = await pdf.getPage(p);
+          const base = page.getViewport({ scale: 1 });
+          const scale = Math.min(1.4, maxW / base.width);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            throw new Error("Canvas недоступен.");
+          }
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          palletSheetsPdfPages.appendChild(canvas);
         }
       }
 
@@ -2090,10 +2134,6 @@
         palletSheetsError.textContent = "";
         palletSheetsOtherClient.hidden = true;
         palletSheetsLoading.hidden = false;
-        if (palletSheetsPdfInfo) {
-          palletSheetsPdfInfo.hidden = true;
-          palletSheetsPdfInfo.textContent = "";
-        }
         if (palletSheetsDraftHint) {
           palletSheetsDraftHint.hidden = true;
           palletSheetsDraftHint.textContent = "";
@@ -2150,10 +2190,6 @@
         if (token !== palletSheetsLoadToken) {
           return;
         }
-        if (palletSheetsPdfInfo) {
-          palletSheetsPdfInfo.hidden = false;
-          palletSheetsPdfInfo.textContent = `Один PDF: ${palletCount} стр. (по паллете). Ниже предпросмотр; при необходимости скачайте файл кнопкой справа.`;
-        }
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = false;
         }
@@ -2163,14 +2199,22 @@
           if (token !== palletSheetsLoadToken) {
             return;
           }
-          palletSheetsPdfObjectUrl = URL.createObjectURL(blob);
-          if (palletSheetsPdfIframe && palletSheetsPdfPreviewWrap) {
-            palletSheetsPdfIframe.src = palletSheetsPdfObjectUrl;
+          await renderPalletSheetsPdfPreviewFromBlob(blob, token, palletSheetsWorkspace);
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          if (palletSheetsPdfPreviewWrap) {
             palletSheetsPdfPreviewWrap.hidden = false;
           }
         } catch (e) {
           if (token !== palletSheetsLoadToken) {
             return;
+          }
+          if (palletSheetsPdfPages) {
+            palletSheetsPdfPages.innerHTML = "";
+          }
+          if (palletSheetsPdfPreviewWrap) {
+            palletSheetsPdfPreviewWrap.hidden = true;
           }
           palletSheetsError.hidden = false;
           palletSheetsError.textContent =

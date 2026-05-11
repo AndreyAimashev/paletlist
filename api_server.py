@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import io
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -131,6 +132,56 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
 _ARNEST_BARCODE_HEIGHT_SCALE = 1.0
+_ARNEST_LINE2_GAP_MM = 4.0
+_ARNEST_LINE2_FONT_PT = 11.0
+_ARNEST_LINE2_TEXT_H_MM = 6.5
+_ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
+_ARNEST_ASEPTICA_LABEL = "ASEPTICA"
+
+
+def _arnest_unicode_font_path() -> Path | None:
+    """TTF с кириллицей: каталог fonts/ у API, типичные пути Linux, Arial в Windows."""
+    candidates = [
+        BASE_DIR / "fonts" / "DejaVuSans.ttf",
+        BASE_DIR / "DejaVuSans.ttf",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+    ]
+    windir = os.environ.get("WINDIR", r"C:\Windows")
+    candidates.append(Path(windir) / "Fonts" / "arial.ttf")
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _arnest_pdf_register_body_font(pdf: FPDF) -> str | None:
+    """Регистрирует семейство PLBody для текста под штрих-кодом."""
+    path = _arnest_unicode_font_path()
+    if path is None:
+        return "no_unicode_font"
+    try:
+        pdf.add_font("PLBody", "", str(path))
+    except OSError:
+        return "no_unicode_font"
+    return None
+
+
+def _arnest_clip_text_to_width_mm(pdf: FPDF, text: str, max_mm: float) -> str:
+    """Подрезает строку по ширине (мм) с многоточием, шрифт уже выбран."""
+    t = text or ""
+    if pdf.get_string_width(t) <= max_mm:
+        return t
+    ell = "…"
+    if pdf.get_string_width(ell) > max_mm:
+        return ""
+    n = len(t)
+    while n > 0:
+        cand = t[:n] + ell
+        if pdf.get_string_width(cand) <= max_mm:
+            return cand
+        n -= 1
+    return ell
 
 
 def _arnest_pallet_pdf_error_message(code: str) -> str:
@@ -140,6 +191,11 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
         "validation_pallets": "Передайте непустой массив pallets (не более 500 паллет).",
         "pdf_build": "Не удалось сформировать PDF.",
         "barcode_fetch": "Не удалось получить изображение штрих-кода.",
+        "no_unicode_font": (
+            "Не найден TTF-шрифт с кириллицей для PDF. Установите fonts-dejavu-core "
+            "или положите DejaVuSans.ttf в каталог fonts/ рядом с api_server.py "
+            "(на Windows обычно доступен Arial)."
+        ),
     }.get(code, "Ошибка генерации PDF.")
 
 
@@ -190,7 +246,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: на каждой странице сверху по центру Code128. Возвращает (blob, error_code, error_detail)."""
+    """Один PDF: строка 1 — Code128 по центру; строка 2 — артикул слева (подчёркнут), ASEPTICA по центру."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -199,6 +255,9 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     try:
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.set_auto_page_break(False)
+        font_err = _arnest_pdf_register_body_font(pdf)
+        if font_err:
+            return None, font_err, _arnest_pallet_pdf_error_message(font_err)
         barcode_w_mm = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
         y_top = 14.0
         for idx, row in enumerate(pallets, start=1):
@@ -230,6 +289,24 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 h=h_mm,
                 keep_aspect_ratio=False,
             )
+            y2 = y_top + h_mm + _ARNEST_LINE2_GAP_MM
+            fs = _ARNEST_LINE2_FONT_PT
+            h_txt = _ARNEST_LINE2_TEXT_H_MM
+            left_w = _ARNEST_LINE2_ARTICLE_MAX_W_MM
+            art_full = str(row.get("article", "")).strip()
+            pdf.set_font("PLBody", "U", fs)
+            art_show = (
+                _arnest_clip_text_to_width_mm(pdf, art_full, left_w) if art_full else "—"
+            )
+            if not art_show:
+                art_show = "—"
+            pdf.set_xy(_ARNEST_SIDE_MARGIN_MM, y2)
+            pdf.cell(left_w, h_txt, art_show)
+            pdf.set_font("PLBody", "", fs)
+            ase = _ARNEST_ASEPTICA_LABEL
+            w_ase = pdf.get_string_width(ase)
+            pdf.set_xy((_ARNEST_A4_W_MM - w_ase) / 2.0, y2)
+            pdf.cell(w_ase, h_txt, ase)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""
@@ -1099,6 +1176,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "validation_pallets": 400,
                     "validation_pallet": 400,
                     "no_fpdf": 503,
+                    "no_unicode_font": 503,
                     "pdf_build": 500,
                     "barcode_fetch": 502,
                 }

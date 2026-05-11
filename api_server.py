@@ -62,13 +62,13 @@ def _is_unirus_pallet_sheet_path(path: str) -> bool:
 UNIRUS_PALLET_BARCODE_PLACEHOLDER = "###ШТРИХКОД_ПАЛЛЕТА###"
 # В шаблоне «Артикул» часто разбит на три <w:r>: ### | Артикул | ###
 UNIRUS_ARTICLE_CORE = "\u0410\u0440\u0442\u0438\u043a\u0443\u043b"
+# Без re.DOTALL: не «проглатываем» лишние узлы между run'ами.
 _UNIRUS_TRIPLET_ARTICLE_RE = re.compile(
-    r"(?P<r1><w:r\b[^>]*>)(?P<rpr1><w:rPr>.*?</w:rPr>)<w:t>###</w:t></w:r>"
-    r"<w:r\b[^>]*>(?P<rpr2><w:rPr>.*?</w:rPr>)?<w:t>"
+    r"(?P<a1><w:r\b[^>]*>)(?P<apr1><w:rPr>.*?</w:rPr>)<w:t>###</w:t></w:r>"
+    r"(?P<a2><w:r\b[^>]*>)(?P<apr2><w:rPr>.*?</w:rPr>)?<w:t>"
     + re.escape(UNIRUS_ARTICLE_CORE)
     + r"</w:t></w:r>"
-    r"(?P<r3><w:r\b[^>]*>)(?P<rpr3><w:rPr>.*?</w:rPr>)<w:t>###</w:t></w:r>",
-    re.DOTALL,
+    r"(?P<a3><w:r\b[^>]*>)(?P<apr3><w:rPr>.*?</w:rPr>)<w:t>###</w:t></w:r>",
 )
 UNIRUS_BARCODE_PREFIX = "1500000"
 BARCODE_FETCH_TIMEOUT_S = 20
@@ -154,45 +154,57 @@ def _unirus_render_error_message(code: str) -> str:
     }.get(code, "Ошибка генерации паллетного листа.")
 
 
-def _unirus_article_triplet_sub(m: re.Match, esc: str) -> str:
-    """Сохраняет rPr: при подчёркнутом «Артикул» подчёркивание переносится на артикул."""
-    rpr1 = m.group("rpr1") or ""
-    rpr2 = m.group("rpr2") or ""
-    rpr3 = m.group("rpr3") or ""
-    if "<w:u" in rpr2:
-        rpr_use = rpr2 or rpr1
-    elif "<w:u" in rpr1 or "<w:u" in rpr3:
-        rpr_use = rpr1
-    else:
-        rpr_use = rpr2 or rpr1
-    if not rpr_use:
-        rpr_use = "<w:rPr/>"
-    return f'{m.group("r1")}{rpr_use}<w:t>{esc}</w:t></w:r>'
+def _unirus_article_triplet_preserve_runs_sub(m: re.Match, esc: str) -> str:
+    """
+    Оставляет три <w:r>: крайние с пустым <w:t></w:t>, средний — артикул с исходным w:rPr
+    (подчёркивание и шрифт остаются у среднего run, вёрстка документа не «схлопывается»).
+    """
+    apr2 = m.group("apr2") or ""
+    return (
+        f'{m.group("a1")}{m.group("apr1")}<w:t></w:t></w:r>'
+        f'{m.group("a2")}{apr2}<w:t>{esc}</w:t></w:r>'
+        f'{m.group("a3")}{m.group("apr3")}<w:t></w:t></w:r>'
+    )
+
+
+def _zip_repack_same_meta(zin: zipfile.ZipFile, file_data: dict[str, bytes]) -> bytes:
+    """Пересобирает docx, сохраняя compress_type и прочие поля ZipInfo (меньше сюрпризов для Word)."""
+    outbuf = io.BytesIO()
+    zout = zipfile.ZipFile(outbuf, "w")
+    try:
+        for zi in zin.infolist():
+            name = zi.filename
+            data = file_data.get(name, zin.read(name))
+            new_i = zipfile.ZipInfo(filename=name, date_time=zi.date_time)
+            new_i.compress_type = zi.compress_type
+            new_i.external_attr = zi.external_attr
+            new_i.create_system = zi.create_system
+            new_i.comment = zi.comment
+            new_i.extra = zi.extra
+            zout.writestr(new_i, data)
+    finally:
+        zout.close()
+    return outbuf.getvalue()
 
 
 def _patch_unirus_docx_article_bytes(docx_bytes: bytes, article: str) -> tuple[bytes | None, str]:
-    """Заменяет тройки run ### + Артикул + ### в word/document.xml на один run с артикулом."""
+    """В word/document.xml подставляет артикул в тройку run ### + Артикул + ### без удаления run'ов."""
     esc = _xml_escape_text(str(article or ""), {"'": "&apos;"})
 
     def _sub(m: re.Match) -> str:
-        return _unirus_article_triplet_sub(m, esc)
+        return _unirus_article_triplet_preserve_runs_sub(m, esc)
 
+    zin = None
     try:
         zin = zipfile.ZipFile(io.BytesIO(docx_bytes), "r")
-        outbuf = io.BytesIO()
-        zout = zipfile.ZipFile(outbuf, "w", zipfile.ZIP_DEFLATED)
-        for zi in zin.infolist():
-            data = zin.read(zi.filename)
-            if zi.filename == "word/document.xml":
-                txt = data.decode("utf-8")
-                txt = _UNIRUS_TRIPLET_ARTICLE_RE.sub(_sub, txt)
-                data = txt.encode("utf-8")
-            zout.writestr(zi, data)
-        zin.close()
-        zout.close()
-        return outbuf.getvalue(), ""
+        xml = zin.read("word/document.xml").decode("utf-8")
+        xml2 = _UNIRUS_TRIPLET_ARTICLE_RE.sub(_sub, xml)
+        return _zip_repack_same_meta(zin, {"word/document.xml": xml2.encode("utf-8")}), ""
     except Exception:
         return None, "docx_article_patch"
+    finally:
+        if zin is not None:
+            zin.close()
 
 
 def render_unirus_docx_with_pallet_barcode(
@@ -207,8 +219,12 @@ def render_unirus_docx_with_pallet_barcode(
     tpl = _unirus_template_path()
     if not tpl.is_file():
         return None, "template_missing"
+    tpl_bytes = tpl.read_bytes()
+    patched_tpl, perr = _patch_unirus_docx_article_bytes(tpl_bytes, article)
+    if perr:
+        return None, perr
     try:
-        doc = DocxDocument(io.BytesIO(tpl.read_bytes()))
+        doc = DocxDocument(io.BytesIO(patched_tpl))
     except Exception:
         return None, "template_read"
     data = build_pallet_barcode_data(pallet_number)
@@ -223,11 +239,7 @@ def render_unirus_docx_with_pallet_barcode(
         doc.save(out)
     except Exception:
         return None, "docx_save"
-    raw = out.getvalue()
-    patched, perr = _patch_unirus_docx_article_bytes(raw, article)
-    if perr:
-        return None, perr
-    return patched, ""
+    return out.getvalue(), ""
 
 
 def _parse_orders_detail_id(path: str):

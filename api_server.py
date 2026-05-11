@@ -157,8 +157,16 @@ def _arnest_yymmdd_digits(raw: str) -> str | None:
     return d
 
 
+def _arnest_yymmdd_for_barcode(raw: str) -> str | None:
+    """Шесть цифр из поля (YYMMDD в сборке) → в штрих-коде пары AB·CD·EF дают EF·CD·AB (напр. 123456 → 563412)."""
+    d = _arnest_yymmdd_digits(raw)
+    if not d:
+        return None
+    return d[4:6] + d[2:4] + d[0:2]
+
+
 def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
-    """Строка Code128: «цифры из артикула» партия YYMMDD YYMMDD через пробел; (None, пояснение) при ошибке."""
+    """Строка Code128: артикул (цифры), партия, дата изготовления и срок в кодировке для сканера (пары цифр дат переставлены)."""
     article = str(row.get("article", "")).strip()
     part_art = _arnest_first_digit_run(article)
     if not part_art:
@@ -166,10 +174,14 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
     batch = str(row.get("batch_number", row.get("batchNumber", ""))).strip()
     if not batch:
         return None, "не указана партия"
-    mfg = _arnest_yymmdd_digits(str(row.get("manufacturing_date_raw", row.get("unirusMfgDate", ""))))
+    mfg = _arnest_yymmdd_for_barcode(
+        str(row.get("manufacturing_date_raw", row.get("unirusMfgDate", "")))
+    )
     if not mfg:
         return None, "дата изготовления: нужны 6 цифр YYMMDD"
-    exp = _arnest_yymmdd_digits(str(row.get("expiry_date_raw", row.get("unirusExpiryDate", ""))))
+    exp = _arnest_yymmdd_for_barcode(
+        str(row.get("expiry_date_raw", row.get("unirusExpiryDate", "")))
+    )
     if not exp:
         return None, "срок годности: нужны 6 цифр YYMMDD"
     return f"{part_art} {batch} {mfg} {exp}", None

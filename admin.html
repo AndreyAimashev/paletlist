@@ -2131,12 +2131,14 @@
             unirusExpiryDate = String(ns.unirusExpiryDate || "").trim();
             break;
           }
+          const palletWeightKg = computeArnestPalletWeightKg(pal, items);
           return {
             article,
             name,
             batch_number: batchNumber,
             manufacturing_date_raw: normalizeUnirusDateDigits(unirusMfgDate),
             expiry_date_raw: normalizeUnirusDateDigits(unirusExpiryDate),
+            pallet_weight_kg: palletWeightKg,
           };
         });
       }
@@ -3076,6 +3078,36 @@
         return dq;
       }
 
+      function allocationToBoxes(it, alloc) {
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        if (pib <= 0) {
+          return 0;
+        }
+        return allocationToPieces(it, alloc) / pib;
+      }
+
+      function computeArnestPalletWeightKg(pal, orderItems) {
+        const items = Array.isArray(orderItems) ? orderItems : [];
+        let kg = 0;
+        const slots = Array.isArray(pal.slots) ? pal.slots : [];
+        for (const s of slots) {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            continue;
+          }
+          const it = items[Number(ns.lineIndex)];
+          if (!it) {
+            continue;
+          }
+          const bw = Number(it.box_weight);
+          if (!Number.isFinite(bw) || bw <= 0) {
+            continue;
+          }
+          kg += allocationToBoxes(it, slotToAlloc(ns)) * bw;
+        }
+        return Math.round(kg * 10) / 10;
+      }
+
       function lineAllocatedPiecesSum(lineIdx) {
         if (!assembleAllocState || !assembleOrderSnapshot) {
           return 0;
@@ -3300,6 +3332,35 @@
             );
           }
         });
+        if (isAssembleUnirusMode()) {
+          items.forEach((it, li) => {
+            const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+            const rl = Math.max(0, Number(it.row_layout) || 0);
+            const mr = Math.max(0, Number(it.max_rows) || 0);
+            const bw = Number(it.box_weight);
+            const tag = `Позиция заказа ${li + 1}`;
+            if (pib <= 0) {
+              msgs.push(
+                `${tag}: для «Арнест Юнирусь» в номенклатуре товара должно быть заполнено «Штук в коробке» (больше 0).`,
+              );
+            }
+            if (rl <= 0) {
+              msgs.push(
+                `${tag}: для «Арнест Юнирусь» заполните «Укладка ряда (коробок в ряду)» в номенклатуре (больше 0).`,
+              );
+            }
+            if (mr <= 0) {
+              msgs.push(
+                `${tag}: для «Арнест Юнирусь» заполните «Максимум рядов» в номенклатуре (больше 0).`,
+              );
+            }
+            if (!Number.isFinite(bw) || bw <= 0) {
+              msgs.push(
+                `${tag}: для «Арнест Юнирусь» заполните «Вес коробки (кг)» в номенклатуре (больше 0).`,
+              );
+            }
+          });
+        }
         if (isAssembleUnirusMode() && assembleAllocState) {
           assembleAllocState.pallets.forEach((pal, pi) => {
             const d = palletDistinctOrderLineIndices(pal);
@@ -3552,12 +3613,12 @@
         const unirusDatesHtml = isAssembleUnirusMode()
           ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
               <div class="assemble-field">
-                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (YYMMDD)</label>
-                <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. 250510" autocomplete="off" value="${umVal}" />
+                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ)</label>
+                <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. 110526" autocomplete="off" value="${umVal}" />
               </div>
               <div class="assemble-field">
-                <label for="aue-${pIdx}-${sIdx}">Срок годности (YYMMDD)</label>
-                <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. 260510" autocomplete="off" value="${ueVal}" />
+                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ)</label>
+                <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. 110526" autocomplete="off" value="${ueVal}" />
               </div>
             </div>`
           : "";

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import datetime
 import io
 import json
+import math
 import os
 import re
 import sqlite3
@@ -246,11 +248,41 @@ def _arnest_yymmdd_digits(raw: str) -> str | None:
 
 
 def _arnest_yymmdd_for_barcode(raw: str) -> str | None:
-    """Шесть цифр из поля (YYMMDD в сборке) → в штрих-коде пары AB·CD·EF дают EF·CD·AB (напр. 123456 → 563412)."""
+    """Шесть цифр из поля → в штрих-коде пары AB·CD·EF дают EF·CD·AB (напр. 123456 → 563412)."""
     d = _arnest_yymmdd_digits(raw)
     if not d:
         return None
     return d[4:6] + d[2:4] + d[0:2]
+
+
+def _arnest_six_digits_display_ddmmyy(raw: str) -> str | None:
+    """Шесть цифр ДДММГГ → «ДД.ММ.ГГГГ» для строки 7 PDF (напр. 110526 → 11.05.2026)."""
+    d = re.sub(r"\D", "", raw or "")
+    if len(d) >= 6:
+        d = d[-6:]
+    if len(d) != 6 or not d.isdigit():
+        return None
+    dd = int(d[0:2])
+    mm = int(d[2:4])
+    yy = int(d[4:6])
+    year = 2000 + yy
+    try:
+        datetime.date(year, mm, dd)
+    except ValueError:
+        return None
+    return f"{dd:02d}.{mm:02d}.{year:04d}"
+
+
+def _arnest_format_weight_kg_ru(raw) -> str:
+    """Вес в кг для PDF: одна десятичная, запятая как десятичный разделитель."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = 0.0
+    if not math.isfinite(v) or v < 0:
+        v = 0.0
+    s = f"{v:.1f}"
+    return s.replace(".", ",")
 
 
 def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
@@ -266,19 +298,19 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
         str(row.get("manufacturing_date_raw", row.get("unirusMfgDate", "")))
     )
     if not mfg:
-        return None, "дата изготовления: нужны 6 цифр YYMMDD"
+        return None, "дата изготовления: нужны 6 цифр ДДММГГ"
     exp = _arnest_yymmdd_for_barcode(
         str(row.get("expiry_date_raw", row.get("unirusExpiryDate", "")))
     )
     if not exp:
-        return None, "срок годности: нужны 6 цифр YYMMDD"
+        return None, "срок годности: нужны 6 цифр ДДММГГ"
     return f"{part_art} {batch} {mfg} {exp}", None
 
 
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 — Code128; 2–6 — текст 12 pt; 5 — GTIN CODE; 6 — даты и вес (табуляции)."""
+    """Один PDF: 1 — Code128; 2–7 — текст 12 pt; 7 — даты ДД.ММ.ГГГГ и вес паллеты (табуляции)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -389,6 +421,30 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if rem_cwk > 0:
                 cwk_draw = _arnest_clip_text_to_width_mm(pdf, cwk, rem_cwk)
                 pdf.cell(rem_cwk, h_txt, cwk_draw or cwk)
+            y7 = y6 + h_txt + _ARNEST_LINE2_GAP_MM
+            mfg_raw = str(
+                row.get("manufacturing_date_raw", row.get("unirusMfgDate", ""))
+            )
+            exp_raw = str(row.get("expiry_date_raw", row.get("unirusExpiryDate", "")))
+            mfg_txt = _arnest_six_digits_display_ddmmyy(mfg_raw) or "—"
+            exp_txt = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
+            w_kg_str = _arnest_format_weight_kg_ru(row.get("pallet_weight_kg", 0))
+            pdf.set_font("PLCalibri", "", fs)
+            w_m7 = pdf.get_string_width(mfg_txt)
+            w_e7 = pdf.get_string_width(exp_txt)
+            w_w7 = pdf.get_string_width(w_kg_str)
+            pdf.set_xy(x0, y7)
+            pdf.cell(w_m7, h_txt, mfg_txt)
+            x_e7 = x0 + w_m7 + tab
+            pdf.set_xy(x_e7, y7)
+            pdf.cell(w_e7, h_txt, exp_txt)
+            x_w7 = x_e7 + w_e7 + 3 * tab
+            pdf.set_xy(x_w7, y7)
+            rem_w7 = max(0.0, max_r - x_w7)
+            if rem_w7 > 0:
+                if rem_w7 < w_w7:
+                    w_kg_str = _arnest_clip_text_to_width_mm(pdf, w_kg_str, rem_w7) or w_kg_str
+                pdf.cell(rem_w7, h_txt, w_kg_str)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""
@@ -711,6 +767,7 @@ def _synthetic_items_from_order_names(names: str):
                     "pieces_per_set": 1,
                     "row_layout": 0,
                     "max_rows": 0,
+                    "box_weight": 0.0,
                 }
             )
         else:
@@ -726,6 +783,7 @@ def _synthetic_items_from_order_names(names: str):
                     "pieces_per_set": 1,
                     "row_layout": 0,
                     "max_rows": 0,
+                    "box_weight": 0.0,
                 }
             )
     return out
@@ -945,6 +1003,7 @@ def _order_item_row_to_dict(ir):
         "pieces_per_set": max(1, int(ir["pieces_per_set"] or 1)),
         "row_layout": max(0, int(ir["row_layout"] or 0)),
         "max_rows": max(0, int(ir["max_rows"] or 0)),
+        "box_weight": float(ir["box_weight"] or 0),
     }
 
 
@@ -969,7 +1028,8 @@ def fetch_order_detail(order_id: int):
                    p.sets_in_box AS sets_in_box,
                    p.pieces_per_set AS pieces_per_set,
                    p.row_layout AS row_layout,
-                   p.max_rows AS max_rows
+                   p.max_rows AS max_rows,
+                   p.box_weight AS box_weight
             FROM order_items oi
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ?
@@ -1026,7 +1086,8 @@ def fetch_orders():
                        p.sets_in_box AS sets_in_box,
                        p.pieces_per_set AS pieces_per_set,
                        p.row_layout AS row_layout,
-                       p.max_rows AS max_rows
+                       p.max_rows AS max_rows,
+                       p.box_weight AS box_weight
                 FROM order_items oi
                 LEFT JOIN products p ON p.id = oi.product_id
                 WHERE oi.order_id IN ({placeholders})
@@ -1247,7 +1308,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _respond_arnest_unirus_pallet_sheets_pdf(self, body: dict):
         """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
-        (даты — 6 цифр YYMMDD), либо только { \"page_count\": N } — пустые страницы A4."""
+        (даты — 6 цифр ДДММГГ), либо только { \"page_count\": N } — пустые страницы A4."""
         pallets_raw = body.get("pallets")
         if isinstance(pallets_raw, list) and len(pallets_raw) > 0:
             blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_with_barcodes(

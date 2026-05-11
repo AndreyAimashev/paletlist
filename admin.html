@@ -2090,9 +2090,27 @@
         return t || fallback;
       }
 
-      async function fetchRenderedUnirusDocxForPallet(palletNumber) {
+      function unirusArticleFromAssemblyPallet(pal, items) {
+        const rows = Array.isArray(pal.slots) ? pal.slots : [];
+        for (let i = 0; i < rows.length; i += 1) {
+          const li = rows[i].lineIndex;
+          if (li === "" || li === undefined || li === null || !Number.isFinite(Number(li))) {
+            continue;
+          }
+          const it = items[Number(li)];
+          if (it && String(it.article || "").trim()) {
+            return String(it.article).trim();
+          }
+        }
+        return "";
+      }
+
+      async function fetchRenderedUnirusDocxForPallet(palletNumber, articleText) {
         const q = encodeURIComponent(String(palletNumber ?? ""));
-        const res = await fetch(`/api/unirus-pallet-sheet?pallet_number=${q}`);
+        const a = encodeURIComponent(String(articleText ?? ""));
+        const res = await fetch(
+          `/api/unirus-pallet-sheet?pallet_number=${q}${a ? `&article=${a}` : ""}`,
+        );
         if (!res.ok) {
           let detail = "";
           try {
@@ -2175,9 +2193,11 @@
           }
           unirusDocxContainer.innerHTML = "";
           if (typeof docx !== "undefined" && typeof docx.renderAsync === "function") {
+            const orderItems = Array.isArray(order.items) ? order.items : [];
             for (let i = 0; i < palletCount; i += 1) {
               const pal = assemblePallets[i];
-              const buf = await fetchRenderedUnirusDocxForPallet(pal.palletNumber ?? "");
+              const art = unirusArticleFromAssemblyPallet(pal, orderItems);
+              const buf = await fetchRenderedUnirusDocxForPallet(pal.palletNumber ?? "", art);
               const slotBuf = buf.slice(0);
               const numLabel = String(pal.palletNumber ?? "").trim();
               const card = document.createElement("article");
@@ -2428,9 +2448,26 @@
           }
           const n = pallets.length;
           const buffers = [];
+          let orderItems = [];
+          if (assembleOrderSnapshot && assembleOrderSnapshot.id === oid) {
+            orderItems = assembleOrderSnapshot.items || [];
+          } else {
+            try {
+              const or = await fetch(`/api/orders/${oid}`);
+              if (or.ok) {
+                const od = await or.json();
+                orderItems = Array.isArray(od.items) ? od.items : [];
+              }
+            } catch (e) {
+              orderItems = [];
+            }
+          }
           try {
             for (let i = 0; i < n; i += 1) {
-              buffers.push(await fetchRenderedUnirusDocxForPallet(pallets[i].palletNumber ?? ""));
+              const art = unirusArticleFromAssemblyPallet(pallets[i], orderItems);
+              buffers.push(
+                await fetchRenderedUnirusDocxForPallet(pallets[i].palletNumber ?? "", art),
+              );
             }
           } catch (e) {
             window.alert(

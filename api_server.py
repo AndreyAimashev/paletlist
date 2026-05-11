@@ -485,10 +485,10 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 x=Align.C,
                 y=y8,
                 w=_ARNEST_LINE8_BARCODE_W_MM,
-                h=h8,
-                keep_aspect_ratio=True,
+                h=h_mm,
+                keep_aspect_ratio=False,
             )
-            y9 = y8 + h8 + _ARNEST_LINE2_GAP_MM
+            y9 = y8 + h_mm + _ARNEST_LINE2_GAP_MM
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x0, y9)
             pdf.cell(content_w, h_txt, _ARNEST_LINE9_PALLET_QTY_LABEL, align="L")

@@ -580,6 +580,24 @@
         font-size: 13px;
       }
 
+      .assemble-slot-product-row {
+        display: block;
+        margin-bottom: 10px;
+      }
+
+      .assemble-slot-product-row--unirus {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+        gap: 12px;
+        align-items: end;
+      }
+
+      @media (max-width: 720px) {
+        .assemble-slot-product-row--unirus {
+          grid-template-columns: 1fr;
+        }
+      }
+
       .assemble-rows-panel[hidden],
       .assemble-direct-panel[hidden] {
         display: none !important;
@@ -1959,6 +1977,10 @@
         return n === "арнест юнирусь";
       }
 
+      function isAssembleUnirusMode() {
+        return !!(assembleOrderSnapshot && isArnestUnirusClient(assembleOrderSnapshot.client));
+      }
+
       function sanitizePalletFilenamePart(s, fallback) {
         const t = String(s ?? "").trim().replace(/[/\\?%*:|"<>]/g, "_");
         return t || fallback;
@@ -2794,6 +2816,20 @@
         };
       }
 
+      function palletDistinctOrderLineIndices(pal) {
+        const set = new Set();
+        (pal.slots || []).forEach((s) => {
+          if (s.lineIndex === "" || s.lineIndex === undefined || s.lineIndex === null) {
+            return;
+          }
+          const n = Number(s.lineIndex);
+          if (Number.isFinite(n) && n >= 0) {
+            set.add(n);
+          }
+        });
+        return set;
+      }
+
       function normalizeSlot(s) {
         const li = s.lineIndex;
         let lineIndex = "";
@@ -2806,6 +2842,7 @@
         const b = defaultAssembleLineAlloc();
         return {
           lineIndex,
+          batchNumber: String(s.batchNumber ?? "").trim(),
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -3132,6 +3169,18 @@
             );
           }
         });
+        if (isAssembleUnirusMode() && assembleAllocState) {
+          assembleAllocState.pallets.forEach((pal, pi) => {
+            const d = palletDistinctOrderLineIndices(pal);
+            if (d.size > 1) {
+              const pn = String(pal.palletNumber || "").trim();
+              const tag = pn ? `«${pn}»` : `№${pi + 1}`;
+              msgs.push(
+                `Паллет ${tag}: для «Арнест Юнирусь» на одном паллете — только одно наименование (одна строка заказа). Уберите лишние позиции или выберите одну и ту же строку.`,
+              );
+            }
+          });
+        }
         return msgs;
       }
 
@@ -3296,6 +3345,7 @@
 
       function renderSlotSourceOptions(orderItems, pIdx, rowIdxInPallet, slot) {
         const pal = assembleAllocState.pallets[pIdx];
+        const unirus = isAssembleUnirusMode();
         const usedOrder = new Set();
         (pal.slots || []).forEach((sl, j) => {
           if (j === rowIdxInPallet) {
@@ -3308,8 +3358,30 @@
           if (!Number.isFinite(n)) {
             return;
           }
-          usedOrder.add(n);
+          if (!unirus) {
+            usedOrder.add(n);
+          }
         });
+        let lockLi = null;
+        if (unirus) {
+          const nums = [];
+          (pal.slots || []).forEach((sl, j) => {
+            if (j === rowIdxInPallet) {
+              return;
+            }
+            if (sl.lineIndex === "" || sl.lineIndex === undefined || sl.lineIndex === null) {
+              return;
+            }
+            const n = Number(sl.lineIndex);
+            if (Number.isFinite(n) && n >= 0) {
+              nums.push(n);
+            }
+          });
+          const uq = [...new Set(nums)];
+          if (uq.length === 1) {
+            lockLi = uq[0];
+          }
+        }
         const curOrder =
           slot.lineIndex !== "" && Number.isFinite(Number(slot.lineIndex))
             ? Number(slot.lineIndex)
@@ -3317,7 +3389,10 @@
         const curVal = formatSlotSelectValue(slot);
         let html = '<option value="">— Выберите позицию заказа —</option>';
         orderItems.forEach((it, idx) => {
-          if (usedOrder.has(idx) && idx !== curOrder) {
+          if (unirus && lockLi !== null && idx !== lockLi) {
+            return;
+          }
+          if (!unirus && usedOrder.has(idx) && idx !== curOrder) {
             return;
           }
           const label = `${idx + 1}. ${formatOrderItemSearchInput(it.article, it.name)}`;
@@ -3332,11 +3407,25 @@
         const it = resolveSlotAssembleItem(slot, items);
         const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
+        const unirus = isAssembleUnirusMode();
+        const batchVal = escapeXml(String(slot.batchNumber ?? ""));
+        const productRowClass = unirus
+          ? "assemble-slot-product-row assemble-slot-product-row--unirus"
+          : "assemble-slot-product-row";
+        const batchFieldHtml = unirus
+          ? `<div class="assemble-field" style="max-width:100%">
+              <label for="ab-${pIdx}-${sIdx}">Партия</label>
+              <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="Укажите партию" autocomplete="off" value="${batchVal}" />
+            </div>`
+          : "";
         if (!it) {
           return `<div class="assemble-line-block" data-assemble-slot-row>
-            <div class="assemble-field" style="max-width:100%">
-              <label>Наименование</label>
-              <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
+            <div class="${productRowClass}">
+              <div class="assemble-field" style="max-width:100%">
+                <label>Наименование</label>
+                <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
+              </div>
+              ${batchFieldHtml}
             </div>
             ${removeSlotBtn}
           </div>`;
@@ -3356,9 +3445,12 @@
             ? `Шт в коробке: ${pib}${rowLay > 0 ? ` · коробок в ряду: ${rowLay}` : ""}`
             : "В номенклатуре не задано «штук в коробке» — для этого товара доступен ввод только в штуках; режим «Ряды» недоступен.";
         return `<div class="assemble-line-block" data-assemble-slot-row>
-          <div class="assemble-field" style="max-width:100%;margin-bottom:10px">
-            <label>Наименование</label>
-            <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
+          <div class="${productRowClass}">
+            <div class="assemble-field" style="max-width:100%;margin-bottom:0">
+              <label>Наименование</label>
+              <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
+            </div>
+            ${batchFieldHtml}
           </div>
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
           <div class="assemble-mode-row">
@@ -3466,6 +3558,12 @@
             const pb = row.querySelector("[data-field='partialBoxes']");
             if (pb) {
               slot.partialBoxes = pb.value;
+            }
+            const bn = row.querySelector("[data-field='batchNumber']");
+            if (bn) {
+              slot.batchNumber = bn.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.batchNumber = String(pal.slots[sIdx].batchNumber ?? "").trim();
             }
             newSlots.push(normalizeSlot(slot));
           });

@@ -7,11 +7,9 @@ import os
 import re
 import sqlite3
 import threading
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from fpdf import FPDF
@@ -22,6 +20,16 @@ except ImportError:
     HAVE_FPDF = False
     FPDF = None  # type: ignore
     Align = None  # type: ignore
+
+try:
+    from barcode import Code128
+    from barcode.writer import ImageWriter
+
+    HAVE_CODE128_BARCODE = True
+except ImportError:
+    HAVE_CODE128_BARCODE = False
+    Code128 = None  # type: ignore
+    ImageWriter = None  # type: ignore
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -55,8 +63,6 @@ def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
 # Префикс Code128 данных паллеты (как в макросе Word / tec-it).
 PALLET_BARCODE_PREFIX = "1500000"
 MAX_PALLET_SHEET_PDF_PAGES = 500
-BARCODE_FETCH_TIMEOUT_S = 20
-BARCODE_USER_AGENT = "paletlist-api/1"
 
 
 def _format_pallet_suffix_vba(n: int) -> str:
@@ -87,15 +93,22 @@ def build_pallet_barcode_data(pallet_number: str) -> str | None:
     return PALLET_BARCODE_PREFIX + _format_pallet_suffix_vba(n)
 
 
-def fetch_barcode_png(barcode_data: str) -> bytes:
-    url = (
-        "https://barcode.tec-it.com/barcode.ashx?data="
-        + quote(barcode_data, safe="")
-        + "&code=Code128&translate-esc=on"
-    )
-    req = urllib.request.Request(url, headers={"User-Agent": BARCODE_USER_AGENT})
-    with urllib.request.urlopen(req, timeout=BARCODE_FETCH_TIMEOUT_S) as resp:
-        return resp.read()
+def render_code128_barcode_png(barcode_data: str) -> bytes:
+    """Code128 в PNG на сервере (python-barcode + Pillow); под полосами — читаемая строка данных."""
+    if not HAVE_CODE128_BARCODE or Code128 is None or ImageWriter is None:
+        raise RuntimeError(
+            "Не установлен python-barcode[images] (pip install \"python-barcode[images]\")"
+        )
+    payload = str(barcode_data)
+    if not payload.strip():
+        raise ValueError("Пустые данные для штрих-кода")
+    writer = ImageWriter(format="PNG", dpi=300)
+    buf = io.BytesIO()
+    Code128(payload, writer=writer).write(buf)
+    out = buf.getvalue()
+    if not out or _png_ihdr_pixel_size(out) is None:
+        raise RuntimeError("Пустой или некорректный PNG штрих-кода")
+    return out
 
 
 def _png_ihdr_pixel_size(png: bytes) -> tuple[int, int] | None:
@@ -123,7 +136,7 @@ def _gif_logical_screen_size(gif: bytes) -> tuple[int, int] | None:
 
 
 def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
-    """Размеры растра штрих-кода (tec-it может отдать PNG или GIF)."""
+    """Размеры растра штрих-кода (PNG локальной генерации или GIF)."""
     z = _png_ihdr_pixel_size(raw)
     if z:
         return z
@@ -232,7 +245,11 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
         "validation": "Укажите число страниц от 1 до 500 (по одной на паллету).",
         "validation_pallets": "Передайте непустой массив pallets (не более 500 паллет).",
         "pdf_build": "Не удалось сформировать PDF.",
-        "barcode_fetch": "Не удалось получить изображение штрих-кода.",
+        "no_barcode": (
+            "На сервере не установлен python-barcode[images] "
+            '(pip install "python-barcode[images]").'
+        ),
+        "barcode_fetch": "Не удалось сформировать изображение штрих-кода.",
         "no_line2_font": (
             "Не найдены TTF для текста паллетного PDF (жирный обязателен). На сервере: apt install fonts-dejavu-core "
             "или положите calibri.ttf и calibrib.ttf в каталог fonts/ рядом с api_server.py."
@@ -346,6 +363,8 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     """Один PDF: 1, 8, 14 — Code128; 2–13 — текст 12 pt; 14 — номер паллеты слева (если указан)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
+    if not HAVE_CODE128_BARCODE:
+        return None, "no_barcode", _arnest_pallet_pdf_error_message("no_barcode")
     n = len(pallets)
     if n < 1 or n > MAX_PALLET_SHEET_PDF_PAGES:
         return None, "validation_pallets", ""
@@ -364,12 +383,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if err_detail:
                 return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
             try:
-                png = fetch_barcode_png(data)
+                png = render_code128_barcode_png(data)
             except Exception as exc:
                 return (
                     None,
                     "barcode_fetch",
-                    f"Не удалось получить штрих-код для паллеты {idx}: {exc}",
+                    f"Не удалось сформировать штрих-код для паллеты {idx}: {exc}",
                 )
             dims = _barcode_raster_pixel_size(png)
             if not dims:
@@ -484,12 +503,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 row.get("pallet_boxes_qty", row.get("pallet_qty", 0))
             )
             try:
-                png_boxes = fetch_barcode_png(boxes_qty)
+                png_boxes = render_code128_barcode_png(boxes_qty)
             except Exception as exc:
                 return (
                     None,
                     "barcode_fetch",
-                    f"Не удалось получить штрих-код количества коробок для паллеты {idx}: {exc}",
+                    f"Не удалось сформировать штрих-код количества коробок для паллеты {idx}: {exc}",
                 )
             dims_boxes = _barcode_raster_pixel_size(png_boxes)
             if not dims_boxes:
@@ -580,12 +599,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             )
             if pallet_bc:
                 try:
-                    png_pn = fetch_barcode_png(pallet_bc)
+                    png_pn = render_code128_barcode_png(pallet_bc)
                 except Exception as exc:
                     return (
                         None,
                         "barcode_fetch",
-                        f"Не удалось получить штрих-код номера паллеты {idx}: {exc}",
+                        f"Не удалось сформировать штрих-код номера паллеты {idx}: {exc}",
                     )
                 dims_pn = _barcode_raster_pixel_size(png_pn)
                 if not dims_pn:
@@ -1473,9 +1492,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "validation_pallets": 400,
                     "validation_pallet": 400,
                     "no_fpdf": 503,
+                    "no_barcode": 503,
                     "no_line2_font": 503,
                     "pdf_build": 500,
-                    "barcode_fetch": 502,
+                    "barcode_fetch": 500,
                 }
                 status = status_map.get(err, 500)
                 msg = err_detail or _arnest_pallet_pdf_error_message(err)

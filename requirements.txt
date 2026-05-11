@@ -1,1 +1,2 @@
 fpdf2>=2.7.0
+python-barcode[images]>=0.15.0

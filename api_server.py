@@ -146,7 +146,7 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 # A4 и поля как в типовом документе Word (≈2 см слева/справа).
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
-_ARNEST_BARCODE_HEIGHT_SCALE = 1.0
+_ARNEST_BARCODE_HEIGHT_SCALE = 0.5  # доля высоты от расчёта по соотношению сторон PNG (все Code128 на листе)
 _ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
 _ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
 _ARNEST_TEXT_FONT_PT = 12.0  # все текстовые элементы паллетного листа (не штрих-код)

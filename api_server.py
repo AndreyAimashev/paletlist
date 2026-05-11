@@ -145,6 +145,10 @@ _ARNEST_LINE5_GTIN_LABEL = "GTIN CODE"
 _ARNEST_LINE6_MGT_DATE_LABEL = "Mgt. Date"
 _ARNEST_LINE6_EXPIRY_DATE_LABEL = "Expiry Date"
 _ARNEST_LINE6_CROSS_WEIGHT_LABEL = "Cross Weight(KG)"
+_ARNEST_LINE8_BARCODE_W_MM = 90.0
+_ARNEST_LINE9_PALLET_QTY_LABEL = "Pallet Quantity"
+_ARNEST_LINE9_UNITS_PC_LABEL = "Units PC"
+_ARNEST_LINE9_TI_HI_LABEL = "TI*HI"
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -283,6 +287,19 @@ def _arnest_format_weight_kg_ru(raw) -> str:
         v = 0.0
     s = f"{v:.1f}"
     return s.replace(".", ",")
+
+
+def _arnest_format_boxes_qty_for_barcode(raw) -> str:
+    """Количество коробок для штрих-кода строки 8."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = 0.0
+    if not math.isfinite(v) or v < 0:
+        v = 0.0
+    if abs(v - round(v)) < 1e-9:
+        return str(int(round(v)))
+    return f"{v:.1f}".rstrip("0").rstrip(".")
 
 
 def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
@@ -446,6 +463,42 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if rem_w7 > 0:
                 w_kg_draw = _arnest_clip_text_to_width_mm(pdf, w_kg_str, rem_w7)
                 pdf.cell(rem_w7, h_txt, w_kg_draw or w_kg_str)
+            y8 = y7 + h_txt + _ARNEST_LINE2_GAP_MM
+            boxes_qty = _arnest_format_boxes_qty_for_barcode(
+                row.get("pallet_boxes_qty", row.get("pallet_qty", 0))
+            )
+            try:
+                png_boxes = fetch_barcode_png(boxes_qty)
+            except Exception as exc:
+                return (
+                    None,
+                    "barcode_fetch",
+                    f"Не удалось получить штрих-код количества коробок для паллеты {idx}: {exc}",
+                )
+            dims_boxes = _barcode_raster_pixel_size(png_boxes)
+            if not dims_boxes:
+                return None, "pdf_build", ""
+            pw2, ph2 = dims_boxes
+            h8 = _ARNEST_LINE8_BARCODE_W_MM * (ph2 / pw2)
+            pdf.image(
+                io.BytesIO(png_boxes),
+                x=Align.C,
+                y=y8,
+                w=_ARNEST_LINE8_BARCODE_W_MM,
+                h=h8,
+                keep_aspect_ratio=True,
+            )
+            y9 = y8 + h8 + _ARNEST_LINE2_GAP_MM
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0, y9)
+            pdf.cell(content_w, h_txt, _ARNEST_LINE9_PALLET_QTY_LABEL, align="L")
+            pdf.set_font("PLCalibri", "", fs)
+            x_units = x_w7
+            pdf.set_xy(x_units, y9)
+            pdf.cell(max(0.0, max_r - x_units), h_txt, _ARNEST_LINE9_UNITS_PC_LABEL)
+            x_tihi = x_units + pdf.get_string_width(_ARNEST_LINE9_UNITS_PC_LABEL) + tab
+            pdf.set_xy(x_tihi, y9)
+            pdf.cell(max(0.0, max_r - x_tihi), h_txt, _ARNEST_LINE9_TI_HI_LABEL)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

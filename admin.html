@@ -2132,6 +2132,8 @@
             break;
           }
           const palletWeightKg = computeArnestPalletWeightKg(pal, items);
+          const palletBoxesQty = computeArnestPalletBoxesQty(pal, items);
+          const unitsPc = computeArnestPalletUnitsPc(pal, items);
           return {
             article,
             name,
@@ -2139,6 +2141,8 @@
             manufacturing_date_raw: normalizeUnirusDateDigits(unirusMfgDate),
             expiry_date_raw: normalizeUnirusDateDigits(unirusExpiryDate),
             pallet_weight_kg: palletWeightKg,
+            pallet_boxes_qty: palletBoxesQty,
+            units_pc: unitsPc,
           };
         });
       }
@@ -3106,6 +3110,42 @@
           kg += allocationToBoxes(it, slotToAlloc(ns)) * bw;
         }
         return Math.round(kg * 10) / 10;
+      }
+
+      function computeArnestPalletBoxesQty(pal, orderItems) {
+        const items = Array.isArray(orderItems) ? orderItems : [];
+        let boxes = 0;
+        const slots = Array.isArray(pal.slots) ? pal.slots : [];
+        for (const s of slots) {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            continue;
+          }
+          const it = items[Number(ns.lineIndex)];
+          if (!it) {
+            continue;
+          }
+          boxes += allocationToBoxes(it, slotToAlloc(ns));
+        }
+        return Math.round(boxes * 10) / 10;
+      }
+
+      function computeArnestPalletUnitsPc(pal, orderItems) {
+        const items = Array.isArray(orderItems) ? orderItems : [];
+        let pieces = 0;
+        const slots = Array.isArray(pal.slots) ? pal.slots : [];
+        for (const s of slots) {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            continue;
+          }
+          const it = items[Number(ns.lineIndex)];
+          if (!it) {
+            continue;
+          }
+          pieces += allocationToPieces(it, slotToAlloc(ns));
+        }
+        return Math.round(pieces * 10) / 10;
       }
 
       function lineAllocatedPiecesSum(lineIdx) {

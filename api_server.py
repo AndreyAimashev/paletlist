@@ -412,7 +412,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             w_exp = pdf.get_string_width(exp)
             pdf.set_xy(x0, y6)
             pdf.cell(w_mgt, h_txt, mgt)
-            x_exp = x0 + w_mgt + tab
+            x_exp = x0 + w_mgt + tab + pdf.get_string_width("  ")
             pdf.set_xy(x_exp, y6)
             pdf.cell(w_exp, h_txt, exp)
             x_cwk = x_exp + w_exp + 3 * tab

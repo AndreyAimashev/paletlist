@@ -139,15 +139,18 @@ _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
 _ARNEST_ASEPTICA_LABEL = "ASEPTICA"
 
 
-def _arnest_calibri_bold_font_path() -> Path | None:
-    """Calibri Bold (полужирный): каталог fonts/ у API или стандартный каталог шрифтов Windows."""
+def _arnest_line2_bold_font_path() -> Path | None:
+    """Жирный TTF для второй строки: Calibri Bold при наличии, иначе типичный системный запасной (DejaVu на Linux)."""
     windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
-    fonts = windir / "Fonts"
+    win_fonts = windir / "Fonts"
     candidates = [
         BASE_DIR / "fonts" / "calibrib.ttf",
         BASE_DIR / "fonts" / "Calibrib.ttf",
-        fonts / "calibrib.ttf",
-        fonts / "CALIBRIB.TTF",
+        win_fonts / "calibrib.ttf",
+        win_fonts / "CALIBRIB.TTF",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
     ]
     for c in candidates:
         if c.is_file():
@@ -156,14 +159,14 @@ def _arnest_calibri_bold_font_path() -> Path | None:
 
 
 def _arnest_pdf_register_line2_font(pdf: FPDF) -> str | None:
-    """Регистрирует Calibri Bold для второй строки паллетного листа (стиль B, комбинация BU)."""
-    path = _arnest_calibri_bold_font_path()
+    """Регистрирует жирный шрифт второй строки (семейство PLCalibri — стили B и BU)."""
+    path = _arnest_line2_bold_font_path()
     if path is None:
-        return "no_calibri_font"
+        return "no_line2_font"
     try:
         pdf.add_font("PLCalibri", "B", str(path))
     except OSError:
-        return "no_calibri_font"
+        return "no_line2_font"
     return None
 
 
@@ -191,9 +194,9 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
         "validation_pallets": "Передайте непустой массив pallets (не более 500 паллет).",
         "pdf_build": "Не удалось сформировать PDF.",
         "barcode_fetch": "Не удалось получить изображение штрих-кода.",
-        "no_calibri_font": (
-            "Не найден файл Calibri Bold (calibrib.ttf) для второй строки PDF. "
-            "Скопируйте calibrib.ttf из C:\\Windows\\Fonts в каталог fonts/ рядом с api_server.py."
+        "no_line2_font": (
+            "Не найден жирный TTF для второй строки PDF. На сервере: apt install fonts-dejavu-core "
+            "или положите calibrib.ttf в каталог fonts/ рядом с api_server.py."
         ),
     }.get(code, "Ошибка генерации PDF.")
 
@@ -1175,7 +1178,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "validation_pallets": 400,
                     "validation_pallet": 400,
                     "no_fpdf": 503,
-                    "no_calibri_font": 503,
+                    "no_line2_font": 503,
                     "pdf_build": 500,
                     "barcode_fetch": 502,
                 }

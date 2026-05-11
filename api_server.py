@@ -303,6 +303,19 @@ def _arnest_format_boxes_qty_for_barcode(raw) -> str:
     return f"{v:.1f}".rstrip("0").rstrip(".")
 
 
+def _arnest_remainder_boxes_star_one(boxes_f: float, rl: int) -> str:
+    """Остаток коробок после полных рядов: всего − (ряд × полные ряды), затем «*1» (напр. 5*1)."""
+    if rl <= 0 or not math.isfinite(boxes_f) or boxes_f < 0:
+        return "—*1"
+    full_rows = int(math.floor(boxes_f / rl + 1e-9))
+    rem = max(0.0, boxes_f - rl * full_rows)
+    if abs(rem - round(rem)) < 1e-9:
+        rem_s = str(int(round(rem)))
+    else:
+        rem_s = f"{rem:.1f}".rstrip("0").rstrip(".")
+    return f"{rem_s}*1"
+
+
 def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
     """Строка Code128: артикул (цифры), партия, дата изготовления и срок в кодировке для сканера (пары цифр дат переставлены)."""
     article = str(row.get("article", "")).strip()
@@ -328,7 +341,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 и 8 — Code128; 2–10 — текст 12 pt (в т.ч. коробки, TI*HI, ряд*полные ряды)."""
+    """Один PDF: 1 и 8 — Code128; 2–11 — текст 12 pt (коробки, TI*HI, остаток*1)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -530,6 +543,19 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 pdf.cell(rem_t10, h_txt, ti_draw or ti_hi_str)
             else:
                 pdf.cell(pdf.get_string_width(ti_hi_str), h_txt, ti_hi_str)
+            y11 = y10 + h_txt + _ARNEST_LINE2_GAP_MM
+            rem_star = _arnest_remainder_boxes_star_one(boxes_f, rl)
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x_units, y11)
+            pdf.cell(pdf.get_string_width(kor), h_txt, kor)
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x_tihi, y11)
+            rem_t11 = max(0.0, max_r - x_tihi)
+            if rem_t11 > 0:
+                r11 = _arnest_clip_text_to_width_mm(pdf, rem_star, rem_t11)
+                pdf.cell(rem_t11, h_txt, r11 or rem_star)
+            else:
+                pdf.cell(pdf.get_string_width(rem_star), h_txt, rem_star)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

@@ -139,6 +139,10 @@ _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
 _ARNEST_TAB_MM = 12.5  # одна стандартная табуляция (~1,25 см) между артикулом и наименованием в строке 4
 _ARNEST_ASEPTICA_LABEL = "ASEPTICA"
 _ARNEST_LINE3_DESCRIPTION_LABEL = "Description"
+_ARNEST_LINE5_GTIN_LABEL = "GTIN CODE"
+_ARNEST_LINE6_MGT_DATE_LABEL = "Mgt. Date"
+_ARNEST_LINE6_EXPIRY_DATE_LABEL = "Expiry Date"
+_ARNEST_LINE6_CROSS_WEIGHT_LABEL = "Cross Weight(KG)"
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -274,7 +278,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1 — Code128; 2–4 — текст 12 pt: артикул/ASEPTICA; Description; артикул + наименование (таб)."""
+    """Один PDF: 1 — Code128; 2–6 — текст 12 pt; 5 — GTIN CODE; 6 — даты и вес (табуляции)."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     n = len(pallets)
@@ -362,6 +366,29 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             name_draw = _arnest_clip_text_to_width_mm(pdf, name_raw, rem_w) if rem_w > 0 else "—"
             pdf.set_xy(x_name, y4)
             pdf.cell(rem_w, h_txt, name_draw or "—")
+            y5 = y4 + h_txt + _ARNEST_LINE2_GAP_MM
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0, y5)
+            pdf.cell(content_w, h_txt, _ARNEST_LINE5_GTIN_LABEL, align="L")
+            y6 = y5 + h_txt + _ARNEST_LINE2_GAP_MM
+            tab = _ARNEST_TAB_MM
+            mgt = _ARNEST_LINE6_MGT_DATE_LABEL
+            exp = _ARNEST_LINE6_EXPIRY_DATE_LABEL
+            cwk = _ARNEST_LINE6_CROSS_WEIGHT_LABEL
+            pdf.set_font("PLCalibri", "", fs)
+            w_mgt = pdf.get_string_width(mgt)
+            w_exp = pdf.get_string_width(exp)
+            pdf.set_xy(x0, y6)
+            pdf.cell(w_mgt, h_txt, mgt)
+            x_exp = x0 + w_mgt + tab
+            pdf.set_xy(x_exp, y6)
+            pdf.cell(w_exp, h_txt, exp)
+            x_cwk = x_exp + w_exp + 3 * tab
+            pdf.set_xy(x_cwk, y6)
+            rem_cwk = max(0.0, max_r - x_cwk)
+            if rem_cwk > 0:
+                cwk_draw = _arnest_clip_text_to_width_mm(pdf, cwk, rem_cwk)
+                pdf.cell(rem_cwk, h_txt, cwk_draw or cwk)
         raw = pdf.output(dest="S")
     except Exception:
         return None, "pdf_build", ""

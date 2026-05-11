@@ -429,7 +429,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             mfg_txt = _arnest_six_digits_display_ddmmyy(mfg_raw) or "—"
             exp_txt = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
             w_kg_str = _arnest_format_weight_kg_ru(row.get("pallet_weight_kg", 0))
-            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_font("PLCalibri", "B", fs)
             w_m7 = pdf.get_string_width(mfg_txt)
             w_e7 = pdf.get_string_width(exp_txt)
             w_w7 = pdf.get_string_width(w_kg_str)

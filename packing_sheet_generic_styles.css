@@ -55,34 +55,52 @@ body {
 }
 
 .generic-pallet-sheet .pallet-num-big {
-  font-size: 40pt;
+  font-size: 32pt;
   line-height: 1;
   font-weight: normal;
 }
 
-/* Высота rowspan=5 задаётся суммой этих строк — делаем компактнее, чем общий tr.R2 */
+/* Высота rowspan=5 — ещё компактнее под PDF */
 .generic-pallet-sheet tr.pallet-rsp-1.R2 {
-  height: 14px;
+  height: 11px;
 }
 .generic-pallet-sheet tr.pallet-rsp-2.R2 {
-  height: 24px;
+  height: 19px;
 }
 .generic-pallet-sheet tr.pallet-rsp-3.R2 {
-  height: 16px;
+  height: 12px;
 }
 .generic-pallet-sheet tr.pallet-rsp-4.R2 {
-  height: 14px;
+  height: 11px;
 }
 .generic-pallet-sheet tr.pallet-rsp-5.R6 {
-  height: 16px;
+  height: 12px;
 }
 
-/* Ячейки с крупными номерами — по высоте чуть больше глифа, без «лишней» трубы */
+/* Ячейки с крупными номерами — рамка ближе к цифрам */
 .generic-pallet-sheet td.R2C3[rowspan],
 .generic-pallet-sheet td.R2C2[rowspan] {
   vertical-align: middle;
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding: 0;
+}
+
+/* Только в PDF-таблице: тонкая рамка и меньший шрифт у больших номеров */
+.generic-pallet-sheet tr.R2 td.R2C3[rowspan] {
+  font-size: 32pt;
+  line-height: 1;
+  border: 1px solid #000000;
+}
+
+.generic-pallet-sheet td.R2C2[rowspan] {
+  font-size: 13pt;
+  line-height: 1.1;
+}
+
+/* «из» — меньше кегль и рамка 1px */
+.generic-pallet-sheet tr.R2 td.R3C4 {
+  font-size: 26pt;
+  line-height: 1;
+  border: 1px solid #000000;
 }
 
 tr.R0 {
@@ -379,7 +397,7 @@ tr.R2 td.R2C2 {
 }
 tr.R2 td.R2C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 40pt;
+  font-size: 32pt;
   font-style: normal;
   color: #000000;
   text-align: center;
@@ -393,7 +411,7 @@ tr.R2 td.R2C3 {
 }
 tr.R2 td.R3C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 40pt;
+  font-size: 32pt;
   font-style: normal;
   color: #000000;
   text-align: center;
@@ -472,7 +490,7 @@ tr.R6 td.R6C0 {
 }
 tr.R6 td.R6C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 40pt;
+  font-size: 32pt;
   font-style: normal;
   color: #000000;
   text-align: center;

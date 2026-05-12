@@ -15,18 +15,24 @@ BASE_DIR = Path(__file__).resolve().parent
 STYLES_PATH = BASE_DIR / "packing_sheet_generic_styles.css"
 FRAGMENT_PATH = BASE_DIR / "packing_sheet_generic_pallet_fragment.html"
 
-# Как в образце `pallet-sheet-template-generic.html` — один раз на таблицу.
-_GENERIC_TABLE_COLS = """<COL WIDTH=4>
-<COL WIDTH=38>
-<COL WIDTH=181>
-<COL WIDTH=148>
-<COL WIDTH=75>
-<COL WIDTH=144>
-<COL WIDTH=155>
-<COL WIDTH=185>
-<COL WIDTH=112>
-<COL>
-"""
+# Пропорции как в образце (пиксели FastReport); 11-я колонка — хвост строки (в шаблоне 11 ячеек в ряду R0).
+_COL_FRACS_11 = (4, 38, 181, 148, 75, 144, 155, 185, 56, 56, 20)
+
+
+def _generic_colgroup_html() -> str:
+    """Проценты ширины колонок под любую ширину страницы (WeasyPrint + landscape)."""
+    s = float(sum(_COL_FRACS_11))
+    parts: list[str] = []
+    acc = 0.0
+    for i, w in enumerate(_COL_FRACS_11):
+        if i == len(_COL_FRACS_11) - 1:
+            pct = round(100.0 - acc, 4)
+        else:
+            p = 100.0 * float(w) / s
+            pct = round(p, 4)
+            acc += pct
+        parts.append(f'<col style="width:{pct}%" />')
+    return "<colgroup>\n" + "\n".join(parts) + "\n</colgroup>"
 
 
 def _is_arnest_unirus_client(client: str) -> bool:
@@ -204,20 +210,20 @@ def _build_line_rows(items: list[dict[str, Any]], pal: dict[str, Any]) -> tuple[
         comment_e = html.escape(comment)
         wv = f"{_fmt_ru_num(bw * box, max_decimals=2)}/—" if bw > 0 else "—/—"
         rows.append(
-            "<TR CLASS=R12>"
-            '<TD CLASS="R12C0"><SPAN></SPAN></TD>'
-            f'<TD CLASS="R12C1"><SPAN>{n}</SPAN></TD>'
-            f'<TD CLASS="R12C2" COLSPAN=3>{title}</TD>'
-            f'<TD CLASS="R12C5"><SPAN>{_fmt_ru_num(pcs, max_decimals=0)}</SPAN></TD>'
-            f'<TD CLASS="R12C5"><SPAN>{_fmt_ru_num(box, max_decimals=3)}</SPAN></TD>'
-            f'<TD CLASS="R12C7"><SPAN>{comment_e}</SPAN></TD>'
-            f'<TD CLASS="R12C7"><SPAN>{html.escape(wv)}</SPAN></TD>'
-            "<TD><SPAN></SPAN></TD><TD></TD>"
-            "</TR>"
+            '<tr class="R12">'
+            '<td class="R12C0"><span></span></td>'
+            f'<td class="R12C1"><span class="nw">{n}</span></td>'
+            f'<td class="R12C2" colspan="3"><span class="sheet-long-text">{title}</span></td>'
+            f'<td class="R12C5"><span class="nw">{_fmt_ru_num(pcs, max_decimals=0)}</span></td>'
+            f'<td class="R12C5"><span class="nw">{_fmt_ru_num(box, max_decimals=3)}</span></td>'
+            f'<td class="R12C7"><span class="nw">{comment_e}</span></td>'
+            f'<td class="R12C7"><span class="nw">{html.escape(wv)}</span></td>'
+            "<td><span></span></td><td></td>"
+            "</tr>"
         )
     if not rows:
         rows.append(
-            '<TR CLASS=R12><TD COLSPAN=11 class="R12C0">Нет распределённых позиций на этой паллете.</TD></TR>'
+            '<tr class="R12"><td colspan="11" class="R12C0">Нет распределённых позиций на этой паллете.</td></tr>'
         )
     return "".join(rows), tot_pieces, tot_boxes, tot_weight, tot_vol
 
@@ -274,7 +280,12 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             "sum_weight": sw_s,
             "sum_volume": sv_s,
         }
-        sections.append(_subst(frag, mapping))
+        sections.append(
+            '<table cellspacing="0" class="generic-pallet-sheet" style="width:100%">'
+            + _generic_colgroup_html()
+            + _subst(frag, mapping)
+            + "</table>"
+        )
 
     styles = _load_styles()
     doc = (
@@ -282,10 +293,9 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
         "<title>Упаковочные листы</title><style>"
         + styles
-        + "</style></head><body>\n<table cellspacing=\"0\" style=\"width:100%\">"
-        + _GENERIC_TABLE_COLS
+        + "</style></head><body>\n"
         + "\n".join(sections)
-        + "\n</table></body></html>"
+        + "\n</body></html>"
     )
     return doc, None
 

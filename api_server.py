@@ -41,11 +41,11 @@ HOST = "127.0.0.1"
 
 try:
     from packing_sheets_generic import (
-        build_generic_packing_sheets_html,
+        build_generic_packing_sheets_pdf_bytes,
         generic_packing_error_message,
     )
 except ImportError:
-    build_generic_packing_sheets_html = None  # type: ignore[misc, assignment]
+    build_generic_packing_sheets_pdf_bytes = None  # type: ignore[misc, assignment]
     generic_packing_error_message = None  # type: ignore[misc, assignment]
 
 PORT = 8081
@@ -952,11 +952,11 @@ def _parse_orders_detail_id(path: str):
         return None
 
 
-def _parse_orders_packing_sheets_html_id(path: str) -> int | None:
-    """Для GET /api/orders/12/packing-sheets-html возвращает 12."""
+def _parse_orders_packing_sheets_pdf_id(path: str) -> int | None:
+    """Для GET /api/orders/12/packing-sheets-pdf возвращает 12."""
     p = _norm_api_path(path)
     prefix = "/api/orders/"
-    suffix = "/packing-sheets-html"
+    suffix = "/packing-sheets-pdf"
     if not p.startswith(prefix) or not p.endswith(suffix):
         return None
     mid = p[len(prefix) : -len(suffix)]
@@ -1942,23 +1942,29 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        packing_oid = _parse_orders_packing_sheets_html_id(path)
+        packing_oid = _parse_orders_packing_sheets_pdf_id(path)
         if packing_oid is not None:
             detail = fetch_order_detail(packing_oid)
             if detail is None:
                 self._send_json(404, {"error": "Not found"})
                 return
-            if build_generic_packing_sheets_html is None:
+            if build_generic_packing_sheets_pdf_bytes is None:
                 self._send_json(
                     503,
                     {"error": "module", "message": "Модуль упаковочных листов недоступен."},
                 )
                 return
-            html, err = build_generic_packing_sheets_html(detail)
+            pdf_blob, err = build_generic_packing_sheets_pdf_bytes(detail)
             if err:
-                known = {"arnest_client", "no_assembly", "no_pallets"}
+                known = {"arnest_client", "no_assembly", "no_pallets", "no_pdf_engine", "pdf_empty"}
                 if err in known:
-                    status_map = {"arnest_client": 400, "no_assembly": 400, "no_pallets": 400}
+                    status_map = {
+                        "arnest_client": 400,
+                        "no_assembly": 400,
+                        "no_pallets": 400,
+                        "no_pdf_engine": 503,
+                        "pdf_empty": 500,
+                    }
                     status = status_map.get(err, 400)
                     msg = (
                         generic_packing_error_message(err)
@@ -1967,15 +1973,22 @@ class ApiHandler(BaseHTTPRequestHandler):
                     )
                     self._send_json(status, {"error": err, "message": msg})
                     return
+                if err.startswith("pdf_render:"):
+                    msg = (
+                        generic_packing_error_message(err)
+                        if generic_packing_error_message
+                        else err
+                    )
+                    self._send_json(500, {"error": "pdf_render", "message": msg})
+                    return
                 self._send_json(500, {"error": "packing_sheet", "message": str(err)})
                 return
-            b = html.encode("utf-8")
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(pdf_blob)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(b)
+            self.wfile.write(pdf_blob)
             return
         oid = _parse_orders_detail_id(path)
         if oid is not None:

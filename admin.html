@@ -318,26 +318,6 @@
         border-radius: 2px;
       }
 
-      .pallet-sheets-html-preview-wrap {
-        margin-top: 4px;
-        border: 1px solid rgba(0, 200, 160, 0.28);
-        border-radius: 12px;
-        overflow: hidden;
-        background: #f4f6f8;
-        min-height: 280px;
-        max-height: min(78vh, 920px);
-      }
-
-      .pallet-sheets-html-iframe {
-        display: block;
-        width: 100%;
-        min-height: min(72vh, 860px);
-        height: 72vh;
-        max-height: min(72vh, 860px);
-        border: 0;
-        background: #fff;
-      }
-
       .assemble-workspace {
         display: none;
         margin-top: 20px;
@@ -1959,16 +1939,6 @@
           max-height: min(70vh, 800px);
         }
 
-        .pallet-sheets-html-preview-wrap {
-          max-height: min(70vh, 800px);
-        }
-
-        .pallet-sheets-html-iframe {
-          height: 65vh;
-          max-height: min(65vh, 780px);
-          min-height: min(65vh, 780px);
-        }
-
         .sidebar {
           position: fixed;
           top: 0;
@@ -2154,13 +2124,6 @@
                 role="region"
                 aria-label="Предпросмотр паллетных листов"
               ></div>
-            </div>
-            <div id="pallet-sheets-html-preview-wrap" class="pallet-sheets-html-preview-wrap" hidden>
-              <iframe
-                id="pallet-sheets-html-iframe"
-                class="pallet-sheets-html-iframe"
-                title="Предпросмотр упаковочных листов"
-              ></iframe>
             </div>
           </section>
 
@@ -2529,8 +2492,6 @@
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
-      const palletSheetsHtmlPreviewWrap = document.getElementById("pallet-sheets-html-preview-wrap");
-      const palletSheetsHtmlIframe = document.getElementById("pallet-sheets-html-iframe");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
       const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
       const palletSheetsError = document.getElementById("pallet-sheets-error");
@@ -2655,16 +2616,8 @@
 
       let palletSheetsLoadToken = 0;
       let palletSheetsPdfjsWorkerReady = false;
-      let palletSheetsHtmlObjectUrl = null;
-      /** «arnest» — PDF со штрих-кодами; «generic» — HTML по шаблону для остальных клиентов. */
+      /** «arnest» — PDF со штрих-кодами; «generic» — PDF по HTML-шаблону для остальных клиентов. */
       let palletSheetsDownloadKind = null;
-
-      function revokePalletSheetsHtmlObjectUrl() {
-        if (palletSheetsHtmlObjectUrl) {
-          URL.revokeObjectURL(palletSheetsHtmlObjectUrl);
-          palletSheetsHtmlObjectUrl = null;
-        }
-      }
 
       function releasePalletSheetsPdfPreview() {
         if (palletSheetsPdfPages) {
@@ -2672,14 +2625,6 @@
         }
         if (palletSheetsPdfPreviewWrap) {
           palletSheetsPdfPreviewWrap.hidden = true;
-        }
-        revokePalletSheetsHtmlObjectUrl();
-        if (palletSheetsHtmlIframe) {
-          palletSheetsHtmlIframe.removeAttribute("srcdoc");
-          palletSheetsHtmlIframe.src = "about:blank";
-        }
-        if (palletSheetsHtmlPreviewWrap) {
-          palletSheetsHtmlPreviewWrap.hidden = true;
         }
       }
 
@@ -2735,6 +2680,21 @@
           headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify(bodyObj),
         });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.message || j.error || "";
+          } catch (e2) {
+            /* ignore */
+          }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return res.blob();
+      }
+
+      async function fetchOrderPackingSheetsPdfBlob(orderId) {
+        const res = await fetch(`/api/orders/${orderId}/packing-sheets-pdf`);
         if (!res.ok) {
           let detail = "";
           try {
@@ -3012,7 +2972,7 @@
                 "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число страниц PDF совпадает с числом паллет.";
             } else {
               palletSheetsDraftHint.textContent =
-                "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Здесь отобразятся упаковочные листы в формате HTML.";
+                "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Здесь отобразятся паллетные листы в формате PDF.";
             }
           }
           return;
@@ -3026,47 +2986,32 @@
           palletSheetsDownloadKind = "generic";
           if (palletSheetsDownloadBtn) {
             palletSheetsDownloadBtn.hidden = false;
-            palletSheetsDownloadBtn.textContent = "Скачать HTML упаковочных листов";
           }
           try {
-            const res = await fetch(`/api/orders/${oid}/packing-sheets-html`);
+            const blob = await fetchOrderPackingSheetsPdfBlob(oid);
             if (token !== palletSheetsLoadToken) {
               return;
             }
-            if (!res.ok) {
-              let msg = "Не удалось сформировать упаковочные листы.";
-              try {
-                const j = await res.json();
-                if (j && j.message) {
-                  msg = String(j.message);
-                }
-              } catch (_) {
-                /* ignore */
-              }
-              palletSheetsError.hidden = false;
-              palletSheetsError.textContent = msg;
-              return;
-            }
-            const blob = await res.blob();
+            await renderPalletSheetsPdfPreviewFromBlob(blob, token, palletSheetsWorkspace);
             if (token !== palletSheetsLoadToken) {
               return;
             }
-            revokePalletSheetsHtmlObjectUrl();
-            const url = URL.createObjectURL(blob);
-            palletSheetsHtmlObjectUrl = url;
-            if (palletSheetsHtmlIframe) {
-              palletSheetsHtmlIframe.src = url;
-            }
-            if (palletSheetsHtmlPreviewWrap) {
-              palletSheetsHtmlPreviewWrap.hidden = false;
+            if (palletSheetsPdfPreviewWrap) {
+              palletSheetsPdfPreviewWrap.hidden = false;
             }
           } catch (e) {
             if (token !== palletSheetsLoadToken) {
               return;
             }
+            if (palletSheetsPdfPages) {
+              palletSheetsPdfPages.innerHTML = "";
+            }
+            if (palletSheetsPdfPreviewWrap) {
+              palletSheetsPdfPreviewWrap.hidden = true;
+            }
             palletSheetsError.hidden = false;
             palletSheetsError.textContent =
-              "Не удалось загрузить упаковочные листы: " +
+              "Не удалось сформировать PDF для предпросмотра: " +
               (e && e.message ? String(e.message) : "ошибка сервера.");
           } finally {
             if (token === palletSheetsLoadToken) {
@@ -3349,28 +3294,14 @@
           if (palletSheetsDownloadKind === "generic") {
             let blob;
             try {
-              const res = await fetch(`/api/orders/${oid}/packing-sheets-html`);
-              if (!res.ok) {
-                let msg = "Не удалось получить упаковочные листы.";
-                try {
-                  const j = await res.json();
-                  if (j && j.message) {
-                    msg = String(j.message);
-                  }
-                } catch (_) {
-                  /* ignore */
-                }
-                window.alert(msg);
-                return;
-              }
-              blob = await res.blob();
+              blob = await fetchOrderPackingSheetsPdfBlob(oid);
             } catch (e) {
               window.alert(
-                "Не удалось скачать HTML: " + (e && e.message ? String(e.message) : "ошибка сервера."),
+                "Не удалось скачать PDF: " + (e && e.message ? String(e.message) : "ошибка сервера."),
               );
               return;
             }
-            triggerDownload(blob, `Упаковочные_листы_заказ_${oid}.html`);
+            triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${pallets.length}_стр.pdf`);
             return;
           }
           const n = pallets.length;

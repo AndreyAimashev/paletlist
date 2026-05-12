@@ -290,9 +290,35 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     return doc, None
 
 
+def build_generic_packing_sheets_pdf_bytes(detail: dict[str, Any]) -> tuple[bytes | None, str | None]:
+    """Тот же макет, что HTML, конвертация в PDF (WeasyPrint; на сервере нужны Pango/Cairo)."""
+    html, err = build_generic_packing_sheets_html(detail)
+    if err:
+        return None, err
+    try:
+        from weasyprint import HTML as WeasyHTML  # noqa: PLC0415
+    except (ImportError, OSError):
+        return None, "no_pdf_engine"
+    try:
+        base_url = BASE_DIR.as_uri() + "/"
+        pdf = WeasyHTML(string=html, base_url=base_url).write_pdf()
+    except Exception as exc:  # noqa: BLE001 — отдаём текст на API
+        return None, "pdf_render:" + str(exc)
+    if not pdf:
+        return None, "pdf_empty"
+    return bytes(pdf), None
+
+
 def generic_packing_error_message(code: str) -> str:
+    if code.startswith("pdf_render:"):
+        return "Не удалось сформировать PDF: " + code.partition(":")[2].strip()
     return {
         "arnest_client": "Для клиента «Арнест Юнирусь» используйте PDF со штрих-кодами.",
         "no_assembly": "Нет данных сборки (assemble_state). Сохраните сборку в разделе «Сборка заказа».",
         "no_pallets": "Нет паллет в сборке.",
+        "no_pdf_engine": (
+            "Не удалось загрузить WeasyPrint (HTML→PDF). На Linux установите системные "
+            "библиотеки Pango/Cairo (см. документацию WeasyPrint) и пакет weasyprint из requirements.txt."
+        ),
+        "pdf_empty": "Сформирован пустой PDF.",
     }.get(code, str(code))

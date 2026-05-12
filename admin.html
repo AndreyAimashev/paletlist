@@ -1657,7 +1657,9 @@
                           <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                         </button>
                       </div>
-                      <input type="search" class="orders-filter-input" id="orders-filter-client" placeholder="Содержит…" autocomplete="off" />
+                      <select class="orders-filter-select" id="orders-filter-client" aria-label="Фильтр по клиенту">
+                        <option value="">Все клиенты</option>
+                      </select>
                     </th>
                     <th scope="col" class="col-pct">
                       <div class="orders-th-inner">
@@ -3151,9 +3153,9 @@
         if (shipQ) {
           list = list.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
         }
-        const clientQ = ordersFilterClient.trim().toLowerCase();
-        if (clientQ) {
-          list = list.filter((o) => String(o.client || "").toLowerCase().includes(clientQ));
+        const clientVal = ordersFilterClient.trim();
+        if (clientVal) {
+          list = list.filter((o) => String(o.client || "").trim() === clientVal);
         }
         if (ordersFilterPct === "100") {
           list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) >= 100);
@@ -3200,6 +3202,42 @@
         });
       }
 
+      function syncOrdersClientFilterSelect() {
+        const sel = document.getElementById("orders-filter-client");
+        if (!sel) {
+          return;
+        }
+        const prev = String(ordersFilterClient || "").trim();
+        const set = new Set();
+        (cachedOrdersListRows || []).forEach((o) => {
+          const c = String(o.client || "").trim();
+          if (c && c !== "—") {
+            set.add(c);
+          }
+        });
+        const names = [...set].sort((a, b) =>
+          a.localeCompare(b, "ru", { sensitivity: "base" }),
+        );
+        sel.innerHTML = "";
+        const optAll = document.createElement("option");
+        optAll.value = "";
+        optAll.textContent = "Все клиенты";
+        sel.appendChild(optAll);
+        names.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c;
+          opt.textContent = c;
+          sel.appendChild(opt);
+        });
+        if (prev && names.includes(prev)) {
+          sel.value = prev;
+          ordersFilterClient = prev;
+        } else {
+          sel.value = "";
+          ordersFilterClient = "";
+        }
+      }
+
       function scheduleOrdersTableReRender() {
         if (ordersFilterInputTimer) {
           clearTimeout(ordersFilterInputTimer);
@@ -3223,6 +3261,7 @@
 
       function renderOrdersTable() {
         syncOrdersNamesUnitButtons();
+        syncOrdersClientFilterSelect();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
           return;
@@ -4579,14 +4618,14 @@
           if (t.id === "orders-filter-ship") {
             ordersFilterShip = t.value;
             scheduleOrdersTableReRender();
-          } else if (t.id === "orders-filter-client") {
-            ordersFilterClient = t.value;
-            scheduleOrdersTableReRender();
           }
         });
         ordersWorkspace.addEventListener("change", (ev) => {
           if (ev.target.id === "orders-filter-pct") {
             ordersFilterPct = String(ev.target.value || "");
+            renderOrdersTable();
+          } else if (ev.target.id === "orders-filter-client") {
+            ordersFilterClient = String(ev.target.value || "");
             renderOrdersTable();
           }
         });

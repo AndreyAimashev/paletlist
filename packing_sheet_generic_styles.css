@@ -1,4 +1,9 @@
 /* По образцу «Паллетные листы шаблон»; фоновая картинка убрана (файл не в репозитории). */
+/* PDF (WeasyPrint): альбомная ориентация A4 */
+@page {
+  size: A4 landscape;
+  margin: 10mm;
+}
 body { background: #ffffff; margin: 0; font-family: Arial; font-size: 8pt; font-style: normal; }
 tr.R0{ height: 64px; }
 tr.R0 td.R0C0{ font-family: Arial; font-size: 24pt; font-style: normal; text-decoration: underline ; color: #000000; text-align: left; vertical-align: middle; overflow: visible;}

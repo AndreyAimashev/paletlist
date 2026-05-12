@@ -1682,10 +1682,10 @@
           line-height: 1.2;
         }
 
-        /* Только видимые пункты меню: не перебивать .menu-step { display: none } */
+        /* display без !important: не перебивать style.display:none на экранах «Заказы» и т.п. */
         .menu-items > .menu-button:not(.menu-step),
         .menu-items > .menu-step.visible {
-          display: block !important;
+          display: block;
           width: 100%;
           max-width: 100%;
           box-sizing: border-box;
@@ -3018,8 +3018,8 @@
         }
 
         menuTitle.textContent = "Главное меню";
-        ordersButton.style.display = "inline-block";
-        nomenclatureButton.style.display = "inline-block";
+        ordersButton.style.display = "";
+        nomenclatureButton.style.display = "";
         createPalletButton.classList.remove("visible");
         backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");

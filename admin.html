@@ -1097,6 +1097,17 @@
         max-height: 92vh;
       }
 
+      /* Иконка календаря у type=date на тёмном фоне — светлая (Chromium / Safari) */
+      #new-order-ship-date {
+        color-scheme: dark;
+      }
+
+      #new-order-ship-date::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+        opacity: 0.95;
+      }
+
       .new-order-items-label {
         margin: 16px 0 8px;
       }

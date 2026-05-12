@@ -15,8 +15,8 @@ BASE_DIR = Path(__file__).resolve().parent
 STYLES_PATH = BASE_DIR / "packing_sheet_generic_styles.css"
 FRAGMENT_PATH = BASE_DIR / "packing_sheet_generic_pallet_fragment.html"
 
-# Пропорции как в образце FastReport: колонки 7+8 — блок «Дата» + рамка (было 185+112 px); не сужать 8-ю до хвоста строки.
-_COL_FRACS_11 = (4, 38, 181, 148, 75, 144, 155, 185, 112, 24, 20)
+# Пропорции как в образце FastReport; колонки 1–3 чуть шире под подпись, чтобы не наезжала на номер в PDF.
+_COL_FRACS_11 = (4, 42, 186, 152, 68, 137, 155, 185, 112, 24, 21)
 
 
 def _generic_colgroup_html() -> str:

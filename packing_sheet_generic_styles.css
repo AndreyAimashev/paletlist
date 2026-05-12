@@ -82,6 +82,7 @@ tr.R0 td.R0C1 {
   text-align: right;
   vertical-align: middle;
   overflow: visible;
+  padding-right: 10px;
 }
 tr.R0 td.R0C4 {
   font-family: Arial, Helvetica, sans-serif;
@@ -91,6 +92,7 @@ tr.R0 td.R0C4 {
   text-align: center;
   vertical-align: bottom;
   overflow: visible;
+  padding-left: 8px;
   border-left: #000000 2px solid;
   border-top: #000000 2px solid;
   border-bottom: #000000 2px solid;

@@ -27,6 +27,7 @@ jobs:
             grep -q "build_blank_arnest_unirus_pallet_sheets_pdf" api_server.py || { echo "api_server.py: нет генератора PDF паллетных листов"; exit 1; }
             grep -q "print-arnest-unirus-pallet-sheets-raw" api_server.py || { echo "api_server.py: нет маршрута печати паллетных листов"; exit 1; }
             grep -q "pallet-printer-raw-ping" api_server.py || { echo "api_server.py: нет проверки принтера"; exit 1; }
+            grep -q "packing-sheets-html" api_server.py || { echo "api_server.py: нет маршрута HTML упаковочных листов"; exit 1; }
             if [ -f requirements.txt ]; then
               if ! python3 -m pip --version 2>/dev/null; then
                 sudo apt-get update -qq

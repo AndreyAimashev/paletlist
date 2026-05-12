@@ -38,6 +38,16 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "warehouse.db"
 JSON_SEED_PATH = BASE_DIR / "nomenclature.json"
 HOST = "127.0.0.1"
+
+try:
+    from packing_sheets_generic import (
+        build_generic_packing_sheets_html,
+        generic_packing_error_message,
+    )
+except ImportError:
+    build_generic_packing_sheets_html = None  # type: ignore[misc, assignment]
+    generic_packing_error_message = None  # type: ignore[misc, assignment]
+
 PORT = 8081
 DB_LOCK = threading.Lock()
 
@@ -938,6 +948,22 @@ def _parse_orders_detail_id(path: str):
         return None
     try:
         return int(tail)
+    except ValueError:
+        return None
+
+
+def _parse_orders_packing_sheets_html_id(path: str) -> int | None:
+    """Для GET /api/orders/12/packing-sheets-html возвращает 12."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    suffix = "/packing-sheets-html"
+    if not p.startswith(prefix) or not p.endswith(suffix):
+        return None
+    mid = p[len(prefix) : -len(suffix)]
+    if not mid or "/" in mid:
+        return None
+    try:
+        return int(mid)
     except ValueError:
         return None
 
@@ -1916,6 +1942,41 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        packing_oid = _parse_orders_packing_sheets_html_id(path)
+        if packing_oid is not None:
+            detail = fetch_order_detail(packing_oid)
+            if detail is None:
+                self._send_json(404, {"error": "Not found"})
+                return
+            if build_generic_packing_sheets_html is None:
+                self._send_json(
+                    503,
+                    {"error": "module", "message": "Модуль упаковочных листов недоступен."},
+                )
+                return
+            html, err = build_generic_packing_sheets_html(detail)
+            if err:
+                known = {"arnest_client", "no_assembly", "no_pallets"}
+                if err in known:
+                    status_map = {"arnest_client": 400, "no_assembly": 400, "no_pallets": 400}
+                    status = status_map.get(err, 400)
+                    msg = (
+                        generic_packing_error_message(err)
+                        if generic_packing_error_message
+                        else str(err)
+                    )
+                    self._send_json(status, {"error": err, "message": msg})
+                    return
+                self._send_json(500, {"error": "packing_sheet", "message": str(err)})
+                return
+            b = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b)
+            return
         oid = _parse_orders_detail_id(path)
         if oid is not None:
             detail = fetch_order_detail(oid)

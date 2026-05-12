@@ -146,8 +146,8 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 # A4 и поля как в типовом документе Word (≈2 см слева/справа).
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
-# Единый масштаб по ширине и высоте для всех Code128: иначе при фиксированной ширине и уменьшенной
-# только высоте (`keep_aspect_ratio=False`) растр сплющивается и обрезается подпись под полосами.
+# Строки 8 и 14: высота от соотношения сторон PNG строки 1, уменьшенная на этот коэффициент (как раньше).
+# Строка 1: полная ширина контента, высота по пропорциям PNG (`h=0`), без сплющивания подписи.
 _ARNEST_BARCODE_HEIGHT_SCALE = 0.5
 _ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
 _ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
@@ -397,19 +397,18 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if not dims:
                 return None, "pdf_build", ""
             pw, ph = dims
-            s_bc = _ARNEST_BARCODE_HEIGHT_SCALE
             h_base_mm = barcode_w_mm * (ph / pw)
-            w_line1_mm = barcode_w_mm * s_bc
-            h_line1_mm = h_base_mm * s_bc
+            h_mm = h_base_mm * _ARNEST_BARCODE_HEIGHT_SCALE
             pdf.add_page()
-            pdf.image(
+            info_line1 = pdf.image(
                 io.BytesIO(png),
                 x=Align.C,
                 y=y_top,
-                w=w_line1_mm,
-                h=h_line1_mm,
+                w=barcode_w_mm,
+                h=0,
                 keep_aspect_ratio=True,
             )
+            h_line1_mm = float(info_line1["rendered_height"])
             y2 = y_top + h_line1_mm + _ARNEST_LINE2_GAP_MM
             fs = _ARNEST_TEXT_FONT_PT
             h_txt = _ARNEST_LINE2_TEXT_H_MM
@@ -518,19 +517,15 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             dims_boxes = _barcode_raster_pixel_size(png_boxes)
             if not dims_boxes:
                 return None, "pdf_build", ""
-            pw2, ph2 = dims_boxes
-            h_base_boxes_mm = _ARNEST_LINE8_BARCODE_W_MM * (ph2 / pw2)
-            w_boxes_mm = _ARNEST_LINE8_BARCODE_W_MM * s_bc
-            h_boxes_mm = h_base_boxes_mm * s_bc
             pdf.image(
                 io.BytesIO(png_boxes),
                 x=Align.C,
                 y=y8,
-                w=w_boxes_mm,
-                h=h_boxes_mm,
-                keep_aspect_ratio=True,
+                w=_ARNEST_LINE8_BARCODE_W_MM,
+                h=h_mm,
+                keep_aspect_ratio=False,
             )
-            y9 = y8 + h_boxes_mm + _ARNEST_TEXT_LINE_GAP_MM
+            y9 = y8 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x0, y9)
             pdf.cell(content_w, h_txt, _ARNEST_LINE9_PALLET_QTY_LABEL, align="L")
@@ -619,19 +614,15 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 dims_pn = _barcode_raster_pixel_size(png_pn)
                 if not dims_pn:
                     return None, "pdf_build", ""
-                pw_pn, ph_pn = dims_pn
-                h_base_pn_mm = _ARNEST_LINE8_BARCODE_W_MM * (ph_pn / pw_pn)
-                w_pn_mm = _ARNEST_LINE8_BARCODE_W_MM * s_bc
-                h_pn_mm = h_base_pn_mm * s_bc
                 pdf.image(
                     io.BytesIO(png_pn),
                     x=x0,
                     y=y14,
-                    w=w_pn_mm,
-                    h=h_pn_mm,
-                    keep_aspect_ratio=True,
+                    w=_ARNEST_LINE8_BARCODE_W_MM,
+                    h=h_mm,
+                    keep_aspect_ratio=False,
                 )
-                y_after_line14 = y14 + h_pn_mm + _ARNEST_TEXT_LINE_GAP_MM
+                y_after_line14 = y14 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
             y15 = y_after_line14
             rem_bn = max(0.0, max_r - x_units)
             pdf.set_font("PLCalibri", "", fs)

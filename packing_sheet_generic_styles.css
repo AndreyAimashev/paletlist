@@ -55,9 +55,34 @@ body {
 }
 
 .generic-pallet-sheet .pallet-num-big {
-  font-size: 52pt;
-  line-height: 1.05;
+  font-size: 40pt;
+  line-height: 1;
   font-weight: normal;
+}
+
+/* Высота rowspan=5 задаётся суммой этих строк — делаем компактнее, чем общий tr.R2 */
+.generic-pallet-sheet tr.pallet-rsp-1.R2 {
+  height: 14px;
+}
+.generic-pallet-sheet tr.pallet-rsp-2.R2 {
+  height: 24px;
+}
+.generic-pallet-sheet tr.pallet-rsp-3.R2 {
+  height: 16px;
+}
+.generic-pallet-sheet tr.pallet-rsp-4.R2 {
+  height: 14px;
+}
+.generic-pallet-sheet tr.pallet-rsp-5.R6 {
+  height: 16px;
+}
+
+/* Ячейки с крупными номерами — по высоте чуть больше глифа, без «лишней» трубы */
+.generic-pallet-sheet td.R2C3[rowspan],
+.generic-pallet-sheet td.R2C2[rowspan] {
+  vertical-align: middle;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 
 tr.R0 {
@@ -354,11 +379,12 @@ tr.R2 td.R2C2 {
 }
 tr.R2 td.R2C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 52pt;
+  font-size: 40pt;
   font-style: normal;
   color: #000000;
   text-align: center;
   vertical-align: middle;
+  line-height: 1;
   overflow: visible;
   border-left: #000000 2px solid;
   border-top: #000000 2px solid;
@@ -367,11 +393,12 @@ tr.R2 td.R2C3 {
 }
 tr.R2 td.R3C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 52pt;
+  font-size: 40pt;
   font-style: normal;
   color: #000000;
   text-align: center;
   vertical-align: middle;
+  line-height: 1;
   border-left: #000000 2px solid;
   border-right: #000000 2px solid;
 }
@@ -445,11 +472,12 @@ tr.R6 td.R6C0 {
 }
 tr.R6 td.R6C3 {
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 52pt;
+  font-size: 40pt;
   font-style: normal;
   color: #000000;
   text-align: center;
   vertical-align: middle;
+  line-height: 1;
   border-left: #000000 2px solid;
   border-bottom: #000000 2px solid;
   border-right: #000000 2px solid;

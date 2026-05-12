@@ -3737,6 +3737,12 @@
           if (!unirus && usedOrder.has(idx) && idx !== curOrder) {
             return;
           }
+          const maxP = orderLineMaxPieces(it);
+          const allocGlobal = lineAllocatedPiecesSum(idx);
+          const tol = Math.max(1e-6, maxP * 1e-9);
+          if (maxP > tol && allocGlobal >= maxP - tol && idx !== curOrder) {
+            return;
+          }
           const label = `${idx + 1}. ${formatOrderItemSearchInput(it.article, it.name)}`;
           const v = `order:${idx}`;
           const sel = v === curVal ? " selected" : "";

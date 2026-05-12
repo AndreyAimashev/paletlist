@@ -1586,9 +1586,343 @@
           filter: brightness(1);
         }
       }
+
+      /* Десктоп: элементы мобильной навигации скрыты */
+      .mobile-nav-toggle,
+      .mobile-nav-backdrop,
+      .mobile-sidebar-close {
+        display: none;
+      }
+
+      @media (max-width: 768px) {
+        .mobile-nav-toggle {
+          display: flex;
+          position: fixed;
+          top: max(10px, env(safe-area-inset-top, 0px));
+          right: max(10px, env(safe-area-inset-right, 0px));
+          z-index: 120;
+          align-items: center;
+          justify-content: center;
+          width: 46px;
+          height: 46px;
+          margin: 0;
+          padding: 0;
+          border: 1px solid rgba(0, 200, 160, 0.45);
+          border-radius: 12px;
+          background: rgba(12, 16, 28, 0.95);
+          color: var(--accent-teal);
+          font-size: 20px;
+          line-height: 1;
+          cursor: pointer;
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        .mobile-nav-toggle:active {
+          transform: scale(0.96);
+        }
+
+        body.mobile-drawer-open .mobile-nav-toggle {
+          visibility: hidden;
+          pointer-events: none;
+        }
+
+        .mobile-nav-backdrop {
+          display: block;
+          position: fixed;
+          inset: 0;
+          z-index: 110;
+          margin: 0;
+          padding: 0;
+          cursor: pointer;
+          background: rgba(4, 8, 14, 0.55);
+          backdrop-filter: blur(2px);
+        }
+
+        .mobile-nav-backdrop[hidden] {
+          display: none !important;
+        }
+
+        .mobile-sidebar-close {
+          display: flex;
+          position: absolute;
+          top: max(10px, env(safe-area-inset-top, 0px));
+          right: max(10px, env(safe-area-inset-right, 0px));
+          z-index: 5;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          margin: 0;
+          padding: 0;
+          border: 1px solid rgba(0, 200, 160, 0.4);
+          border-radius: 10px;
+          background: rgba(10, 14, 23, 0.9);
+          color: var(--text-main);
+          font-size: 22px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        body.mobile-drawer-open {
+          overflow: hidden;
+        }
+
+        .main-area {
+          overflow-x: hidden;
+        }
+
+        .panel {
+          padding: 18px 14px 22px;
+          padding-top: max(18px, calc(12px + env(safe-area-inset-top, 0px)));
+          padding-right: max(14px, calc(56px + env(safe-area-inset-right, 0px)));
+        }
+
+        h1 {
+          font-size: clamp(1.15rem, 4.5vw, 1.5rem);
+          line-height: 1.2;
+        }
+
+        .menu-button,
+        .menu-step.visible {
+          display: block !important;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          text-align: center;
+          margin-top: 12px;
+          padding: 14px 16px;
+          font-size: 12px;
+        }
+
+        .menu-items {
+          margin-top: 14px;
+          gap: 8px;
+        }
+
+        .arnest-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .arnest-actions .menu-button {
+          margin-top: 10px;
+        }
+
+        .assemble-btn--add-pallet {
+          max-width: none;
+        }
+
+        .assemble-head,
+        .pallet-sheets-toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .pallet-sheets-toolbar-right {
+          justify-content: flex-start;
+          width: 100%;
+        }
+
+        .assemble-btn--download-pdf {
+          width: 100%;
+          white-space: normal;
+          text-align: center;
+          padding: 12px 14px;
+          font-size: 12px;
+        }
+
+        .assemble-workspace .assemble-btn--nav {
+          width: 100%;
+          text-align: center;
+          padding: 12px 14px;
+        }
+
+        .assemble-pallet-head {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .assemble-pallet-number-field {
+          max-width: none;
+        }
+
+        .assemble-inputs-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .orders-names-toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .orders-names-unit-toggle {
+          width: 100%;
+          justify-content: stretch;
+        }
+
+        .orders-names-unit-btn {
+          flex: 1;
+          min-width: 0;
+          text-align: center;
+          padding: 10px 8px;
+        }
+
+        .orders-table-wrap {
+          max-height: min(62vh, 640px);
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .orders-table {
+          min-width: 620px;
+          font-size: 12px;
+        }
+
+        .orders-table th,
+        .orders-table td {
+          padding: 8px 10px;
+        }
+
+        .orders-th-sort {
+          min-width: 28px;
+          min-height: 28px;
+          padding: 4px 8px;
+        }
+
+        .orders-filter-input,
+        .orders-filter-select {
+          padding: 8px 10px;
+          font-size: 14px;
+        }
+
+        .assemble-summary-unit-btn {
+          flex: 1;
+          min-width: 0;
+          text-align: center;
+          padding: 10px 8px;
+        }
+
+        .assemble-summary-toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .assemble-summary-unit-toggle {
+          width: 100%;
+        }
+
+        .icon-btn {
+          width: 40px;
+          height: 40px;
+        }
+
+        .icon-btn svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .orders-row-actions {
+          gap: 6px 8px;
+        }
+
+        .nomenclature-workspace-scroll {
+          max-height: min(72vh, 720px);
+        }
+
+        .nomenclature-sticky-head {
+          padding: 12px 12px 10px;
+        }
+
+        .nomenclature-list-body {
+          padding: 0 12px 14px;
+        }
+
+        .modal-overlay {
+          padding: 12px;
+          align-items: flex-end;
+        }
+
+        .modal-dialog,
+        .new-order-dialog {
+          width: 100%;
+          max-height: min(92vh, 100dvh - 24px);
+          border-radius: 14px 14px 0 0;
+        }
+
+        .modal-actions {
+          flex-direction: column;
+        }
+
+        .modal-actions .menu-button {
+          width: 100%;
+        }
+
+        .pallet-sheets-pdf-preview-wrap {
+          max-height: min(70vh, 800px);
+        }
+
+        .sidebar {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: auto;
+          width: min(300px, 88vw) !important;
+          max-width: min(300px, 88vw) !important;
+          min-width: 0 !important;
+          z-index: 115;
+          padding: 16px 12px;
+          padding-top: max(52px, env(safe-area-inset-top, 0px));
+          border-left: 1px solid rgba(0, 200, 160, 0.28);
+          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
+          transform: translateX(100%);
+          transition: transform 0.28s ease;
+        }
+
+        .sidebar.mobile-open {
+          transform: translateX(0);
+        }
+
+        .sidebar.collapsed {
+          width: min(300px, 88vw) !important;
+          max-width: min(300px, 88vw) !important;
+          min-width: 0 !important;
+          padding: 16px 12px;
+          padding-top: max(52px, env(safe-area-inset-top, 0px));
+          border-left: 1px solid rgba(0, 200, 160, 0.28);
+          overflow: auto;
+        }
+
+        .sidebar.collapsed > :not(.sidebar-toggle):not(.resize-handle):not(.mobile-sidebar-close) {
+          display: none;
+        }
+
+        .sidebar-toggle {
+          display: none;
+        }
+
+        .resize-handle {
+          display: none;
+        }
+
+        .quick-nav button {
+          padding: 12px 12px;
+          font-size: 13px;
+          min-height: 44px;
+        }
+      }
     </style>
   </head>
   <body>
+    <button
+      type="button"
+      id="mobile-nav-toggle"
+      class="mobile-nav-toggle"
+      aria-expanded="false"
+      aria-controls="sidebar"
+      aria-label="Открыть меню навигации"
+    >
+      ☰
+    </button>
+    <div id="mobile-nav-backdrop" class="mobile-nav-backdrop" hidden></div>
     <div class="app">
       <main class="main-area">
         <section class="panel">
@@ -1812,6 +2146,14 @@
       <aside class="sidebar" id="sidebar">
         <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="Свернуть/развернуть">
           ◀
+        </button>
+        <button
+          type="button"
+          id="mobile-sidebar-close"
+          class="mobile-sidebar-close"
+          aria-label="Закрыть меню навигации"
+        >
+          ×
         </button>
         <div class="resize-handle" id="resize-handle" aria-hidden="true"></div>
         <h2 class="sidebar-title">Быстрая навигация</h2>
@@ -2143,6 +2485,51 @@
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
       let sidebarCollapsed = false;
+      const mobileNavToggle = document.getElementById("mobile-nav-toggle");
+      const mobileNavBackdrop = document.getElementById("mobile-nav-backdrop");
+      const mobileSidebarClose = document.getElementById("mobile-sidebar-close");
+      const mobileLayoutMq = window.matchMedia("(max-width: 768px)");
+
+      function isMobileLayout() {
+        return mobileLayoutMq.matches;
+      }
+
+      function closeMobileNavDrawer() {
+        sidebar.classList.remove("mobile-open");
+        if (mobileNavBackdrop) {
+          mobileNavBackdrop.hidden = true;
+        }
+        if (mobileNavToggle) {
+          mobileNavToggle.setAttribute("aria-expanded", "false");
+        }
+        document.body.classList.remove("mobile-drawer-open");
+      }
+
+      function openMobileNavDrawer() {
+        if (!isMobileLayout()) {
+          return;
+        }
+        setSidebarCollapsed(false);
+        sidebar.classList.add("mobile-open");
+        if (mobileNavBackdrop) {
+          mobileNavBackdrop.hidden = false;
+        }
+        if (mobileNavToggle) {
+          mobileNavToggle.setAttribute("aria-expanded", "true");
+        }
+        document.body.classList.add("mobile-drawer-open");
+      }
+
+      function syncMobileLayoutState() {
+        document.body.classList.toggle("is-mobile-layout", isMobileLayout());
+        if (!isMobileLayout()) {
+          closeMobileNavDrawer();
+        } else {
+          sidebar.style.width = "";
+          setSidebarCollapsed(false);
+        }
+      }
+
       let nomenclatureItems = [];
 
       let palletSheetsLoadToken = 0;
@@ -2585,6 +2972,9 @@
       }
 
       function setSidebarCollapsed(nextCollapsed) {
+        if (nextCollapsed && isMobileLayout()) {
+          return;
+        }
         sidebarCollapsed = nextCollapsed;
         sidebar.classList.toggle("collapsed", sidebarCollapsed);
         sidebarToggle.textContent = sidebarCollapsed ? "▶" : "◀";
@@ -2731,6 +3121,8 @@
               Number.isFinite(activeStageOrderId));
           adminLoginNote.hidden = hideNote;
         }
+
+        closeMobileNavDrawer();
       }
 
       if (palletSheetsBackOrdersBtn) {
@@ -5293,12 +5685,20 @@
       }
 
       resizeHandle.addEventListener("mousedown", () => {
+        if (isMobileLayout()) {
+          return;
+        }
         isResizing = true;
         document.body.classList.add("resizing");
       });
 
       window.addEventListener("mousemove", (event) => {
         if (!isResizing) {
+          return;
+        }
+        if (isMobileLayout()) {
+          isResizing = false;
+          document.body.classList.remove("resizing");
           return;
         }
 
@@ -5313,7 +5713,37 @@
       });
 
       sidebarToggle.addEventListener("click", () => {
+        if (isMobileLayout()) {
+          openMobileNavDrawer();
+          return;
+        }
         setSidebarCollapsed(!sidebarCollapsed);
+      });
+
+      if (mobileNavToggle) {
+        mobileNavToggle.addEventListener("click", () => {
+          if (sidebar.classList.contains("mobile-open")) {
+            closeMobileNavDrawer();
+          } else {
+            openMobileNavDrawer();
+          }
+        });
+      }
+      if (mobileNavBackdrop) {
+        mobileNavBackdrop.addEventListener("click", closeMobileNavDrawer);
+      }
+      if (mobileSidebarClose) {
+        mobileSidebarClose.addEventListener("click", closeMobileNavDrawer);
+      }
+      mobileLayoutMq.addEventListener("change", syncMobileLayoutState);
+      document.addEventListener("keydown", (event) => {
+        if (
+          event.key === "Escape" &&
+          isMobileLayout() &&
+          sidebar.classList.contains("mobile-open")
+        ) {
+          closeMobileNavDrawer();
+        }
       });
 
       buildSheetButton.addEventListener("click", async () => {
@@ -5494,6 +5924,7 @@
       syncSetsInBoxField(editSetsInBoxMode, editSetsInBoxInput);
 
       renderNavOrder();
+      syncMobileLayoutState();
       setStage("main", false);
       setSidebarCollapsed(false);
       buildSheetPreview();

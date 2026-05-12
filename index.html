@@ -119,6 +119,31 @@
         font-size: 14px;
         text-align: center;
       }
+
+      @media (max-width: 768px) {
+        body {
+          align-items: stretch;
+          padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(20px, env(safe-area-inset-bottom, 0px));
+        }
+
+        .login-card {
+          padding: 26px 20px;
+          border-radius: 14px;
+        }
+
+        .logo {
+          font-size: 22px;
+        }
+
+        input {
+          font-size: 16px;
+        }
+
+        button {
+          padding: 15px 16px;
+          font-size: 13px;
+        }
+      }
     </style>
   </head>
   <body>

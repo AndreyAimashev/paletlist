@@ -1682,8 +1682,9 @@
           line-height: 1.2;
         }
 
-        .menu-button,
-        .menu-step.visible {
+        /* Только видимые пункты меню: не перебивать .menu-step { display: none } */
+        .menu-items > .menu-button:not(.menu-step),
+        .menu-items > .menu-step.visible {
           display: block !important;
           width: 100%;
           max-width: 100%;
@@ -1704,7 +1705,14 @@
         }
 
         .arnest-actions .menu-button {
+          display: block;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          text-align: center;
           margin-top: 10px;
+          padding: 14px 16px;
+          font-size: 12px;
         }
 
         .assemble-btn--add-pallet {

@@ -1651,10 +1651,7 @@
               </div>
               <div class="assemble-pallets-caption-row" id="assemble-pallets-caption-row">
                 <p class="muted assemble-pallets-caption">Распределение по паллетам</p>
-                <label class="assemble-optional-batch-label" id="assemble-optional-batch-label" hidden>
-                  <input type="checkbox" id="assemble-optional-batch-toggle" />
-                  <span>Партия по позициям</span>
-                </label>
+                <div id="assemble-optional-batch-root" class="assemble-optional-batch-root"></div>
               </div>
               <div id="assemble-pallets"></div>
               <button type="button" id="assemble-add-pallet" class="assemble-btn assemble-btn--add-pallet">
@@ -1976,8 +1973,7 @@
       const assembleSummaryThRest = document.getElementById("assemble-summary-th-rest");
       const assemblePalletsRoot = document.getElementById("assemble-pallets");
       const assembleAddPalletBtn = document.getElementById("assemble-add-pallet");
-      const assembleOptionalBatchLabel = document.getElementById("assemble-optional-batch-label");
-      const assembleOptionalBatchToggle = document.getElementById("assemble-optional-batch-toggle");
+      const assembleOptionalBatchRoot = document.getElementById("assemble-optional-batch-root");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
       const newOrderOverlay = document.getElementById("new-order-overlay");
@@ -2203,6 +2199,24 @@
 
       function showAssembleBatchFieldInSlots() {
         return isAssembleUnirusMode() || assembleOptionalBatchEnabled;
+      }
+
+      function mountOptionalBatchToggleForClient(client) {
+        if (!assembleOptionalBatchRoot) {
+          return;
+        }
+        assembleOptionalBatchRoot.innerHTML = "";
+        if (isArnestUnirusClient(client || "")) {
+          return;
+        }
+        assembleOptionalBatchRoot.innerHTML =
+          '<label class="assemble-optional-batch-label" id="assemble-optional-batch-label">' +
+          '<input type="checkbox" id="assemble-optional-batch-toggle" />' +
+          "<span>Партия по позициям</span></label>";
+        const t = document.getElementById("assemble-optional-batch-toggle");
+        if (t) {
+          t.checked = assembleOptionalBatchEnabled;
+        }
       }
 
       function sanitizePalletFilenamePart(s, fallback) {
@@ -4112,13 +4126,7 @@
           assembleSummaryUnitToolbar.hidden = false;
         }
         menuTitle.textContent = `Клиент: ${data.client || "—"} · отгрузка: ${data.ship_date || "—"}`;
-        if (assembleOptionalBatchLabel && assembleOptionalBatchToggle) {
-          const uni = isArnestUnirusClient(data.client);
-          assembleOptionalBatchLabel.hidden = !!uni;
-          if (!uni) {
-            assembleOptionalBatchToggle.checked = assembleOptionalBatchEnabled;
-          }
-        }
+        mountOptionalBatchToggleForClient(data.client);
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
@@ -4138,8 +4146,8 @@
         assembleEmptyEl.innerHTML =
           "<p>Чтобы открыть сборку заказа, перейдите в «Заказы» и нажмите иконку «Сборка» в строке нужного заказа.</p>";
         menuTitle.textContent = "Сборка заказа";
-        if (assembleOptionalBatchLabel) {
-          assembleOptionalBatchLabel.hidden = true;
+        if (assembleOptionalBatchRoot) {
+          assembleOptionalBatchRoot.innerHTML = "";
         }
       }
 
@@ -4152,32 +4160,23 @@
         }
       }
 
-      if (assemblePalletsRoot) {
-        assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
-        assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
-        assemblePalletsRoot.addEventListener("click", onAssemblePalletClick);
-      }
-      if (assembleAddPalletBtn) {
-        assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());
-      }
-      if (assembleOptionalBatchToggle) {
-        assembleOptionalBatchToggle.addEventListener("change", () => {
-          assembleOptionalBatchEnabled = !!assembleOptionalBatchToggle.checked;
-          writeAssembleOptionalBatchFlag(assembleOptionalBatchEnabled);
-          if (!assembleAllocState) {
+      if (assembleWorkspace) {
+        assembleWorkspace.addEventListener("change", (ev) => {
+          const t = ev.target;
+          if (t && t.id === "assemble-optional-batch-toggle") {
+            assembleOptionalBatchEnabled = !!t.checked;
+            writeAssembleOptionalBatchFlag(assembleOptionalBatchEnabled);
+            if (!assembleAllocState) {
+              return;
+            }
+            syncAssembleStateFromDom();
+            saveAssembleDraft();
+            renderAssemblePalletCards();
+            renderAssembleSummary();
+            renderAssembleAlerts();
             return;
           }
-          syncAssembleStateFromDom();
-          saveAssembleDraft();
-          renderAssemblePalletCards();
-          renderAssembleSummary();
-          renderAssembleAlerts();
         });
-      }
-      if (assembleBackOrdersBtn) {
-        assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
-      }
-      if (assembleWorkspace) {
         assembleWorkspace.addEventListener("click", (ev) => {
           const uBtn = ev.target.closest("[data-assemble-summary-unit]");
           if (!uBtn || !assembleWorkspace.contains(uBtn)) {
@@ -4189,6 +4188,17 @@
             setAssembleSummaryDisplayUnit(u);
           }
         });
+      }
+      if (assemblePalletsRoot) {
+        assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
+        assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
+        assemblePalletsRoot.addEventListener("click", onAssemblePalletClick);
+      }
+      if (assembleAddPalletBtn) {
+        assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());
+      }
+      if (assembleBackOrdersBtn) {
+        assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {

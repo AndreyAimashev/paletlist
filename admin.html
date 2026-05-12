@@ -621,6 +621,19 @@
         font-size: 13px;
       }
 
+      .assemble-field input.assemble-unirus-date--invalid {
+        border-color: rgba(255, 120, 120, 0.9);
+        box-shadow: 0 0 0 1px rgba(255, 80, 80, 0.35);
+      }
+
+      .assemble-unirus-date-msg {
+        font-size: 10px;
+        color: rgba(255, 160, 160, 0.95);
+        margin: 4px 0 0;
+        min-height: 14px;
+        line-height: 1.25;
+      }
+
       .assemble-slot-product-row {
         display: block;
         margin-bottom: 10px;
@@ -2142,6 +2155,81 @@
         return d;
       }
 
+      function unirusCalendarDateValid(y, m, d) {
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+          return false;
+        }
+        if (m < 1 || m > 12 || d < 1 || d > 31) {
+          return false;
+        }
+        const dt = new Date(y, m - 1, d);
+        return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+      }
+
+      /** «Пусто» | «ещё печатают» | «ок» | «6+ цифр, но нет такой даты» — как на сервере в паллетном PDF. */
+      function parseUnirusSixDigitDateStatus(raw) {
+        const digits = String(raw || "").replace(/\D/g, "");
+        if (digits.length === 0) {
+          return "empty";
+        }
+        if (digits.length < 6) {
+          return "partial";
+        }
+        const six = digits.slice(-6);
+        const dd = parseInt(six.slice(0, 2), 10);
+        const mm = parseInt(six.slice(2, 4), 10);
+        const yy = parseInt(six.slice(4, 6), 10);
+        if (unirusCalendarDateValid(2000 + yy, mm, dd)) {
+          return "ok";
+        }
+        const yy2 = parseInt(six.slice(0, 2), 10);
+        const mm2 = parseInt(six.slice(2, 4), 10);
+        const dd2 = parseInt(six.slice(4, 6), 10);
+        if (unirusCalendarDateValid(2000 + yy2, mm2, dd2)) {
+          return "ok";
+        }
+        return "bad";
+      }
+
+      function applyUnirusDateInputValidation(el) {
+        if (!el || !isAssembleUnirusMode()) {
+          return;
+        }
+        const f = el.dataset && el.dataset.field;
+        if (f !== "unirusMfgDate" && f !== "unirusExpiryDate") {
+          return;
+        }
+        const st = parseUnirusSixDigitDateStatus(el.value);
+        const INVALID = "assemble-unirus-date--invalid";
+        const wrap = el.closest(".assemble-field");
+        const msgEl = wrap ? wrap.querySelector("[data-unirus-date-msg]") : null;
+        if (st === "bad") {
+          el.classList.add(INVALID);
+          el.setAttribute(
+            "title",
+            "Нет такой даты в календаре. Шесть цифр: ДДММГГ или ГГММДД (например 110526).",
+          );
+          if (msgEl) {
+            msgEl.textContent = "Нет такой даты в календаре (проверьте ДДММГГ или ГГММДД).";
+          }
+          return;
+        }
+        el.classList.remove(INVALID);
+        el.removeAttribute("title");
+        if (msgEl) {
+          msgEl.textContent = "";
+        }
+      }
+
+      function refreshAllAssembleUnirusDateValidations() {
+        if (!assemblePalletsRoot || !isAssembleUnirusMode()) {
+          return;
+        }
+        assemblePalletsRoot
+          .querySelectorAll("[data-field='unirusMfgDate'], [data-field='unirusExpiryDate']")
+          .forEach((node) => applyUnirusDateInputValidation(node));
+      }
+
       function buildArnestPalletPdfPayloadFromDraft(orderItems, draftPallets) {
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
@@ -3532,6 +3620,23 @@
                 `Паллет ${tag}: для «Арнест Юнирусь» на одном паллете — только одно наименование (одна строка заказа). Уберите лишние позиции или выберите одну и ту же строку.`,
               );
             }
+            (pal.slots || []).forEach((slot, si) => {
+              if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
+                return;
+              }
+              const m = String(slot.unirusMfgDate || "").trim();
+              const e = String(slot.unirusExpiryDate || "").trim();
+              if (parseUnirusSixDigitDateStatus(m) === "bad") {
+                msgs.push(
+                  `Паллет ${pi + 1}, позиция ${si + 1}: дата изготовления не существует в календаре (6 цифр ДДММГГ или ГГММДД).`,
+                );
+              }
+              if (parseUnirusSixDigitDateStatus(e) === "bad") {
+                msgs.push(
+                  `Паллет ${pi + 1}, позиция ${si + 1}: срок годности не существует в календаре (6 цифр ДДММГГ или ГГММДД).`,
+                );
+              }
+            });
           });
         }
         return msgs;
@@ -3780,12 +3885,14 @@
         const unirusDatesHtml = isAssembleUnirusMode()
           ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
               <div class="assemble-field">
-                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ)</label>
+                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ или ГГММДД)</label>
                 <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. 110526" autocomplete="off" value="${umVal}" />
+                <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>
               <div class="assemble-field">
-                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ)</label>
+                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ или ГГММДД)</label>
                 <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. 110526" autocomplete="off" value="${ueVal}" />
+                <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>
             </div>`
           : "";
@@ -3895,6 +4002,7 @@
           </div>`;
           })
           .join("");
+        refreshAllAssembleUnirusDateValidations();
       }
 
       function syncAssembleStateFromDom() {
@@ -3968,6 +4076,12 @@
           return;
         }
         if (t.matches("[data-assemble-input]")) {
+          if (
+            isAssembleUnirusMode() &&
+            (t.dataset.field === "unirusMfgDate" || t.dataset.field === "unirusExpiryDate")
+          ) {
+            applyUnirusDateInputValidation(t);
+          }
           if (t.dataset.field === "palletNumber") {
             syncAssembleStateFromDom();
             saveAssembleDraft();

@@ -13,13 +13,14 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     from fpdf import FPDF
-    from fpdf.enums import Align
+    from fpdf.enums import Align, WrapMode
 
     HAVE_FPDF = True
 except ImportError:
     HAVE_FPDF = False
     FPDF = None  # type: ignore
     Align = None  # type: ignore
+    WrapMode = None  # type: ignore
 
 try:
     from barcode import Code128
@@ -155,6 +156,7 @@ _ARNEST_BARCODE_CAPTION_FONT_MAX_PT = 11.0
 _ARNEST_BARCODE_CAPTION_FONT_MIN_PT = 7.0
 _ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
 _ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
+_ARNEST_LINE4_NAME_EXTRA_GAP_MM = 4.0  # доп. зазор после блока строки 4 (наименование может занять 2+ строки)
 _ARNEST_TEXT_FONT_PT = 12.0  # все текстовые элементы паллетного листа (не штрих-код)
 _ARNEST_LINE2_TEXT_H_MM = 7.0
 _ARNEST_LINE2_ARTICLE_MAX_W_MM = 105.0
@@ -575,10 +577,32 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             x_name = x0 + w_art + _ARNEST_TAB_MM
             pdf.set_font("PLCalibri", "", fs)
             rem_w = max(0.0, max_r - x_name)
-            name_draw = _arnest_clip_text_to_width_mm(pdf, name_raw, rem_w) if rem_w > 0 else "—"
-            pdf.set_xy(x_name, y4)
-            pdf.cell(rem_w, h_txt, name_draw or "—")
-            y5 = y4 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
+            name_txt = name_raw if name_raw else "—"
+            name_block_h = h_txt
+            if rem_w > 0.5:
+                pdf.set_xy(x_name, y4)
+                wm = WrapMode.WORD if WrapMode is not None else None
+                if wm is not None:
+                    pdf.multi_cell(
+                        rem_w,
+                        h_txt,
+                        name_txt,
+                        border=0,
+                        align="L",
+                        wrapmode=wm,
+                    )
+                else:
+                    pdf.multi_cell(rem_w, h_txt, name_txt, border=0, align="L")
+                name_block_h = max(h_txt, pdf.get_y() - y4)
+            else:
+                pdf.set_xy(x_name, y4)
+                pdf.cell(1.0, h_txt, _arnest_clip_text_to_width_mm(pdf, name_txt, 1.0) or "—")
+            y5 = (
+                y4
+                + max(h_txt, name_block_h)
+                + _ARNEST_LINE4_NAME_EXTRA_GAP_MM
+                + _ARNEST_TEXT_LINE_GAP_MM
+            )
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x0, y5)
             pdf.cell(content_w, h_txt, _ARNEST_LINE5_GTIN_LABEL, align="L")

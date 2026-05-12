@@ -146,8 +146,7 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 # A4 и поля как в типовом документе Word (≈2 см слева/справа).
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
-# Строки 8 и 14: высота от соотношения сторон PNG строки 1, уменьшенная на этот коэффициент (как раньше).
-# Строка 1: полная ширина контента, высота по пропорциям PNG (`h=0`), без сплющивания подписи.
+# Строка 1 и высота для штрих-кодов в строках 8 и 14: доля от расчёта по соотношению сторон PNG строки 1.
 _ARNEST_BARCODE_HEIGHT_SCALE = 0.5
 _ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
 _ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
@@ -400,16 +399,15 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             h_base_mm = barcode_w_mm * (ph / pw)
             h_mm = h_base_mm * _ARNEST_BARCODE_HEIGHT_SCALE
             pdf.add_page()
-            info_line1 = pdf.image(
+            pdf.image(
                 io.BytesIO(png),
                 x=Align.C,
                 y=y_top,
                 w=barcode_w_mm,
-                h=0,
-                keep_aspect_ratio=True,
+                h=h_mm,
+                keep_aspect_ratio=False,
             )
-            h_line1_mm = float(info_line1["rendered_height"])
-            y2 = y_top + h_line1_mm + _ARNEST_LINE2_GAP_MM
+            y2 = y_top + h_mm + _ARNEST_LINE2_GAP_MM
             fs = _ARNEST_TEXT_FONT_PT
             h_txt = _ARNEST_LINE2_TEXT_H_MM
             left_w = _ARNEST_LINE2_ARTICLE_MAX_W_MM

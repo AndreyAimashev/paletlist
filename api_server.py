@@ -66,6 +66,10 @@ def _is_print_arnest_unirus_pallet_sheets_raw_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/print-arnest-unirus-pallet-sheets-raw"
 
 
+def _is_pallet_printer_raw_ping_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/pallet-printer-raw-ping"
+
+
 # Префикс Code128 данных паллеты (как в макросе Word / tec-it).
 PALLET_BARCODE_PREFIX = "1500000"
 MAX_PALLET_SHEET_PDF_PAGES = 500
@@ -875,15 +879,38 @@ def _wrap_pdf_pjl_a4_tray1(pdf: bytes) -> bytes:
     return uel + pjl + pdf + end
 
 
-def send_pdf_to_raw_lan_printer(pdf: bytes) -> tuple[bool, str, int]:
-    """Отправка PDF на принтер по TCP:9100 (сервер должен видеть IP принтера в LAN).
-    Обёртка PJL A4/лоток1 — по умолчанию включена (PALLET_RAW_PRINT_PJL=0 — только сырые байты PDF)."""
+def _get_raw_printer_host_port() -> tuple[str, int | None, str | None]:
+    """Хост и порт JetDirect; при ошибке порта — (host, None, текст ошибки)."""
     host = (os.environ.get("PALLET_RAW_PRINT_HOST") or "192.168.1.196").strip()
     port_raw = (os.environ.get("PALLET_RAW_PRINT_PORT") or "9100").strip()
     try:
-        port = int(port_raw)
+        return host, int(port_raw), None
     except ValueError:
-        return False, "Некорректный PALLET_RAW_PRINT_PORT", 0
+        return host, None, "Некорректный PALLET_RAW_PRINT_PORT"
+
+
+def check_raw_pallet_printer_reachable() -> tuple[bool, str, str]:
+    """Проверка TCP до принтера без отправки данных на печать.
+    Возвращает (успех, \"host:port\", сообщение для пользователя)."""
+    host, port, cfg_err = _get_raw_printer_host_port()
+    addr = f"{host}:{port}" if port is not None else f"{host}:?"
+    if cfg_err:
+        return False, addr, cfg_err
+    ping_timeout = float((os.environ.get("PALLET_RAW_PRINT_PING_TIMEOUT_SEC") or "5").strip() or "5")
+    try:
+        with socket.create_connection((host, port), timeout=ping_timeout):
+            pass
+    except OSError as exc:
+        return False, addr, str(exc)
+    return True, addr, "TCP-соединение установлено (данные на печать не отправлялись)."
+
+
+def send_pdf_to_raw_lan_printer(pdf: bytes) -> tuple[bool, str, int]:
+    """Отправка PDF на принтер по TCP:9100 (сервер должен видеть IP принтера в LAN).
+    Обёртка PJL A4/лоток1 — по умолчанию включена (PALLET_RAW_PRINT_PJL=0 — только сырые байты PDF)."""
+    host, port, cfg_err = _get_raw_printer_host_port()
+    if cfg_err or port is None:
+        return False, cfg_err or "Ошибка настройки порта принтера", 0
     timeout = float((os.environ.get("PALLET_RAW_PRINT_TIMEOUT_SEC") or "25").strip() or "25")
     use_pjl = (os.environ.get("PALLET_RAW_PRINT_PJL", "1") or "1").strip().lower() not in (
         "0",
@@ -1899,6 +1926,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if _is_orders_list_path(path):
             self._send_json(200, fetch_orders())
+            return
+        if _is_pallet_printer_raw_ping_path(path):
+            ok, addr, msg = check_raw_pallet_printer_reachable()
+            self._send_json(
+                200,
+                {"reachable": ok, "printer": addr, "message": msg},
+            )
             return
         if not _is_nomenclature_list_path(path):
             self._send_json(404, {"error": "Not found"})

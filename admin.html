@@ -2151,6 +2151,14 @@
                 >
                   На принтер
                 </button>
+                <button
+                  type="button"
+                  id="pallet-sheets-printer-ping"
+                  class="assemble-btn assemble-btn--nav"
+                  title="Проверить, открывается ли с сервера TCP-соединение с принтером (без печати)"
+                >
+                  Принтер в сети?
+                </button>
               </div>
             </div>
             <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
@@ -2536,6 +2544,7 @@
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
       const palletSheetsPrintBtn = document.getElementById("pallet-sheets-print-printer");
+      const palletSheetsPrinterPingBtn = document.getElementById("pallet-sheets-printer-ping");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
@@ -3386,6 +3395,29 @@
             );
           } finally {
             palletSheetsPrintBtn.disabled = false;
+          }
+        });
+      }
+
+      if (palletSheetsPrinterPingBtn) {
+        palletSheetsPrinterPingBtn.addEventListener("click", async () => {
+          palletSheetsPrinterPingBtn.disabled = true;
+          try {
+            const r = await fetch("/api/pallet-printer-raw-ping");
+            const j = await r.json().catch(() => ({}));
+            const addr = j.printer != null ? String(j.printer) : "";
+            const msg = j.message != null ? String(j.message) : "Нет описания ответа.";
+            if (j.reachable) {
+              window.alert(`Сервер видит принтер ${addr}.\n${msg}`);
+            } else {
+              window.alert(`Сервер не устанавливает соединение с ${addr}.\n${msg}`);
+            }
+          } catch (e) {
+            window.alert(
+              "Запрос проверки не выполнен: " + (e && e.message ? String(e.message) : "сеть или API."),
+            );
+          } finally {
+            palletSheetsPrinterPingBtn.disabled = false;
           }
         });
       }

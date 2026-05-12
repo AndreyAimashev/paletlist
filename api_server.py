@@ -93,8 +93,8 @@ def build_pallet_barcode_data(pallet_number: str) -> str | None:
     return PALLET_BARCODE_PREFIX + _format_pallet_suffix_vba(n)
 
 
-def render_code128_barcode_png(barcode_data: str) -> bytes:
-    """Code128 в PNG на сервере (python-barcode + Pillow); под полосами — читаемая строка данных."""
+def render_code128_barcode_png(barcode_data: str, *, write_text: bool = True) -> bytes:
+    """Code128 в PNG (python-barcode + Pillow). При write_text=False только полосы — подпись в PDF отдельно."""
     if not HAVE_CODE128_BARCODE or Code128 is None or ImageWriter is None:
         raise RuntimeError(
             "Не установлен python-barcode[images] (pip install \"python-barcode[images]\")"
@@ -104,7 +104,7 @@ def render_code128_barcode_png(barcode_data: str) -> bytes:
         raise ValueError("Пустые данные для штрих-кода")
     writer = ImageWriter(format="PNG", dpi=300)
     buf = io.BytesIO()
-    Code128(payload, writer=writer).write(buf)
+    Code128(payload, writer=writer).write(buf, options={"write_text": write_text})
     out = buf.getvalue()
     if not out or _png_ihdr_pixel_size(out) is None:
         raise RuntimeError("Пустой или некорректный PNG штрих-кода")
@@ -146,8 +146,13 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 # A4 и поля как в типовом документе Word (≈2 см слева/справа).
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
-# Строка 1 и высота для штрих-кодов в строках 8 и 14: доля от расчёта по соотношению сторон PNG строки 1.
+# Строка 1: высота растра полос из соотношения сторон её PNG и _ARNEST_BARCODE_HEIGHT_SCALE.
+# Строки 8 и 14: то же по своим PNG (ширина _ARNEST_LINE8_BARCODE_W_MM).
 _ARNEST_BARCODE_HEIGHT_SCALE = 0.5
+_ARNEST_BARCODE_CAPTION_GAP_MM = 1.5  # между низом растра полос и подписью (PDF)
+_ARNEST_BARCODE_CAPTION_LINE_H_MM = 6.0
+_ARNEST_BARCODE_CAPTION_FONT_MAX_PT = 11.0
+_ARNEST_BARCODE_CAPTION_FONT_MIN_PT = 7.0
 _ARNEST_LINE2_GAP_MM = 10.0  # только между строкой 1 (штрих-код) и строкой 2
 _ARNEST_TEXT_LINE_GAP_MM = 5.0  # между всеми остальными строками (текст и нижний штрих-код)
 _ARNEST_TEXT_FONT_PT = 12.0  # все текстовые элементы паллетного листа (не штрих-код)
@@ -239,6 +244,37 @@ def _arnest_clip_text_to_width_mm(pdf: FPDF, text: str, max_mm: float) -> str:
             return cand
         n -= 1
     return ell
+
+
+def _arnest_barcode_caption_font_pt(pdf: FPDF, text: str, max_w_mm: float) -> float:
+    """Размер шрифта подписи под Code128: уменьшаем, пока строка влезает в max_w_mm."""
+    t = str(text) if text is not None else ""
+    lo = _ARNEST_BARCODE_CAPTION_FONT_MIN_PT
+    hi = _ARNEST_BARCODE_CAPTION_FONT_MAX_PT
+    pt = hi
+    step = 0.5
+    while pt >= lo:
+        pdf.set_font("PLCalibri", "", pt)
+        if pdf.get_string_width(t) <= max_w_mm:
+            return pt
+        pt -= step
+    pdf.set_font("PLCalibri", "", lo)
+    return lo
+
+
+def _arnest_draw_code128_caption_below(
+    pdf: FPDF, x: float, w_mm: float, y_barcode_bottom: float, text: str
+) -> float:
+    """Подпись под штрих-кодом (отдельно от PNG). Возвращает занятую высоту: зазор + строка."""
+    gap = _ARNEST_BARCODE_CAPTION_GAP_MM
+    h_line = _ARNEST_BARCODE_CAPTION_LINE_H_MM
+    fs = _arnest_barcode_caption_font_pt(pdf, text, w_mm)
+    pdf.set_font("PLCalibri", "", fs)
+    s = str(text) if text is not None else ""
+    draw = s if pdf.get_string_width(s) <= w_mm else _arnest_clip_text_to_width_mm(pdf, s, w_mm)
+    pdf.set_xy(x, y_barcode_bottom + gap)
+    pdf.cell(w_mm, h_line, draw or s, align="C")
+    return gap + h_line
 
 
 def _arnest_pallet_pdf_error_message(code: str) -> str:
@@ -362,7 +398,7 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
 def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
     pallets: list[dict],
 ) -> tuple[bytes | None, str, str]:
-    """Один PDF: 1, 8, 14 — Code128; 2–16 — текст 12 pt; 14 — паллета слева (если номер); 15–16 — партия у колонки «кор.»."""
+    """Один PDF: 1, 8, 14 — Code128 (только полосы в PNG, читаемая строка под ними в PDF); 2–16 — текст 12 pt; 14 — паллета слева (если номер); 15–16 — партия у колонки «кор.»."""
     if not HAVE_FPDF or FPDF is None or Align is None:
         return None, "no_fpdf", ""
     if not HAVE_CODE128_BARCODE:
@@ -385,7 +421,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             if err_detail:
                 return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
             try:
-                png = render_code128_barcode_png(data)
+                png = render_code128_barcode_png(data, write_text=False)
             except Exception as exc:
                 return (
                     None,
@@ -407,7 +443,10 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 h=h_mm,
                 keep_aspect_ratio=False,
             )
-            y2 = y_top + h_mm + _ARNEST_LINE2_GAP_MM
+            cap1_h = _arnest_draw_code128_caption_below(
+                pdf, _ARNEST_SIDE_MARGIN_MM, barcode_w_mm, y_top + h_mm, data
+            )
+            y2 = y_top + h_mm + cap1_h + _ARNEST_LINE2_GAP_MM
             fs = _ARNEST_TEXT_FONT_PT
             h_txt = _ARNEST_LINE2_TEXT_H_MM
             left_w = _ARNEST_LINE2_ARTICLE_MAX_W_MM
@@ -505,7 +544,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 row.get("pallet_boxes_qty", row.get("pallet_qty", 0))
             )
             try:
-                png_boxes = render_code128_barcode_png(boxes_qty)
+                png_boxes = render_code128_barcode_png(boxes_qty, write_text=False)
             except Exception as exc:
                 return (
                     None,
@@ -515,15 +554,22 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             dims_boxes = _barcode_raster_pixel_size(png_boxes)
             if not dims_boxes:
                 return None, "pdf_build", ""
+            pw2, ph2 = dims_boxes
+            h_boxes_mm = (
+                _ARNEST_LINE8_BARCODE_W_MM * (ph2 / pw2) * _ARNEST_BARCODE_HEIGHT_SCALE
+            )
             pdf.image(
                 io.BytesIO(png_boxes),
                 x=Align.C,
                 y=y8,
                 w=_ARNEST_LINE8_BARCODE_W_MM,
-                h=h_mm,
+                h=h_boxes_mm,
                 keep_aspect_ratio=False,
             )
-            y9 = y8 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
+            cap8_h = _arnest_draw_code128_caption_below(
+                pdf, _ARNEST_SIDE_MARGIN_MM, barcode_w_mm, y8 + h_boxes_mm, boxes_qty
+            )
+            y9 = y8 + h_boxes_mm + cap8_h + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x0, y9)
             pdf.cell(content_w, h_txt, _ARNEST_LINE9_PALLET_QTY_LABEL, align="L")
@@ -602,7 +648,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             y_after_line14 = y14
             if pallet_bc:
                 try:
-                    png_pn = render_code128_barcode_png(pallet_bc)
+                    png_pn = render_code128_barcode_png(pallet_bc, write_text=False)
                 except Exception as exc:
                     return (
                         None,
@@ -612,15 +658,22 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 dims_pn = _barcode_raster_pixel_size(png_pn)
                 if not dims_pn:
                     return None, "pdf_build", ""
+                pw_pn, ph_pn = dims_pn
+                h_pn_mm = (
+                    _ARNEST_LINE8_BARCODE_W_MM * (ph_pn / pw_pn) * _ARNEST_BARCODE_HEIGHT_SCALE
+                )
                 pdf.image(
                     io.BytesIO(png_pn),
                     x=x0,
                     y=y14,
                     w=_ARNEST_LINE8_BARCODE_W_MM,
-                    h=h_mm,
+                    h=h_pn_mm,
                     keep_aspect_ratio=False,
                 )
-                y_after_line14 = y14 + h_mm + _ARNEST_TEXT_LINE_GAP_MM
+                cap14_h = _arnest_draw_code128_caption_below(
+                    pdf, x0, _ARNEST_LINE8_BARCODE_W_MM, y14 + h_pn_mm, pallet_bc
+                )
+                y_after_line14 = y14 + h_pn_mm + cap14_h + _ARNEST_TEXT_LINE_GAP_MM
             y15 = y_after_line14
             rem_bn = max(0.0, max_r - x_units)
             pdf.set_font("PLCalibri", "", fs)

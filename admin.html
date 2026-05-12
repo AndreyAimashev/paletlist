@@ -800,7 +800,12 @@
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.02em;
-        white-space: nowrap;
+        white-space: normal;
+        vertical-align: top;
+      }
+
+      .orders-table thead th.col-date {
+        white-space: normal;
       }
 
       .orders-table tbody tr:hover td {
@@ -842,6 +847,67 @@
         width: 1%;
         white-space: nowrap;
         vertical-align: middle;
+      }
+
+      .orders-th-inner {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: nowrap;
+      }
+
+      .orders-th-title {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .orders-th-sort {
+        flex-shrink: 0;
+        margin: 0;
+        padding: 2px 6px;
+        font-size: 11px;
+        line-height: 1.2;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 6px;
+        background: rgba(10, 14, 23, 0.75);
+        color: var(--accent-teal);
+        cursor: pointer;
+        font-family: inherit;
+      }
+
+      .orders-th-sort:hover {
+        border-color: rgba(0, 200, 160, 0.65);
+        background: rgba(0, 200, 160, 0.12);
+      }
+
+      .orders-th-sort.is-active {
+        border-color: rgba(0, 220, 180, 0.75);
+        color: #b8fff0;
+      }
+
+      .orders-filter-input,
+      .orders-filter-select {
+        box-sizing: border-box;
+        width: 100%;
+        margin-top: 6px;
+        padding: 5px 8px;
+        font-size: 12px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+      }
+
+      .orders-filter-select {
+        cursor: pointer;
+      }
+
+      .orders-table th.col-pct .orders-th-inner {
+        justify-content: center;
+      }
+
+      .orders-table th.col-pct .orders-filter-select {
+        text-align: center;
       }
 
       .stage-order-context {
@@ -1575,9 +1641,37 @@
               <table class="orders-table">
                 <thead>
                   <tr>
-                    <th scope="col">Дата отгрузки</th>
-                    <th scope="col">Клиент</th>
-                    <th scope="col" class="col-pct">Собран (%)</th>
+                    <th scope="col" class="col-date">
+                      <div class="orders-th-inner">
+                        <span class="orders-th-title">Дата отгрузки</span>
+                        <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
+                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                        </button>
+                      </div>
+                      <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                    </th>
+                    <th scope="col">
+                      <div class="orders-th-inner">
+                        <span class="orders-th-title">Клиент</span>
+                        <button type="button" class="orders-th-sort" data-orders-sort="client" title="Сортировка по клиенту" aria-label="Сортировка по клиенту">
+                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                        </button>
+                      </div>
+                      <input type="search" class="orders-filter-input" id="orders-filter-client" placeholder="Содержит…" autocomplete="off" />
+                    </th>
+                    <th scope="col" class="col-pct">
+                      <div class="orders-th-inner">
+                        <span class="orders-th-title">Собран (%)</span>
+                        <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
+                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                        </button>
+                      </div>
+                      <select class="orders-filter-select" id="orders-filter-pct" aria-label="Фильтр по проценту сборки">
+                        <option value="">Все</option>
+                        <option value="100">Только 100%</option>
+                        <option value="open">Меньше 100%</option>
+                      </select>
+                    </th>
                     <th scope="col">Наименования</th>
                     <th scope="col">Доп. информация</th>
                     <th scope="col" class="col-actions">Действия</th>
@@ -2929,7 +3023,13 @@
       }
 
       const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";
-      let cachedOrdersListRows = null;
+      let cachedOrdersListRows = [];
+      let ordersSortKey = null;
+      let ordersSortDir = "asc";
+      let ordersFilterShip = "";
+      let ordersFilterClient = "";
+      let ordersFilterPct = "";
+      let ordersFilterInputTimer = null;
 
       let ordersNamesDisplayUnit = (function initOrdersNamesUnit() {
         try {
@@ -3025,9 +3125,89 @@
           /* ignore */
         }
         syncOrdersNamesUnitButtons();
-        if (cachedOrdersListRows && cachedOrdersListRows.length) {
-          renderOrdersTable(cachedOrdersListRows);
+        if (cachedOrdersListRows.length) {
+          renderOrdersTable();
         }
+      }
+
+      function parseShipDateForSort(raw) {
+        const s = String(raw || "").trim();
+        if (!s || s === "—") {
+          return 0;
+        }
+        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s);
+        if (m) {
+          const t = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])).getTime();
+          return Number.isFinite(t) ? t : 0;
+        }
+        const t2 = Date.parse(s);
+        return Number.isFinite(t2) ? t2 : 0;
+      }
+
+      function getOrdersRowsForDisplay() {
+        const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows.slice() : [];
+        let list = base;
+        const shipQ = ordersFilterShip.trim().toLowerCase();
+        if (shipQ) {
+          list = list.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
+        }
+        const clientQ = ordersFilterClient.trim().toLowerCase();
+        if (clientQ) {
+          list = list.filter((o) => String(o.client || "").toLowerCase().includes(clientQ));
+        }
+        if (ordersFilterPct === "100") {
+          list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) >= 100);
+        } else if (ordersFilterPct === "open") {
+          list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) < 100);
+        }
+        if (ordersSortKey) {
+          const dir = ordersSortDir === "desc" ? -1 : 1;
+          list.sort((a, b) => {
+            let cmp = 0;
+            if (ordersSortKey === "ship_date") {
+              const va = parseShipDateForSort(a.ship_date);
+              const vb = parseShipDateForSort(b.ship_date);
+              cmp = va - vb;
+            } else if (ordersSortKey === "client") {
+              cmp = String(a.client || "").localeCompare(String(b.client || ""), "ru", {
+                sensitivity: "base",
+              });
+            } else if (ordersSortKey === "assembled") {
+              cmp = (Number(a.assembled_percent) || 0) - (Number(b.assembled_percent) || 0);
+            }
+            return dir * cmp;
+          });
+        }
+        return list;
+      }
+
+      function syncOrdersSortIndicators() {
+        if (!ordersWorkspace) {
+          return;
+        }
+        ordersWorkspace.querySelectorAll("[data-orders-sort]").forEach((btn) => {
+          const k = btn.dataset.ordersSort;
+          const active = ordersSortKey === k;
+          btn.classList.toggle("is-active", active);
+          const icon = btn.querySelector(".orders-th-sort-icon");
+          if (icon) {
+            if (!active) {
+              icon.textContent = "⇅";
+            } else {
+              icon.textContent = ordersSortDir === "asc" ? "▲" : "▼";
+            }
+          }
+        });
+      }
+
+      function scheduleOrdersTableReRender() {
+        if (ordersFilterInputTimer) {
+          clearTimeout(ordersFilterInputTimer);
+        }
+        ordersFilterInputTimer = setTimeout(() => {
+          ordersFilterInputTimer = null;
+          renderOrdersTable();
+        }, 220);
       }
 
       function renderOrderRowActions(orderId) {
@@ -3041,24 +3221,33 @@
           </div>`;
       }
 
-      function renderOrdersTable(rows) {
-        cachedOrdersListRows = Array.isArray(rows) ? rows : [];
+      function renderOrdersTable() {
         syncOrdersNamesUnitButtons();
-        if (!rows.length) {
+        syncOrdersSortIndicators();
+        if (!ordersTableBody) {
+          return;
+        }
+        if (!cachedOrdersListRows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
           return;
         }
+        const rows = getOrdersRowsForDisplay();
+        if (!rows.length) {
+          ordersTableBody.innerHTML =
+            "<tr><td colspan=\"6\" class=\"muted\">Нет заказов по текущим фильтрам.</td></tr>";
+          return;
+        }
         ordersTableBody.innerHTML = rows
-            .map((o) => {
-              const pctRounded = Math.max(
-                0,
-                Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
-              );
-              const pctCellClass =
-                pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
-              const namesHtml = formatOrderNamesCell(o, ordersNamesDisplayUnit);
-              return `<tr>
+          .map((o) => {
+            const pctRounded = Math.max(
+              0,
+              Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
+            );
+            const pctCellClass =
+              pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
+            const namesHtml = formatOrderNamesCell(o, ordersNamesDisplayUnit);
+            return `<tr>
                   <td class="col-date">${escapeXml(o.ship_date || "—")}</td>
                   <td>${escapeXml(o.client || "—")}</td>
                   <td class="${pctCellClass}">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
@@ -3066,8 +3255,8 @@
                   <td>${escapeXml(o.extra_info || "—")}</td>
                   <td class="col-actions">${renderOrderRowActions(o.id)}</td>
                 </tr>`;
-            })
-            .join("");
+          })
+          .join("");
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -3467,11 +3656,15 @@
               };
             }),
           );
-          renderOrdersTable(enriched);
+          cachedOrdersListRows = enriched;
+          renderOrdersTable();
         } catch (error) {
           cachedOrdersListRows = [];
-          ordersTableBody.innerHTML =
-            "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+          if (ordersTableBody) {
+            ordersTableBody.innerHTML =
+              "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+          }
+          syncOrdersSortIndicators();
         }
       }
 
@@ -4351,6 +4544,26 @@
       }
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {
+          const sortBtn = ev.target.closest("[data-orders-sort]");
+          if (sortBtn && ordersWorkspace.contains(sortBtn)) {
+            ev.preventDefault();
+            const k = sortBtn.dataset.ordersSort;
+            if (k === "ship_date" || k === "client" || k === "assembled") {
+              if (ordersSortKey === k) {
+                if (ordersSortDir === "asc") {
+                  ordersSortDir = "desc";
+                } else {
+                  ordersSortKey = null;
+                  ordersSortDir = "asc";
+                }
+              } else {
+                ordersSortKey = k;
+                ordersSortDir = "asc";
+              }
+              renderOrdersTable();
+            }
+            return;
+          }
           const b = ev.target.closest("[data-orders-names-unit]");
           if (!b || !ordersWorkspace.contains(b)) {
             return;
@@ -4359,6 +4572,22 @@
           if (u === "piece" || u === "box" || u === "set") {
             ev.preventDefault();
             setOrdersNamesDisplayUnit(u);
+          }
+        });
+        ordersWorkspace.addEventListener("input", (ev) => {
+          const t = ev.target;
+          if (t.id === "orders-filter-ship") {
+            ordersFilterShip = t.value;
+            scheduleOrdersTableReRender();
+          } else if (t.id === "orders-filter-client") {
+            ordersFilterClient = t.value;
+            scheduleOrdersTableReRender();
+          }
+        });
+        ordersWorkspace.addEventListener("change", (ev) => {
+          if (ev.target.id === "orders-filter-pct") {
+            ordersFilterPct = String(ev.target.value || "");
+            renderOrdersTable();
           }
         });
       }

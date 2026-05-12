@@ -335,6 +335,34 @@ def _arnest_six_digits_display_ddmmyy(raw: str) -> str | None:
     return f"{dd:02d}.{mm:02d}.{year:04d}"
 
 
+def _arnest_unirus_date_raw(row: dict, primary: str, secondary: str) -> str:
+    """Дата из паллеты: учитываем JSON null у первичного ключа (иначе str(None) == 'None')."""
+    for key in (primary, secondary):
+        if key not in row:
+            continue
+        val = row[key]
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            continue
+        if isinstance(val, (int, float)):
+            if isinstance(val, float):
+                if not math.isfinite(val):
+                    continue
+                if abs(val - round(val)) < 1e-9:
+                    s = str(int(round(val)))
+                else:
+                    s = str(val).strip()
+            else:
+                s = str(val)
+        else:
+            s = str(val).strip()
+        if not s or s.lower() == "none":
+            continue
+        return s
+    return ""
+
+
 def _arnest_format_weight_kg_ru(raw) -> str:
     """Вес в кг для PDF: одна десятичная, запятая как десятичный разделитель."""
     try:
@@ -383,12 +411,12 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
     if not batch:
         return None, "не указана партия"
     mfg = _arnest_yymmdd_for_barcode(
-        str(row.get("manufacturing_date_raw", row.get("unirusMfgDate", "")))
+        _arnest_unirus_date_raw(row, "manufacturing_date_raw", "unirusMfgDate")
     )
     if not mfg:
         return None, "дата изготовления: нужны 6 цифр ДДММГГ"
     exp = _arnest_yymmdd_for_barcode(
-        str(row.get("expiry_date_raw", row.get("unirusExpiryDate", "")))
+        _arnest_unirus_date_raw(row, "expiry_date_raw", "unirusExpiryDate")
     )
     if not exp:
         return None, "срок годности: нужны 6 цифр ДДММГГ"
@@ -515,10 +543,8 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 cwk_draw = _arnest_clip_text_to_width_mm(pdf, cwk, rem_cwk)
                 pdf.cell(rem_cwk, h_txt, cwk_draw or cwk)
             y7 = y6 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
-            mfg_raw = str(
-                row.get("manufacturing_date_raw", row.get("unirusMfgDate", ""))
-            )
-            exp_raw = str(row.get("expiry_date_raw", row.get("unirusExpiryDate", "")))
+            mfg_raw = _arnest_unirus_date_raw(row, "manufacturing_date_raw", "unirusMfgDate")
+            exp_raw = _arnest_unirus_date_raw(row, "expiry_date_raw", "unirusExpiryDate")
             mfg_txt = _arnest_six_digits_display_ddmmyy(mfg_raw) or "—"
             exp_txt = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
             w_kg_str = _arnest_format_weight_kg_ru(row.get("pallet_weight_kg", 0))

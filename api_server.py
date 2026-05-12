@@ -318,49 +318,108 @@ def _arnest_yymmdd_for_barcode(raw: str) -> str | None:
 
 
 def _arnest_six_digits_display_ddmmyy(raw: str) -> str | None:
-    """Шесть цифр ДДММГГ → «ДД.ММ.ГГГГ» для строки 7 PDF (напр. 110526 → 11.05.2026)."""
+    """Шесть цифр → «ДД.ММ.ГГГГ» для строки 7: сначала ДДММГГ, при невалидной дате — ГГММДД (как в полях YYMMDD)."""
     d = re.sub(r"\D", "", raw or "")
     if len(d) >= 6:
         d = d[-6:]
     if len(d) != 6 or not d.isdigit():
         return None
+
     dd = int(d[0:2])
     mm = int(d[2:4])
     yy = int(d[4:6])
     year = 2000 + yy
     try:
         datetime.date(year, mm, dd)
+        return f"{dd:02d}.{mm:02d}.{year:04d}"
+    except ValueError:
+        pass
+
+    yy2 = int(d[0:2])
+    mm2 = int(d[2:4])
+    dd2 = int(d[4:6])
+    yfull = 2000 + yy2
+    try:
+        datetime.date(yfull, mm2, dd2)
+        return f"{dd2:02d}.{mm2:02d}.{yfull:04d}"
     except ValueError:
         return None
-    return f"{dd:02d}.{mm:02d}.{year:04d}"
 
 
-def _arnest_unirus_date_raw(row: dict, primary: str, secondary: str) -> str:
-    """Дата из паллеты: учитываем JSON null у первичного ключа (иначе str(None) == 'None')."""
-    for key in (primary, secondary):
+def _arnest_coerce_date_string(val) -> str | None:
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        if isinstance(val, float):
+            if not math.isfinite(val):
+                return None
+            if abs(val - round(val)) < 1e-9:
+                s = str(int(round(val)))
+            else:
+                s = str(val).strip()
+        else:
+            s = str(val)
+    else:
+        s = str(val).strip()
+    if not s or s.lower() == "none":
+        return None
+    return s
+
+
+def _arnest_unirus_date_raw(row: dict, *keys: str) -> str:
+    """Дата из полей верхнего уровня паллеты (учёт JSON null)."""
+    for key in keys:
         if key not in row:
             continue
-        val = row[key]
-        if val is None:
-            continue
-        if isinstance(val, bool):
-            continue
-        if isinstance(val, (int, float)):
-            if isinstance(val, float):
-                if not math.isfinite(val):
-                    continue
-                if abs(val - round(val)) < 1e-9:
-                    s = str(int(round(val)))
-                else:
-                    s = str(val).strip()
-            else:
-                s = str(val)
-        else:
-            s = str(val).strip()
-        if not s or s.lower() == "none":
-            continue
-        return s
+        s = _arnest_coerce_date_string(row[key])
+        if s:
+            return s
     return ""
+
+
+def _arnest_date_raw_from_slots(row: dict, *slot_keys: str) -> str:
+    """Дата из slots[] (если в объекте паллеты не продублированы наверх)."""
+    slots = row.get("slots")
+    if not isinstance(slots, list):
+        return ""
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        for sk in slot_keys:
+            if sk not in slot:
+                continue
+            s = _arnest_coerce_date_string(slot.get(sk))
+            if s:
+                return s
+    return ""
+
+
+def _arnest_mfg_date_raw(row: dict) -> str:
+    s = _arnest_unirus_date_raw(
+        row,
+        "manufacturing_date_raw",
+        "manufacturingDateRaw",
+        "unirusMfgDate",
+    )
+    if s:
+        return s
+    return _arnest_date_raw_from_slots(
+        row, "unirusMfgDate", "manufacturingDateRaw", "manufacturing_date_raw"
+    )
+
+
+def _arnest_exp_date_raw(row: dict) -> str:
+    s = _arnest_unirus_date_raw(
+        row,
+        "expiry_date_raw",
+        "expiryDateRaw",
+        "unirusExpiryDate",
+    )
+    if s:
+        return s
+    return _arnest_date_raw_from_slots(
+        row, "unirusExpiryDate", "expiryDateRaw", "expiry_date_raw"
+    )
 
 
 def _arnest_format_weight_kg_ru(raw) -> str:
@@ -410,14 +469,10 @@ def _arnest_line_barcode_data(row: dict) -> tuple[str | None, str | None]:
     batch = str(row.get("batch_number", row.get("batchNumber", ""))).strip()
     if not batch:
         return None, "не указана партия"
-    mfg = _arnest_yymmdd_for_barcode(
-        _arnest_unirus_date_raw(row, "manufacturing_date_raw", "unirusMfgDate")
-    )
+    mfg = _arnest_yymmdd_for_barcode(_arnest_mfg_date_raw(row))
     if not mfg:
         return None, "дата изготовления: нужны 6 цифр ДДММГГ"
-    exp = _arnest_yymmdd_for_barcode(
-        _arnest_unirus_date_raw(row, "expiry_date_raw", "unirusExpiryDate")
-    )
+    exp = _arnest_yymmdd_for_barcode(_arnest_exp_date_raw(row))
     if not exp:
         return None, "срок годности: нужны 6 цифр ДДММГГ"
     return f"{part_art} {batch} {mfg} {exp}", None
@@ -543,8 +598,8 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 cwk_draw = _arnest_clip_text_to_width_mm(pdf, cwk, rem_cwk)
                 pdf.cell(rem_cwk, h_txt, cwk_draw or cwk)
             y7 = y6 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
-            mfg_raw = _arnest_unirus_date_raw(row, "manufacturing_date_raw", "unirusMfgDate")
-            exp_raw = _arnest_unirus_date_raw(row, "expiry_date_raw", "unirusExpiryDate")
+            mfg_raw = _arnest_mfg_date_raw(row)
+            exp_raw = _arnest_exp_date_raw(row)
             mfg_txt = _arnest_six_digits_display_ddmmyy(mfg_raw) or "—"
             exp_txt = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
             w_kg_str = _arnest_format_weight_kg_ru(row.get("pallet_weight_kg", 0))

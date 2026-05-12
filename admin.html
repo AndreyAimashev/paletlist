@@ -2162,14 +2162,24 @@
             }
             const it = items[Number(ns.lineIndex)];
             if (it) {
-              article = String(it.article || "").trim();
-              name = String(it.name || "").trim();
-              rowLayout = Math.max(0, Number(it.row_layout) || 0);
+              if (!article) {
+                article = String(it.article || "").trim();
+                name = String(it.name || "").trim();
+                rowLayout = Math.max(0, Number(it.row_layout) || 0);
+              }
             }
-            batchNumber = String(ns.batchNumber || "").trim();
-            unirusMfgDate = String(ns.unirusMfgDate || "").trim();
-            unirusExpiryDate = String(ns.unirusExpiryDate || "").trim();
-            break;
+            const bn = String(ns.batchNumber || "").trim();
+            if (bn) {
+              batchNumber = bn;
+            }
+            const m = String(ns.unirusMfgDate || "").trim();
+            const e = String(ns.unirusExpiryDate || "").trim();
+            if (m && !unirusMfgDate) {
+              unirusMfgDate = m;
+            }
+            if (e && !unirusExpiryDate) {
+              unirusExpiryDate = e;
+            }
           }
           const palletWeightKg = computeArnestPalletWeightKg(pal, items);
           const palletBoxesQty = computeArnestPalletBoxesQty(pal, items);

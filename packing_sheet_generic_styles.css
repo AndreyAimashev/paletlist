@@ -51,6 +51,7 @@ body {
   padding: 0 2px 0 2px;
   overflow: visible;
   vertical-align: bottom;
+  box-sizing: border-box;
 }
 
 .generic-pallet-sheet .pallet-num-big {
@@ -129,6 +130,8 @@ tr.R0 td.R0C7 {
   border-top: #000000 1px solid;
   border-bottom: #000000 1px solid;
   border-right: #000000 1px solid;
+  /* WeasyPrint: дата в colspan=2 — ширина колонок 7–8 должна соответствовать макету */
+  word-break: keep-all;
 }
 
 tr.R1 {

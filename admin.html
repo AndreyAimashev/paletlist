@@ -2121,6 +2121,18 @@
         return !!(assembleOrderSnapshot && isArnestUnirusClient(assembleOrderSnapshot.client));
       }
 
+      function palletHasSelectedOrderLine(pal, itemCount) {
+        const slots = Array.isArray(pal.slots) ? pal.slots : [];
+        return slots.some((slot) => {
+          const li = slot.lineIndex;
+          if (li === "" || !Number.isFinite(Number(li))) {
+            return false;
+          }
+          const n = Number(li);
+          return n >= 0 && n < itemCount;
+        });
+      }
+
       function normalizeUnirusDateDigits(v) {
         const d = String(v || "").replace(/\D/g, "");
         if (d.length >= 6) {
@@ -3846,7 +3858,13 @@
               slots.length === 0
                 ? '<p class="muted">На паллете нет строк — нажмите «+ Добавить строку товара» ниже.</p>'
                 : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
-            const addBtn = `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`;
+            const unirusAssemble = isAssembleUnirusMode();
+            const showAddSlotRow =
+              !unirusAssemble || !palletHasSelectedOrderLine(pal, items.length);
+            const addBtn = showAddSlotRow
+              ? `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`
+              : "";
+            const addRowHtml = addBtn ? `<div class="assemble-pallet-add-row">${addBtn}</div>` : "";
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">
@@ -3856,7 +3874,7 @@
               ${removeBtn}
             </div>
             ${slotsHtml}
-            <div class="assemble-pallet-add-row">${addBtn}</div>
+            ${addRowHtml}
           </div>`;
           })
           .join("");

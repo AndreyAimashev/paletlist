@@ -291,28 +291,6 @@
         box-shadow: 0 6px 18px rgba(0, 200, 160, 0.3);
       }
 
-      .assemble-btn--print-pdf {
-        margin: 0;
-        padding: 10px 18px;
-        font-family: "Orbitron", sans-serif;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.45px;
-        text-transform: uppercase;
-        color: #09111e;
-        border: none;
-        border-radius: 10px;
-        cursor: pointer;
-        background: linear-gradient(120deg, #6b8cff 0%, var(--accent-purple) 55%, #8b5cf0 100%);
-        box-shadow: 0 4px 14px rgba(120, 100, 220, 0.25);
-        white-space: nowrap;
-      }
-
-      .assemble-btn--print-pdf:hover {
-        filter: brightness(1.06);
-        box-shadow: 0 6px 18px rgba(140, 120, 255, 0.32);
-      }
-
       .pallet-sheets-pdf-preview-wrap {
         margin-top: 4px;
         border: 1px solid rgba(0, 200, 160, 0.28);
@@ -1764,14 +1742,6 @@
           font-size: 12px;
         }
 
-        .assemble-btn--print-pdf {
-          width: 100%;
-          white-space: normal;
-          text-align: center;
-          padding: 12px 14px;
-          font-size: 12px;
-        }
-
         .assemble-workspace .assemble-btn--nav {
           width: 100%;
           text-align: center;
@@ -2141,23 +2111,6 @@
                 <span class="muted" id="pallet-sheets-order-meta"></span>
                 <button type="button" id="pallet-sheets-download" class="assemble-btn assemble-btn--download-pdf" hidden>
                   Скачать PDF паллетных листов
-                </button>
-                <button
-                  type="button"
-                  id="pallet-sheets-print-printer"
-                  class="assemble-btn assemble-btn--print-pdf"
-                  hidden
-                  title="Отправить PDF на Kyocera ECOSYS M2135dn (LAN :9100, A4, лоток 1)"
-                >
-                  На принтер
-                </button>
-                <button
-                  type="button"
-                  id="pallet-sheets-printer-ping"
-                  class="assemble-btn assemble-btn--nav"
-                  title="Проверить, открывается ли с сервера TCP-соединение с принтером (без печати)"
-                >
-                  Принтер в сети?
                 </button>
               </div>
             </div>
@@ -2543,8 +2496,6 @@
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
-      const palletSheetsPrintBtn = document.getElementById("pallet-sheets-print-printer");
-      const palletSheetsPrinterPingBtn = document.getElementById("pallet-sheets-printer-ping");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
       const palletSheetsOtherClient = document.getElementById("pallet-sheets-other-client");
@@ -2956,26 +2907,6 @@
         return t || fallback;
       }
 
-      async function buildPalletSheetsPrintApiBody(oid) {
-        if (oid == null || !Number.isFinite(oid)) {
-          return { error: "no_order" };
-        }
-        const res = await fetch(`/api/orders/${oid}`);
-        if (!res.ok) {
-          return { error: "order_fetch" };
-        }
-        const ord = await res.json();
-        const pallets = getAssemblePalletsFromOrderOrStorage(ord, oid);
-        if (!pallets || !pallets.length) {
-          return { error: "no_pallets" };
-        }
-        if (isArnestUnirusClient(ord.client || "")) {
-          const palletsPayload = buildArnestPalletPdfPayloadFromDraft(ord.items || [], pallets);
-          return { json: { pallets: palletsPayload } };
-        }
-        return { json: { page_count: pallets.length } };
-      }
-
       async function refreshPalletSheetsPanel() {
         const oid = activeStageOrderId;
         if (!palletSheetsWorkspace || oid == null || !Number.isFinite(oid)) {
@@ -2995,9 +2926,6 @@
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = true;
         }
-        if (palletSheetsPrintBtn) {
-          palletSheetsPrintBtn.hidden = true;
-        }
 
         let order;
         try {
@@ -3013,9 +2941,6 @@
           palletSheetsLoading.hidden = true;
           palletSheetsError.hidden = false;
           palletSheetsError.textContent = "Не удалось загрузить заказ.";
-          if (palletSheetsPrintBtn) {
-            palletSheetsPrintBtn.hidden = true;
-          }
           return;
         }
         if (token !== palletSheetsLoadToken) {
@@ -3033,17 +2958,11 @@
           if (palletSheetsDownloadBtn) {
             palletSheetsDownloadBtn.hidden = true;
           }
-          if (palletSheetsPrintBtn) {
-            palletSheetsPrintBtn.hidden = palletCount <= 0;
-          }
           return;
         }
 
         if (palletCount === 0) {
           palletSheetsLoading.hidden = true;
-          if (palletSheetsPrintBtn) {
-            palletSheetsPrintBtn.hidden = true;
-          }
           if (palletSheetsDraftHint) {
             palletSheetsDraftHint.hidden = false;
             palletSheetsDraftHint.textContent =
@@ -3057,9 +2976,6 @@
         }
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = false;
-        }
-        if (palletSheetsPrintBtn) {
-          palletSheetsPrintBtn.hidden = false;
         }
 
         try {
@@ -3345,80 +3261,6 @@
             URL.revokeObjectURL(url);
           };
           triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_стр.pdf`);
-        });
-      }
-
-      if (palletSheetsPrintBtn) {
-        palletSheetsPrintBtn.addEventListener("click", async () => {
-          const oid = activeStageOrderId;
-          if (oid == null || !Number.isFinite(oid)) {
-            return;
-          }
-          palletSheetsPrintBtn.disabled = true;
-          try {
-            const built = await buildPalletSheetsPrintApiBody(oid);
-            if (built.error === "no_pallets") {
-              window.alert(
-                "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
-              );
-              return;
-            }
-            if (built.error === "order_fetch" || built.error === "no_order") {
-              window.alert("Не удалось подготовить данные для печати.");
-              return;
-            }
-            const pr = await fetch("/api/print-arnest-unirus-pallet-sheets-raw", {
-              method: "POST",
-              headers: { "Content-Type": "application/json; charset=utf-8" },
-              body: JSON.stringify(built.json),
-            });
-            let payload = null;
-            try {
-              payload = await pr.json();
-            } catch (e) {
-              payload = null;
-            }
-            if (!pr.ok) {
-              const msg =
-                (payload && (payload.message || payload.error)) || `Ответ сервера: ${pr.status}`;
-              window.alert("Печать: " + msg);
-              return;
-            }
-            const info =
-              payload && payload.printer
-                ? `Принтер ${payload.printer}${payload.sent_bytes != null ? ", " + payload.sent_bytes + " байт." : "."}`
-                : "Задание отправлено.";
-            window.alert(info);
-          } catch (e) {
-            window.alert(
-              "Ошибка печати: " + (e && e.message ? String(e.message) : "сеть или сервер."),
-            );
-          } finally {
-            palletSheetsPrintBtn.disabled = false;
-          }
-        });
-      }
-
-      if (palletSheetsPrinterPingBtn) {
-        palletSheetsPrinterPingBtn.addEventListener("click", async () => {
-          palletSheetsPrinterPingBtn.disabled = true;
-          try {
-            const r = await fetch("/api/pallet-printer-raw-ping");
-            const j = await r.json().catch(() => ({}));
-            const addr = j.printer != null ? String(j.printer) : "";
-            const msg = j.message != null ? String(j.message) : "Нет описания ответа.";
-            if (j.reachable) {
-              window.alert(`Сервер видит принтер ${addr}.\n${msg}`);
-            } else {
-              window.alert(`Сервер не устанавливает соединение с ${addr}.\n${msg}`);
-            }
-          } catch (e) {
-            window.alert(
-              "Запрос проверки не выполнен: " + (e && e.message ? String(e.message) : "сеть или API."),
-            );
-          } finally {
-            palletSheetsPrinterPingBtn.disabled = false;
-          }
         });
       }
 

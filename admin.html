@@ -2250,7 +2250,7 @@
           return;
         }
 
-        const assemblePallets = tryGetAssembleDraftPallets(oid);
+        const assemblePallets = getAssemblePalletsFromOrderOrStorage(order, oid);
         const palletCount = assemblePallets ? assemblePallets.length : 0;
 
         palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"} · листов (паллет): ${palletCount}`;
@@ -2370,6 +2370,13 @@
       }
 
       function setStage(stage, recordVisit = true, orderContextForStage = undefined) {
+        if (currentStage === "assemble" && stage !== "assemble") {
+          if (assembleAllocState && assembleOrderSnapshot) {
+            syncAssembleStateFromDom();
+            clearTimeout(assembleSaveTimer);
+            void persistAssembleDraftToServer();
+          }
+        }
         const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
         const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
 
@@ -2960,6 +2967,7 @@
 
       let assembleOrderSnapshot = null;
       let assembleAllocState = null;
+      let assembleSaveTimer = null;
 
       function assembleStorageKey(orderId) {
         return `${ASSEMBLE_STORAGE_PREFIX}${orderId}`;
@@ -3277,6 +3285,17 @@
         }
       }
 
+      function getAssemblePalletsFromOrderOrStorage(orderRow, orderId) {
+        if (
+          orderRow &&
+          orderRow.assemble_state &&
+          Array.isArray(orderRow.assemble_state.pallets)
+        ) {
+          return orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
+        }
+        return tryGetAssembleDraftPallets(orderId);
+      }
+
       async function loadOrders() {
         try {
           const res = await fetch("/api/orders");
@@ -3289,7 +3308,7 @@
           }
           const enriched = await Promise.all(
             rows.map(async (o) => {
-              const pallets = tryGetAssembleDraftPallets(o.id);
+              const pallets = getAssemblePalletsFromOrderOrStorage(o, o.id);
               if (!pallets) {
                 return o;
               }
@@ -3379,7 +3398,7 @@
         }
       }
 
-      function saveAssembleDraft() {
+      function mirrorAssembleDraftLocal() {
         if (!assembleOrderSnapshot || !assembleAllocState) {
           return;
         }
@@ -3392,6 +3411,37 @@
         } catch (e) {
           /* ignore quota */
         }
+      }
+
+      async function persistAssembleDraftToServer() {
+        if (!assembleOrderSnapshot || !assembleAllocState) {
+          return;
+        }
+        const oid = assembleOrderSnapshot.id;
+        const items = assembleOrderSnapshot.items;
+        const pallets = assembleAllocState.pallets;
+        const assembled_percent = computeAssembledPercentFromDraftItems(items, pallets);
+        const assemble_state = { version: 2, pallets };
+        try {
+          const res = await fetch(`/api/orders/${oid}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assembled_percent, assemble_state }),
+          });
+          if (!res.ok) {
+            return;
+          }
+        } catch (e) {
+          return;
+        }
+      }
+
+      function saveAssembleDraft() {
+        mirrorAssembleDraftLocal();
+        clearTimeout(assembleSaveTimer);
+        assembleSaveTimer = setTimeout(() => {
+          void persistAssembleDraftToServer();
+        }, 450);
       }
 
       function validateAssembleAllocations() {
@@ -4031,10 +4081,18 @@
           client: data.client,
           items,
         };
-        const draft = loadAssembleDraft(orderId, items.length);
-        if (draft && Array.isArray(draft.pallets)) {
+        const localDraft = loadAssembleDraft(orderId, items.length);
+        const serverPallets =
+          data.assemble_state && Array.isArray(data.assemble_state.pallets)
+            ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
+            : null;
+        if (serverPallets) {
           assembleAllocState = {
-            pallets: draft.pallets.map((p) => migratePalletRecord(p)),
+            pallets: serverPallets,
+          };
+        } else if (localDraft && Array.isArray(localDraft.pallets)) {
+          assembleAllocState = {
+            pallets: localDraft.pallets.map((p) => migratePalletRecord(p)),
           };
         } else {
           assembleAllocState = {
@@ -4042,7 +4100,12 @@
           };
         }
         finalizeAssembleSlots();
-        saveAssembleDraft();
+        if (!serverPallets && localDraft && Array.isArray(localDraft.pallets)) {
+          mirrorAssembleDraftLocal();
+          void persistAssembleDraftToServer();
+        } else if (serverPallets) {
+          mirrorAssembleDraftLocal();
+        }
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
         if (assembleSummaryUnitToolbar) {

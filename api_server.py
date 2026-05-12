@@ -903,6 +903,102 @@ def _init_orders_table(cur):
         )
         """
     )
+    order_cols = {r[1] for r in cur.execute("PRAGMA table_info(orders)").fetchall()}
+    if "assemble_state" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN assemble_state TEXT NOT NULL DEFAULT ''"
+        )
+
+
+_MAX_ASSEMBLE_STATE_JSON_BYTES = 2 * 1024 * 1024
+
+
+def _assemble_state_cell_to_api(value) -> dict | None:
+    """JSON из БД → объект для API или None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        obj = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict) or not isinstance(obj.get("pallets"), list):
+        return None
+    return obj
+
+
+def patch_order_assembly(order_id: int, body: dict) -> dict:
+    """Частичное обновление: assembled_percent и/или assemble_state (распределение по паллетам)."""
+    if not isinstance(body, dict):
+        return {"error": "validation", "message": "Ожидался JSON-объект."}
+    has_pct = "assembled_percent" in body
+    has_state = "assemble_state" in body
+    if not has_pct and not has_state:
+        return {
+            "error": "validation",
+            "message": "Передайте assembled_percent и/или assemble_state.",
+        }
+    new_pct = None
+    if has_pct:
+        try:
+            new_pct = max(0, min(100, int(body["assembled_percent"])))
+        except (TypeError, ValueError):
+            return {"error": "validation", "message": "assembled_percent: нужно целое 0…100."}
+    new_state_json = None
+    if has_state:
+        st = body["assemble_state"]
+        if st is None:
+            new_state_json = ""
+        elif not isinstance(st, dict):
+            return {"error": "validation", "message": "assemble_state: ожидался объект или null."}
+        else:
+            try:
+                new_state_json = json.dumps(st, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return {"error": "validation", "message": "assemble_state: не удалось сериализовать в JSON."}
+            if len(new_state_json.encode("utf-8")) > _MAX_ASSEMBLE_STATE_JSON_BYTES:
+                return {
+                    "error": "validation",
+                    "message": "assemble_state слишком большой.",
+                }
+            pallets = st.get("pallets")
+            if not isinstance(pallets, list):
+                return {
+                    "error": "validation",
+                    "message": "assemble_state.pallets: ожидался массив.",
+                }
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT id, assembled_percent, assemble_state
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        apct = new_pct if new_pct is not None else max(
+            0, min(100, int(row["assembled_percent"] or 0))
+        )
+        if new_state_json is not None:
+            ajson = new_state_json
+        else:
+            ajson = row["assemble_state"] or ""
+        cur.execute(
+            """
+            UPDATE orders SET assembled_percent = ?, assemble_state = ?
+            WHERE id = ?
+            """,
+            (apct, ajson, order_id),
+        )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": int(order_id)}
 
 
 def _format_ship_date_storage(value: str) -> str:
@@ -1151,7 +1247,7 @@ def update_order_with_items(order_id: int, body: dict):
             return res_err
         names_summary = _format_order_names_summary(normalized)
         row = cur.execute(
-            "SELECT id, assembled_percent, extra_info FROM orders WHERE id = ?",
+            "SELECT id, assembled_percent, extra_info, assemble_state FROM orders WHERE id = ?",
             (order_id,),
         ).fetchone()
         if not row:
@@ -1159,12 +1255,13 @@ def update_order_with_items(order_id: int, body: dict):
             return {"error": "not_found", "message": "Заказ не найден."}
         apct = max(0, min(100, int(row["assembled_percent"] or 0)))
         xinfo = row["extra_info"] or ""
+        xasm = row["assemble_state"] or ""
         cur.execute(
             """
-            UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?, extra_info = ?
+            UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?, extra_info = ?, assemble_state = ?
             WHERE id = ?
             """,
-            (ship, client_n, names_summary, apct, xinfo, order_id),
+            (ship, client_n, names_summary, apct, xinfo, xasm, order_id),
         )
         cur.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
         for pid, article, name, qty, unit in normalized:
@@ -1203,7 +1300,7 @@ def fetch_order_detail(order_id: int):
         con = get_connection()
         row = con.execute(
             """
-            SELECT id, ship_date, client, assembled_percent, names, extra_info
+            SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -1239,6 +1336,7 @@ def fetch_order_detail(order_id: int):
         "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
         "names": row["names"] or "",
         "extra_info": row["extra_info"] or "",
+        "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
         "items": items,
     }
 
@@ -1260,7 +1358,7 @@ def fetch_orders():
         con = get_connection()
         rows = con.execute(
             """
-            SELECT id, ship_date, client, assembled_percent, names, extra_info
+            SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state
             FROM orders ORDER BY id DESC
             """
         ).fetchall()
@@ -1305,6 +1403,7 @@ def fetch_orders():
                 "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
                 "names": row["names"] or "",
                 "extra_info": row["extra_info"] or "",
+                "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
                 "items": items,
             }
         )
@@ -1749,6 +1848,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Item not found"})
             return
         self._send_json(200, {"ok": True})
+
+    def do_PATCH(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        oid = _parse_orders_detail_id(path)
+        if oid is None:
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+        try:
+            result = patch_order_assembly(oid, body)
+        except sqlite3.Error as exc:
+            self._send_json(500, {"error": "database", "message": str(exc)})
+            return
+        err = result.get("error")
+        if err == "validation":
+            self._send_json(400, result)
+            return
+        if err == "not_found":
+            self._send_json(404, result)
+            return
+        self._send_json(200, result)
 
     def do_DELETE(self):
         parsed = urlparse(self.path)

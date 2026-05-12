@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import socket
 import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -59,6 +60,10 @@ def _is_orders_list_path(path: str) -> bool:
 
 def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-pdf"
+
+
+def _is_print_arnest_unirus_pallet_sheets_raw_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/print-arnest-unirus-pallet-sheets-raw"
 
 
 # Префикс Code128 данных паллеты (как в макросе Word / tec-it).
@@ -828,6 +833,71 @@ def build_blank_arnest_unirus_pallet_sheets_pdf(page_count: int) -> tuple[bytes 
     if isinstance(raw, str):
         return raw.encode("latin-1"), ""
     return None, "pdf_build"
+
+
+def build_arnest_unirus_pallet_sheets_pdf_bytes(body: dict) -> tuple[bytes | None, str | None, str | None]:
+    """Собрать PDF в памяти (тот же ввод, что у POST /api/arnest-unirus-pallet-sheets-pdf).
+    Возвращает (pdf_bytes, err_code, err_detail); err_code None при успехе."""
+    pallets_raw = body.get("pallets")
+    if isinstance(pallets_raw, list) and len(pallets_raw) > 0:
+        blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_with_barcodes(pallets_raw)
+        if err:
+            return None, err, err_detail or _arnest_pallet_pdf_error_message(err)
+        return blob, None, None
+    if isinstance(pallets_raw, list) and len(pallets_raw) == 0:
+        return None, "validation_pallets", _arnest_pallet_pdf_error_message("validation_pallets")
+    raw = body.get("page_count", body.get("pages", 0))
+    try:
+        page_count = int(raw)
+    except (TypeError, ValueError):
+        page_count = 0
+    blob, err = build_blank_arnest_unirus_pallet_sheets_pdf(page_count)
+    if err:
+        return None, err, _arnest_pallet_pdf_error_message(err)
+    return blob, None, None
+
+
+def _wrap_pdf_pjl_a4_tray1(pdf: bytes) -> bytes:
+    """PJL перед/после PDF для JetDirect: A4, лоток 1, язык PDF."""
+    uel = b"\x1b%-12345X"
+    crlf = b"\r\n"
+    pjl = (
+        b'@PJL JOB NAME = "Paletlist pallets"'
+        + crlf
+        + b"@PJL SET PAPER = A4"
+        + crlf
+        + b"@PJL SET MEDIASOURCE = TRAY1"
+        + crlf
+        + b"@PJL ENTER LANGUAGE = PDF"
+        + crlf
+    )
+    end = crlf + b"@PJL EOJ" + crlf + uel
+    return uel + pjl + pdf + end
+
+
+def send_pdf_to_raw_lan_printer(pdf: bytes) -> tuple[bool, str, int]:
+    """Отправка PDF на принтер по TCP:9100 (сервер должен видеть IP принтера в LAN).
+    Обёртка PJL A4/лоток1 — по умолчанию включена (PALLET_RAW_PRINT_PJL=0 — только сырые байты PDF)."""
+    host = (os.environ.get("PALLET_RAW_PRINT_HOST") or "192.168.1.196").strip()
+    port_raw = (os.environ.get("PALLET_RAW_PRINT_PORT") or "9100").strip()
+    try:
+        port = int(port_raw)
+    except ValueError:
+        return False, "Некорректный PALLET_RAW_PRINT_PORT", 0
+    timeout = float((os.environ.get("PALLET_RAW_PRINT_TIMEOUT_SEC") or "25").strip() or "25")
+    use_pjl = (os.environ.get("PALLET_RAW_PRINT_PJL", "1") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    payload = _wrap_pdf_pjl_a4_tray1(pdf) if use_pjl else pdf
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.sendall(payload)
+    except OSError as exc:
+        return False, f"{host}:{port}: {exc}", 0
+    return True, f"{host}:{port}", len(payload)
 
 
 def _parse_orders_detail_id(path: str):
@@ -1763,55 +1833,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
         (даты — 6 цифр ДДММГГ), опционально pallet_number для штрих-кода строки 14 (1500000+суффикс),
         либо только { \"page_count\": N } — пустые страницы A4."""
-        pallets_raw = body.get("pallets")
-        if isinstance(pallets_raw, list) and len(pallets_raw) > 0:
-            blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
-                pallets_raw
-            )
-            if err:
-                status_map = {
-                    "validation_pallets": 400,
-                    "validation_pallet": 400,
-                    "no_fpdf": 503,
-                    "no_barcode": 503,
-                    "no_line2_font": 503,
-                    "pdf_build": 500,
-                    "barcode_fetch": 500,
-                }
-                status = status_map.get(err, 500)
-                msg = err_detail or _arnest_pallet_pdf_error_message(err)
-                self._send_json(status, {"error": err, "message": msg})
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "application/pdf")
-            self.send_header("Content-Length", str(len(blob)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(blob)
-            return
-        if isinstance(pallets_raw, list) and len(pallets_raw) == 0:
-            self._send_json(
-                400,
-                {
-                    "error": "validation_pallets",
-                    "message": _arnest_pallet_pdf_error_message("validation_pallets"),
-                },
-            )
-            return
-
-        raw = body.get("page_count", body.get("pages", 0))
-        try:
-            page_count = int(raw)
-        except (TypeError, ValueError):
-            page_count = 0
-        blob, err = build_blank_arnest_unirus_pallet_sheets_pdf(page_count)
+        blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_bytes(body)
         if err:
-            status_map = {"validation": 400, "no_fpdf": 503, "pdf_build": 500}
+            status_map = {
+                "validation_pallets": 400,
+                "validation_pallet": 400,
+                "validation": 400,
+                "no_fpdf": 503,
+                "no_barcode": 503,
+                "no_line2_font": 503,
+                "pdf_build": 500,
+                "barcode_fetch": 500,
+            }
             status = status_map.get(err, 500)
-            self._send_json(
-                status,
-                {"error": err, "message": _arnest_pallet_pdf_error_message(err)},
-            )
+            msg = err_detail or _arnest_pallet_pdf_error_message(err)
+            self._send_json(status, {"error": err, "message": msg})
             return
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
@@ -1819,6 +1855,36 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(blob)
+
+    def _respond_print_arnest_unirus_pallet_sheets_raw(self, body: dict):
+        """Тот же JSON, что для PDF; сервер отправляет сформированный PDF на принтер (TCP JetDirect)."""
+        blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_bytes(body)
+        if err:
+            status_map = {
+                "validation_pallets": 400,
+                "validation_pallet": 400,
+                "validation": 400,
+                "no_fpdf": 503,
+                "no_barcode": 503,
+                "no_line2_font": 503,
+                "pdf_build": 500,
+                "barcode_fetch": 500,
+            }
+            status = status_map.get(err, 500)
+            msg = err_detail or _arnest_pallet_pdf_error_message(err)
+            self._send_json(status, {"error": err, "message": msg})
+            return
+        ok, info, nbytes = send_pdf_to_raw_lan_printer(blob)
+        if not ok:
+            self._send_json(
+                502,
+                {"error": "print_transport", "message": info or "Ошибка отправки на принтер"},
+            )
+            return
+        self._send_json(
+            200,
+            {"ok": True, "printer": info, "sent_bytes": nbytes},
+        )
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -1854,6 +1920,14 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_print_arnest_unirus_pallet_sheets_raw_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            self._respond_print_arnest_unirus_pallet_sheets_raw(body)
+            return
         if _is_arnest_unirus_pallet_sheets_pdf_path(path):
             try:
                 body = self._read_json_body()

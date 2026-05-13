@@ -33,6 +33,22 @@ except ImportError:
     Code128 = None  # type: ignore
     ImageWriter = None  # type: ignore
 
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    HAVE_OPENPYXL = True
+except ImportError:
+    HAVE_OPENPYXL = False
+    Workbook = None  # type: ignore
+    Alignment = None  # type: ignore
+    Border = None  # type: ignore
+    Font = None  # type: ignore
+    PatternFill = None  # type: ignore
+    Side = None  # type: ignore
+    get_column_letter = None  # type: ignore
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "warehouse.db"
@@ -72,6 +88,10 @@ def _is_orders_list_path(path: str) -> bool:
 
 def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-pdf"
+
+
+def _is_arnest_unirus_pallet_sheets_xlsx_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-xlsx"
 
 
 def _is_print_arnest_unirus_pallet_sheets_raw_path(path: str) -> bool:
@@ -315,6 +335,8 @@ def _arnest_pallet_pdf_error_message(code: str) -> str:
             "Не найдены TTF для текста паллетного PDF (жирный обязателен). На сервере: apt install fonts-dejavu-core "
             "или положите calibri.ttf и calibrib.ttf в каталог fonts/ рядом с api_server.py."
         ),
+        "no_openpyxl": 'На сервере не установлен openpyxl (pip install openpyxl).',
+        "xlsx_build": "Не удалось сформировать Excel-файл.",
     }.get(code, "Ошибка генерации PDF.")
 
 
@@ -871,6 +893,162 @@ def build_arnest_unirus_pallet_sheets_pdf_bytes(body: dict) -> tuple[bytes | Non
     if err:
         return None, err, _arnest_pallet_pdf_error_message(err)
     return blob, None, None
+
+
+def build_arnest_unirus_pallet_sheets_xlsx_bytes(
+    body: dict,
+) -> tuple[bytes | None, str | None, str | None]:
+    """Тот же JSON { \"pallets\": [...] }, что для PDF — сводная таблица XLSX с весами и реквизитами."""
+    if not HAVE_OPENPYXL or Workbook is None or get_column_letter is None:
+        return None, "no_openpyxl", _arnest_pallet_pdf_error_message("no_openpyxl")
+    pallets_raw = body.get("pallets")
+    if not isinstance(pallets_raw, list) or len(pallets_raw) == 0:
+        return None, "validation_pallets", _arnest_pallet_pdf_error_message("validation_pallets")
+    if len(pallets_raw) > MAX_PALLET_SHEET_PDF_PAGES:
+        return None, "validation_pallets", _arnest_pallet_pdf_error_message("validation_pallets")
+
+    validated: list[tuple[dict, str]] = []
+    for idx, row in enumerate(pallets_raw, start=1):
+        if not isinstance(row, dict):
+            return None, "validation_pallet", f"Паллета {idx}: ожидался объект с полями."
+        data, err_detail = _arnest_line_barcode_data(row)
+        if err_detail:
+            return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
+        validated.append((row, data))
+
+    try:
+        wb = Workbook()
+        ws = wb.active
+        if ws is None:
+            return None, "xlsx_build", _arnest_pallet_pdf_error_message("xlsx_build")
+        ws.title = "Паллеты"
+
+        thin = Side(style="thin", color="5A6578")
+        grid_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        hdr_fill = PatternFill("solid", fgColor="147A6E")
+        hdr_font = Font(bold=True, color="FFFFFF", size=11)
+        title_font = Font(bold=True, size=14, color="153045")
+        zebra_fill = PatternFill("solid", fgColor="F0F4F8")
+
+        ws.merge_cells("A1:N1")
+        tcell = ws["A1"]
+        tcell.value = "Арнест Юнирусь — свод по паллетам (как на PDF со штрих-кодами)"
+        tcell.font = title_font
+        tcell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 26
+
+        headers = (
+            "№",
+            "Номер паллеты",
+            "Артикул",
+            "Наименование",
+            "Партия",
+            "Дата изготовления",
+            "Срок годности",
+            "Вес нетто, кг",
+            "Коробок",
+            "Штук",
+            "Коробок в ряду",
+            "TI×HI",
+            "Остаток коробок",
+            "Штрих-код строка 1",
+        )
+        hdr_row = 3
+        for col_idx, text in enumerate(headers, start=1):
+            c = ws.cell(row=hdr_row, column=col_idx, value=text)
+            c.fill = hdr_fill
+            c.font = hdr_font
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = grid_border
+
+        widths = (5, 14, 18, 38, 16, 14, 14, 14, 11, 11, 14, 12, 14, 30)
+        for i, wch in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = wch
+
+        data_start = 4
+        total_weight = 0.0
+        for i, (row, bc_line1) in enumerate(validated, start=1):
+            r = data_start + i - 1
+            mfg_raw = _arnest_mfg_date_raw(row)
+            exp_raw = _arnest_exp_date_raw(row)
+            mfg_disp = _arnest_six_digits_display_ddmmyy(mfg_raw) or "—"
+            exp_disp = _arnest_six_digits_display_ddmmyy(exp_raw) or "—"
+            try:
+                w_kg = float(row.get("pallet_weight_kg", 0) or 0)
+            except (TypeError, ValueError):
+                w_kg = 0.0
+            if not math.isfinite(w_kg) or w_kg < 0:
+                w_kg = 0.0
+            total_weight += w_kg
+            try:
+                boxes_f = float(row.get("pallet_boxes_qty", row.get("pallet_qty", 0)) or 0)
+            except (TypeError, ValueError):
+                boxes_f = 0.0
+            try:
+                units_f = float(row.get("units_pc", row.get("unitsPc", 0)) or 0)
+            except (TypeError, ValueError):
+                units_f = 0.0
+            rl = int(row.get("row_layout", 0) or 0)
+            if rl > 0 and math.isfinite(boxes_f):
+                full_rows = int(math.floor(boxes_f / rl + 1e-9))
+                ti_hi = f"{rl}×{full_rows}"
+            else:
+                ti_hi = "—"
+            rem_star = _arnest_remainder_boxes_star_one(boxes_f, rl)
+            boxes_disp = _arnest_format_boxes_qty_for_barcode(boxes_f)
+            units_disp = _arnest_format_boxes_qty_for_barcode(units_f)
+            pallet_no = str(row.get("pallet_number", row.get("palletNumber", "")) or "").strip()
+            article = str(row.get("article", "") or "").strip()
+            name = str(row.get("name", row.get("product_name", "")) or "").strip()
+            batch = str(row.get("batch_number", row.get("batchNumber", "")) or "").strip()
+
+            vals = (
+                i,
+                pallet_no,
+                article,
+                name,
+                batch,
+                mfg_disp,
+                exp_disp,
+                w_kg,
+                boxes_disp,
+                units_disp,
+                rl if rl else "—",
+                ti_hi,
+                rem_star,
+                bc_line1,
+            )
+            for col_idx, val in enumerate(vals, start=1):
+                cell = ws.cell(row=r, column=col_idx, value=val)
+                cell.border = grid_border
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                if i % 2 == 0:
+                    cell.fill = zebra_fill
+            ws.cell(row=r, column=8).number_format = "0.000"
+
+        last_data = data_start + len(validated) - 1
+        sum_row = last_data + 1
+        ws.cell(row=sum_row, column=7, value="Итого вес, кг:")
+        ws.cell(row=sum_row, column=7).font = Font(bold=True)
+        ws.cell(row=sum_row, column=7).alignment = Alignment(horizontal="right", vertical="center")
+        ws.cell(row=sum_row, column=7).border = grid_border
+        c_w = ws.cell(row=sum_row, column=8, value=round(total_weight, 3))
+        c_w.font = Font(bold=True)
+        c_w.number_format = "0.000"
+        c_w.border = grid_border
+        for col in range(1, 15):
+            if col in (7, 8):
+                continue
+            ws.cell(row=sum_row, column=col, value="").border = grid_border
+
+        ws.freeze_panes = ws.cell(row=data_start, column=1)
+        ws.auto_filter.ref = f"A{hdr_row}:N{last_data}"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue(), None, None
+    except Exception as exc:
+        return None, "xlsx_build", f"{_arnest_pallet_pdf_error_message('xlsx_build')} ({exc})"
 
 
 def _wrap_pdf_pjl_a4_tray1(pdf: bytes) -> bytes:
@@ -1927,6 +2105,30 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(blob)
 
+    def _respond_arnest_unirus_pallet_sheets_xlsx(self, body: dict):
+        """POST JSON: тот же { \"pallets\": [...] }, что для PDF — Excel со сводом по паллетам."""
+        blob, err, err_detail = build_arnest_unirus_pallet_sheets_xlsx_bytes(body)
+        if err:
+            status_map = {
+                "validation_pallets": 400,
+                "validation_pallet": 400,
+                "no_openpyxl": 503,
+                "xlsx_build": 500,
+            }
+            status = status_map.get(err, 500)
+            msg = err_detail or _arnest_pallet_pdf_error_message(err)
+            self._send_json(status, {"error": err, "message": msg})
+            return
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.send_header("Content-Length", str(len(blob)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(blob)
+
     def _respond_print_arnest_unirus_pallet_sheets_raw(self, body: dict):
         """Тот же JSON, что для PDF; сервер отправляет сформированный PDF на принтер (TCP JetDirect)."""
         blob, err, err_detail = build_arnest_unirus_pallet_sheets_pdf_bytes(body)
@@ -2088,6 +2290,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             self._respond_print_arnest_unirus_pallet_sheets_raw(body)
+            return
+        if _is_arnest_unirus_pallet_sheets_xlsx_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            self._respond_arnest_unirus_pallet_sheets_xlsx(body)
             return
         if _is_arnest_unirus_pallet_sheets_pdf_path(path):
             try:

@@ -312,6 +312,28 @@
         border-color: rgba(0, 200, 160, 0.65);
       }
 
+      .assemble-btn--download-xlsx {
+        margin: 0;
+        padding: 10px 18px;
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: #0a1218;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        background: linear-gradient(125deg, #2d8f6f, #1e6b52 50%, #3daf8a);
+        box-shadow: 0 4px 14px rgba(45, 143, 111, 0.28);
+        white-space: nowrap;
+      }
+
+      .assemble-btn--download-xlsx:hover {
+        filter: brightness(1.07);
+        box-shadow: 0 6px 18px rgba(45, 143, 111, 0.36);
+      }
+
       .pallet-sheets-pdf-preview-wrap {
         margin-top: 4px;
         border: 1px solid rgba(0, 200, 160, 0.28);
@@ -1763,6 +1785,14 @@
           font-size: 12px;
         }
 
+        .assemble-btn--download-xlsx {
+          width: 100%;
+          white-space: normal;
+          text-align: center;
+          padding: 12px 14px;
+          font-size: 12px;
+        }
+
         .assemble-workspace .assemble-btn--nav {
           width: 100%;
           text-align: center;
@@ -2147,6 +2177,9 @@
                 <button type="button" id="pallet-sheets-download" class="assemble-btn assemble-btn--download-pdf" hidden>
                   Скачать PDF паллетных листов
                 </button>
+                <button type="button" id="pallet-sheets-download-xlsx" class="assemble-btn assemble-btn--download-xlsx" hidden>
+                  Скачать Excel по паллетам
+                </button>
               </div>
             </div>
             <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
@@ -2525,6 +2558,7 @@
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
+      const palletSheetsDownloadXlsxBtn = document.getElementById("pallet-sheets-download-xlsx");
       const palletSheetsDownloadHtmlBtn = document.getElementById("pallet-sheets-download-html");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
@@ -2715,6 +2749,25 @@
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify(bodyObj),
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.message || j.error || "";
+          } catch (e2) {
+            /* ignore */
+          }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return res.blob();
+      }
+
+      async function fetchArnestPalletSheetsXlsxBlob(payload) {
+        const res = await fetch("/api/arnest-unirus-pallet-sheets-xlsx", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(payload),
         });
         if (!res.ok) {
           let detail = "";
@@ -3000,6 +3053,9 @@
         if (palletSheetsDownloadHtmlBtn) {
           palletSheetsDownloadHtmlBtn.hidden = true;
         }
+        if (palletSheetsDownloadXlsxBtn) {
+          palletSheetsDownloadXlsxBtn.hidden = true;
+        }
 
         let order;
         try {
@@ -3094,6 +3150,9 @@
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = false;
           palletSheetsDownloadBtn.textContent = "Скачать PDF паллетных листов";
+        }
+        if (palletSheetsDownloadXlsxBtn) {
+          palletSheetsDownloadXlsxBtn.hidden = false;
         }
 
         try {
@@ -3392,6 +3451,55 @@
             return;
           }
           triggerDownload(blob, `Паллетные_листы_заказ_${oid}_${n}_стр.pdf`);
+        });
+      }
+
+      if (palletSheetsDownloadXlsxBtn) {
+        palletSheetsDownloadXlsxBtn.addEventListener("click", async () => {
+          const oid = activeStageOrderId;
+          if (oid == null || !Number.isFinite(oid)) {
+            return;
+          }
+          if (palletSheetsDownloadKind !== "arnest") {
+            return;
+          }
+          const pallets = tryGetAssembleDraftPallets(oid);
+          if (!pallets || !pallets.length) {
+            window.alert(
+              "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
+            );
+            return;
+          }
+          const triggerDownload = (b, filename) => {
+            const url = URL.createObjectURL(b);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            a.rel = "noopener";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          };
+          const n = pallets.length;
+          let blob;
+          try {
+            const res = await fetch(`/api/orders/${oid}`);
+            if (!res.ok) {
+              window.alert("Не удалось загрузить заказ для выгрузки Excel.");
+              return;
+            }
+            const ord = await res.json();
+            const orderItems = ord.items || [];
+            const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
+            blob = await fetchArnestPalletSheetsXlsxBlob({ pallets: palletsPayload });
+          } catch (e) {
+            window.alert(
+              "Не удалось сформировать Excel: " + (e && e.message ? String(e.message) : "ошибка сервера."),
+            );
+            return;
+          }
+          triggerDownload(blob, `Паллеты_Юнирусь_заказ_${oid}_${n}.xlsx`);
         });
       }
 

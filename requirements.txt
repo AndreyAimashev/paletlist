@@ -1,3 +1,4 @@
 fpdf2>=2.7.0
 python-barcode[images]>=0.15.0
 weasyprint>=62.0
+openpyxl>=3.1.0

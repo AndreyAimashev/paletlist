@@ -1852,8 +1852,19 @@
           height: 16px;
         }
 
-        .orders-row-actions {
-          gap: 6px 8px;
+        /* Кнопки заказа: один ряд, прижаты к низу строки (остальные ячейки сверху) */
+        .orders-table td.col-actions {
+          vertical-align: bottom;
+          padding-top: 14px;
+        }
+
+        .orders-table .orders-row-actions {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 6px;
         }
 
         .nomenclature-workspace-scroll {

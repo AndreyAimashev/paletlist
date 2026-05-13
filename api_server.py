@@ -8,6 +8,7 @@ import re
 import socket
 import sqlite3
 import threading
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -1258,16 +1259,16 @@ def _migrate_products(cur):
             )
 
 
-# Хвосты наименований: «, шт» / «, набор» и варианты (ASCII/полноширинная запятая, без пробела, NBSP).
+# Хвосты наименований: «, шт» / «, набор» и варианты (запятая ASCII/полношир./„ , опц. точка после шт).
 _NAME_SUFFIX_TRAIL_PATTERNS = (
-    re.compile(r"\s*[,，]\s*набор\s*$", re.IGNORECASE),
-    re.compile(r"\s*[,，]\s*шт\s*$", re.IGNORECASE),
+    re.compile(r"\s*[\u002C\uFF0C\u201A]\s*набор\.?\s*$", re.IGNORECASE),
+    re.compile(r"\s*[\u002C\uFF0C\u201A]\s*шт\.?\s*$", re.IGNORECASE),
 )
 
 
 def _strip_trailing_name_suffix(name: str) -> str:
     """Убирает хвост «, шт» / «, набор» (и типичные варианты написания) в конце наименования."""
-    s = (name or "").rstrip()
+    s = unicodedata.normalize("NFKC", name or "").rstrip()
     changed = True
     while changed and s:
         changed = False
@@ -1964,34 +1965,48 @@ def fetch_orders():
 
 
 def fetch_nomenclature():
+    """Список номенклатуры; имена без хвоста «, шт» / «, набор», при расхождении — правка в БД."""
     with DB_LOCK:
         con = get_connection()
-        rows = con.execute(
+        cur = con.cursor()
+        rows = cur.execute(
             """
             SELECT id, article, name,
                    pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
             FROM products ORDER BY id
             """
         ).fetchall()
+        updates: list[tuple[str, int]] = []
+        out = []
+        for row in rows:
+            pib = int(row["pieces_in_box"] or 0)
+            sib = max(1, int(row["sets_in_box"] or 1))
+            pps = _computed_pieces_per_set_for_api(pib, sib)
+            raw_name = row["name"] if row["name"] is not None else ""
+            clean_name = _strip_trailing_name_suffix(raw_name)
+            if clean_name != raw_name:
+                updates.append((clean_name, int(row["id"])))
+            out.append(
+                {
+                    "id": row["id"],
+                    "article": row["article"] or "",
+                    "name": clean_name,
+                    "pieces_in_box": pib,
+                    "sets_in_box": sib,
+                    "pieces_per_set": pps,
+                    "row_layout": int(row["row_layout"] or 0),
+                    "max_rows": int(row["max_rows"] or 0),
+                    "box_weight": float(row["box_weight"] or 0),
+                }
+            )
+        for clean_name, rid in updates:
+            cur.execute(
+                "UPDATE products SET name = ? WHERE id = ?",
+                (clean_name, rid),
+            )
+        if updates:
+            con.commit()
         con.close()
-    out = []
-    for row in rows:
-        pib = int(row["pieces_in_box"] or 0)
-        sib = max(1, int(row["sets_in_box"] or 1))
-        pps = _computed_pieces_per_set_for_api(pib, sib)
-        out.append(
-            {
-                "id": row["id"],
-                "article": row["article"] or "",
-                "name": row["name"] or "",
-                "pieces_in_box": pib,
-                "sets_in_box": sib,
-                "pieces_per_set": pps,
-                "row_layout": int(row["row_layout"] or 0),
-                "max_rows": int(row["max_rows"] or 0),
-                "box_weight": float(row["box_weight"] or 0),
-            }
-        )
     return out
 
 

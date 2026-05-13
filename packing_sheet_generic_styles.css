@@ -76,9 +76,12 @@ body {
   font-weight: normal;
 }
 
-/* Строка 2: подпись слева; номер паллеты, «из», всего — по центру листа */
+/* Строка 2: подпись слева, триплет по центру страницы; подпись и числа на одной горизонтали (align-items: center) */
 .generic-row2 {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10pt;
   width: 100%;
   margin: 10pt 0 0 0;
   padding: 0;
@@ -90,20 +93,21 @@ body {
 }
 
 .generic-r2-label {
-  position: relative;
-  z-index: 1;
-  display: inline-block;
-  vertical-align: baseline;
+  justify-self: start;
+  align-self: center;
+  display: block;
   background: #ffffff;
 }
 
 .generic-r2-center {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
+  justify-self: center;
   text-align: center;
   box-sizing: border-box;
+  pointer-events: none;
+}
+
+.generic-r2-spacer {
+  min-width: 0;
   pointer-events: none;
 }
 

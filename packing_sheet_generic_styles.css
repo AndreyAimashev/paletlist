@@ -24,6 +24,9 @@ body {
   box-sizing: border-box;
   page-break-after: always;
   break-after: page;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .generic-pallet-sheet:last-of-type {
@@ -56,4 +59,36 @@ body {
   vertical-align: baseline;
   box-sizing: border-box;
   font-weight: normal;
+}
+
+/* Строка 2: подпись у левого края (как строка 1); три соприкасающиеся рамки через border-collapse */
+.generic-row2 {
+  margin: 10pt 0 0 0;
+  padding: 0;
+  text-align: left;
+  font-size: 14pt;
+  line-height: 1.4;
+  color: #000000;
+}
+
+.generic-r2-label {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.generic-r2-triplet {
+  display: inline-table;
+  border-collapse: collapse;
+  vertical-align: baseline;
+  margin: 0;
+  padding: 0;
+}
+
+.generic-r2-cell {
+  border: 1px solid #000000;
+  padding: 1px 10px 2px;
+  text-align: center;
+  vertical-align: middle;
+  font-weight: normal;
+  box-sizing: border-box;
 }

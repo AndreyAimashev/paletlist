@@ -43,6 +43,17 @@ def _migrate_pallet(p: dict[str, Any]) -> dict[str, Any]:
     return {"id": pid, "palletNumber": pallet_number, "slots": []}
 
 
+def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
+    """Номер паллеты для строки 2: цифра в рамке; если пусто — порядковый номер."""
+    raw = str(pnum_raw or "").strip()
+    if not raw:
+        return str(pallet_index)
+    try:
+        return str(int(float(raw.replace(",", "."))))
+    except ValueError:
+        return raw
+
+
 def _load_styles() -> str:
     if STYLES_PATH.is_file():
         return STYLES_PATH.read_text(encoding="utf-8")
@@ -55,7 +66,7 @@ def _load_styles() -> str:
 
 
 def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Полный HTML: альбомная страница на паллету (строка 1 — шапка листа)."""
+    """Полный HTML: альбомная страница на паллету (строки 1–2 шапки)."""
     if _is_arnest_unirus_client(str(detail.get("client") or "")):
         return None, "arnest_client"
     st = detail.get("assemble_state")
@@ -71,15 +82,18 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     order_id = detail.get("id")
     ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
     ship_e = html.escape(ship_ru, quote=True)
+    total_pallets = len(pallets)
+    total_e = html.escape(str(total_pallets), quote=True)
 
     sections: list[str] = []
     for idx, pal in enumerate(pallets, start=1):
         pnum_raw = str(pal.get("palletNumber") or "").strip()
         list_no = _packing_list_number(order_id, pnum_raw, idx)
         list_no_e = html.escape(list_no, quote=True)
+        pallet_disp = _pallet_no_display(pnum_raw, idx)
+        pallet_disp_e = html.escape(pallet_disp, quote=True)
 
         row1 = (
-            '<div class="generic-pallet-sheet">'
             '<div class="generic-row1">'
             '<span class="generic-r1-label">Упаковочный лист №</span>'
             '<span class="generic-r1-gap"> </span>'
@@ -87,9 +101,20 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             '<span class="generic-r1-label">Дата</span>'
             '<span class="generic-r1-gap"> </span>'
             f'<span class="generic-r1-frame">{ship_e}</span>'
-            "</div></div>"
+            "</div>"
         )
-        sections.append(row1)
+        row2 = (
+            '<div class="generic-row2">'
+            '<span class="generic-r2-label">Номер паллета</span>'
+            '<span class="generic-r2-gap"> </span>'
+            '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
+            "<tr>"
+            f'<td class="generic-r2-cell">{pallet_disp_e}</td>'
+            '<td class="generic-r2-cell">из</td>'
+            f'<td class="generic-r2-cell">{total_e}</td>'
+            "</tr></table></div>"
+        )
+        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}</div>')
 
     styles = _load_styles()
     doc = (

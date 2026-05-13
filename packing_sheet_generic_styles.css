@@ -191,3 +191,15 @@ body {
   text-align: left;
   vertical-align: top;
 }
+
+.generic-lines-table tfoot td {
+  border: 1px solid #000000;
+  padding: 4px 6px;
+  font-weight: bold;
+  vertical-align: middle;
+}
+
+.generic-td-total-label {
+  text-align: right;
+  padding-right: 8px;
+}

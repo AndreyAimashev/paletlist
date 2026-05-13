@@ -185,6 +185,8 @@ def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, A
         )
 
     body_parts: list[str] = []
+    total_boxes = 0.0
+    total_weight = 0.0
     for n, li in enumerate(order_keys, start=1):
         it = items[li]
         row = agg[li]
@@ -195,6 +197,8 @@ def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, A
         pib = max(0, int(it.get("pieces_in_box") or 0))
         bw = float(it.get("box_weight") or 0)
         weight = box * bw if bw > 0 and box > 0 else 0.0
+        total_boxes += box
+        total_weight += weight
 
         title = _nomenclature_title(it)
         title_e = html.escape(title, quote=True)
@@ -213,7 +217,18 @@ def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, A
             f'<td class="generic-td generic-td-num">{html.escape(w_s, quote=True)}</td>'
             "</tr>"
         )
-    return head + "".join(body_parts) + "</tbody></table>"
+
+    box_tot_s = _fmt_ru_num(total_boxes, max_decimals=3)
+    w_tot_s = _fmt_ru_num(total_weight, max_decimals=2) if total_weight > 1e-12 else "—"
+    foot = (
+        "<tfoot><tr class=\"generic-lines-tfoot\">"
+        '<td colspan="3" class="generic-td generic-td-total-label">Итого:</td>'
+        f'<td class="generic-td generic-td-num">{html.escape(box_tot_s, quote=True)}</td>'
+        '<td class="generic-td generic-td-num"></td>'
+        f'<td class="generic-td generic-td-num">{html.escape(w_tot_s, quote=True)}</td>'
+        "</tr></tfoot>"
+    )
+    return head + "".join(body_parts) + "</tbody>" + foot + "</table>"
 
 
 def _load_styles() -> str:

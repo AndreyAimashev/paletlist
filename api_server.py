@@ -898,23 +898,32 @@ def build_arnest_unirus_pallet_sheets_pdf_bytes(body: dict) -> tuple[bytes | Non
 def build_arnest_unirus_pallet_sheets_xlsx_bytes(
     body: dict,
 ) -> tuple[bytes | None, str | None, str | None]:
-    """Тот же JSON { \"pallets\": [...] }, что для PDF — сводная таблица XLSX с весами и реквизитами."""
+    """Сводный XLSX только в памяти (на диск не пишется).
+
+    JSON: { \"pallets\": [...] } — как для PDF; опционально ship_date (строка), order_id (число) — для шапки листа.
+    """
     if not HAVE_OPENPYXL or Workbook is None or get_column_letter is None:
         return None, "no_openpyxl", _arnest_pallet_pdf_error_message("no_openpyxl")
     pallets_raw = body.get("pallets")
+    ship_date_raw = str(body.get("ship_date") or "").strip()
+    order_id_raw = body.get("order_id")
+    try:
+        order_id_int = int(order_id_raw) if order_id_raw is not None and str(order_id_raw).strip() != "" else None
+    except (TypeError, ValueError):
+        order_id_int = None
     if not isinstance(pallets_raw, list) or len(pallets_raw) == 0:
         return None, "validation_pallets", _arnest_pallet_pdf_error_message("validation_pallets")
     if len(pallets_raw) > MAX_PALLET_SHEET_PDF_PAGES:
         return None, "validation_pallets", _arnest_pallet_pdf_error_message("validation_pallets")
 
-    validated: list[tuple[dict, str]] = []
+    validated: list[dict] = []
     for idx, row in enumerate(pallets_raw, start=1):
         if not isinstance(row, dict):
             return None, "validation_pallet", f"Паллета {idx}: ожидался объект с полями."
-        data, err_detail = _arnest_line_barcode_data(row)
+        _, err_detail = _arnest_line_barcode_data(row)
         if err_detail:
             return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
-        validated.append((row, data))
+        validated.append(row)
 
     try:
         wb = Workbook()
@@ -930,28 +939,32 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
         title_font = Font(bold=True, size=14, color="153045")
         zebra_fill = PatternFill("solid", fgColor="F0F4F8")
 
-        ws.merge_cells("A1:N1")
+        title_parts = ["Арнест Юнирусь — свод по паллетам"]
+        if ship_date_raw:
+            title_parts.append(f"отгрузка: {ship_date_raw}")
+        if order_id_int is not None:
+            title_parts.append(f"заказ №{order_id_int}")
+        title_text = " · ".join(title_parts)
+
+        last_col = 9
+        last_letter = get_column_letter(last_col)
+        ws.merge_cells(f"A1:{last_letter}1")
         tcell = ws["A1"]
-        tcell.value = "Арнест Юнирусь — свод по паллетам (как на PDF со штрих-кодами)"
+        tcell.value = title_text
         tcell.font = title_font
-        tcell.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[1].height = 26
+        tcell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.row_dimensions[1].height = 28
 
         headers = (
-            "№",
             "Номер паллеты",
             "Артикул",
             "Наименование",
             "Партия",
             "Дата изготовления",
             "Срок годности",
-            "Вес нетто, кг",
+            "Вес брутто, кг",
             "Коробок",
             "Штук",
-            "Коробок в ряду",
-            "TI×HI",
-            "Остаток коробок",
-            "Штрих-код строка 1",
         )
         hdr_row = 3
         for col_idx, text in enumerate(headers, start=1):
@@ -961,13 +974,13 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             c.border = grid_border
 
-        widths = (5, 14, 18, 38, 16, 14, 14, 14, 11, 11, 14, 12, 14, 30)
+        widths = (14, 18, 40, 16, 14, 14, 14, 11, 11)
         for i, wch in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = wch
 
         data_start = 4
         total_weight = 0.0
-        for i, (row, bc_line1) in enumerate(validated, start=1):
+        for i, row in enumerate(validated, start=1):
             r = data_start + i - 1
             mfg_raw = _arnest_mfg_date_raw(row)
             exp_raw = _arnest_exp_date_raw(row)
@@ -988,13 +1001,6 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
                 units_f = float(row.get("units_pc", row.get("unitsPc", 0)) or 0)
             except (TypeError, ValueError):
                 units_f = 0.0
-            rl = int(row.get("row_layout", 0) or 0)
-            if rl > 0 and math.isfinite(boxes_f):
-                full_rows = int(math.floor(boxes_f / rl + 1e-9))
-                ti_hi = f"{rl}×{full_rows}"
-            else:
-                ti_hi = "—"
-            rem_star = _arnest_remainder_boxes_star_one(boxes_f, rl)
             boxes_disp = _arnest_format_boxes_qty_for_barcode(boxes_f)
             units_disp = _arnest_format_boxes_qty_for_barcode(units_f)
             pallet_no = str(row.get("pallet_number", row.get("palletNumber", "")) or "").strip()
@@ -1003,7 +1009,6 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
             batch = str(row.get("batch_number", row.get("batchNumber", "")) or "").strip()
 
             vals = (
-                i,
                 pallet_no,
                 article,
                 name,
@@ -1013,10 +1018,6 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
                 w_kg,
                 boxes_disp,
                 units_disp,
-                rl if rl else "—",
-                ti_hi,
-                rem_star,
-                bc_line1,
             )
             for col_idx, val in enumerate(vals, start=1):
                 cell = ws.cell(row=r, column=col_idx, value=val)
@@ -1024,25 +1025,24 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 if i % 2 == 0:
                     cell.fill = zebra_fill
-            ws.cell(row=r, column=8).number_format = "0.000"
+            ws.cell(row=r, column=7).number_format = "0.000"
 
         last_data = data_start + len(validated) - 1
         sum_row = last_data + 1
-        ws.cell(row=sum_row, column=7, value="Итого вес, кг:")
-        ws.cell(row=sum_row, column=7).font = Font(bold=True)
-        ws.cell(row=sum_row, column=7).alignment = Alignment(horizontal="right", vertical="center")
-        ws.cell(row=sum_row, column=7).border = grid_border
-        c_w = ws.cell(row=sum_row, column=8, value=round(total_weight, 3))
+        ws.merge_cells(start_row=sum_row, start_column=1, end_row=sum_row, end_column=6)
+        sum_label = ws.cell(row=sum_row, column=1, value="Итого вес брутто, кг:")
+        sum_label.font = Font(bold=True)
+        sum_label.alignment = Alignment(horizontal="right", vertical="center")
+        sum_label.border = grid_border
+        c_w = ws.cell(row=sum_row, column=7, value=round(total_weight, 3))
         c_w.font = Font(bold=True)
         c_w.number_format = "0.000"
         c_w.border = grid_border
-        for col in range(1, 15):
-            if col in (7, 8):
-                continue
-            ws.cell(row=sum_row, column=col, value="").border = grid_border
+        ws.cell(row=sum_row, column=8, value="").border = grid_border
+        ws.cell(row=sum_row, column=9, value="").border = grid_border
 
         ws.freeze_panes = ws.cell(row=data_start, column=1)
-        ws.auto_filter.ref = f"A{hdr_row}:N{last_data}"
+        ws.auto_filter.ref = f"A{hdr_row}:{last_letter}{last_data}"
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -1824,7 +1824,8 @@ def fetch_order_detail(order_id: int):
 
 
 def delete_order(order_id: int) -> bool:
-    """Удаляет заказ; позиции order_items удаляются каскадом."""
+    """Удаляет заказ; позиции order_items удаляются каскадом.
+    PDF/XLSX паллетных листов на сервере не кэшируются — генерируются в памяти по запросу, отдельных файлов под заказ нет."""
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -2106,7 +2107,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(blob)
 
     def _respond_arnest_unirus_pallet_sheets_xlsx(self, body: dict):
-        """POST JSON: тот же { \"pallets\": [...] }, что для PDF — Excel со сводом по паллетам."""
+        """POST JSON: { \"pallets\": [...] }; опционально ship_date, order_id — для шапки. Файл только в ответе, на диск не пишется."""
         blob, err, err_detail = build_arnest_unirus_pallet_sheets_xlsx_bytes(body)
         if err:
             status_map = {

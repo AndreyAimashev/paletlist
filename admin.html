@@ -3503,6 +3503,7 @@
           };
           const n = pallets.length;
           let blob;
+          let ordForName = null;
           try {
             const res = await fetch(`/api/orders/${oid}`);
             if (!res.ok) {
@@ -3510,16 +3511,28 @@
               return;
             }
             const ord = await res.json();
+            ordForName = ord;
             const orderItems = ord.items || [];
             const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
-            blob = await fetchArnestPalletSheetsXlsxBlob({ pallets: palletsPayload });
+            blob = await fetchArnestPalletSheetsXlsxBlob({
+              pallets: palletsPayload,
+              ship_date: String(ord.ship_date || "").trim(),
+              order_id: oid,
+            });
           } catch (e) {
             window.alert(
               "Не удалось сформировать Excel: " + (e && e.message ? String(e.message) : "ошибка сервера."),
             );
             return;
           }
-          triggerDownload(blob, `Паллеты_Юнирусь_заказ_${oid}_${n}.xlsx`);
+          const shipPart = sanitizePalletFilenamePart(
+            ordForName && ordForName.ship_date ? String(ordForName.ship_date) : "",
+            "без_даты",
+          );
+          triggerDownload(
+            blob,
+            `Паллеты_Юнирусь_заказ_${oid}_отгрузка_${shipPart}_${n}шт.xlsx`,
+          );
         });
       }
 

@@ -76,20 +76,35 @@ body {
   font-weight: normal;
 }
 
-/* Строка 2: подпись и триплет по центру страницы */
+/* Строка 2: подпись слева; номер паллеты, «из», всего — по центру листа */
 .generic-row2 {
+  position: relative;
+  width: 100%;
   margin: 10pt 0 0 0;
   padding: 0;
-  width: 100%;
-  text-align: center;
+  min-height: 1.45em;
+  box-sizing: border-box;
   font-size: 15.4pt;
   line-height: 1.4;
   color: #000000;
 }
 
 .generic-r2-label {
+  position: relative;
+  z-index: 1;
   display: inline-block;
   vertical-align: baseline;
+  background: #ffffff;
+}
+
+.generic-r2-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 .generic-r2-triplet {

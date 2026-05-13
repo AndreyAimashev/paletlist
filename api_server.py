@@ -1258,6 +1258,39 @@ def _migrate_products(cur):
             )
 
 
+def _strip_trailing_name_suffix(name: str) -> str:
+    """Убирает хвост «, шт» или «, набор» у наименования (как в номенклатуре)."""
+    s = (name or "").rstrip()
+    for suf in (", шт", ", набор"):
+        if s.endswith(suf):
+            return s[: -len(suf)].rstrip()
+    return s
+
+
+def _migrate_strip_trailing_name_suffixes(cur):
+    """Идемпотентно чистит products.name и order_items.name от суффиксов «, шт» / «, набор»."""
+    for row in cur.execute("SELECT id, name FROM products"):
+        old = row["name"] if row["name"] is not None else ""
+        new = _strip_trailing_name_suffix(old)
+        if new != old:
+            cur.execute(
+                "UPDATE products SET name = ? WHERE id = ?",
+                (new, int(row["id"])),
+            )
+    if not cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='order_items' LIMIT 1"
+    ).fetchone():
+        return
+    for row in cur.execute("SELECT id, name FROM order_items"):
+        old = row["name"] if row["name"] is not None else ""
+        new = _strip_trailing_name_suffix(old)
+        if new != old:
+            cur.execute(
+                "UPDATE order_items SET name = ? WHERE id = ?",
+                (new, int(row["id"])),
+            )
+
+
 def _normalize_packaging(pieces_in_box: int, sets_in_box: int):
     """Возвращает (pib, sib, pps) или dict с error/message при ошибке валидации."""
     pib = max(0, int(pieces_in_box))
@@ -1344,6 +1377,7 @@ def init_db():
                     rows,
                 )
         _init_orders_table(cur)
+        _migrate_strip_trailing_name_suffixes(cur)
         con.commit()
         con.close()
 
@@ -1662,7 +1696,7 @@ def _normalize_order_items_body(body: dict):
         unit = (raw.get("unit") or "piece").strip().lower()
         if unit not in ("box", "set", "piece"):
             unit = "piece"
-        name = _normalize_str(raw.get("name", ""))
+        name = _strip_trailing_name_suffix(_normalize_str(raw.get("name", "")))
         article = _normalize_str(raw.get("article", ""))
         pid_raw = raw.get("product_id")
         pid = None
@@ -1974,7 +2008,7 @@ def update_nomenclature_row(
             """,
             (
                 article.strip(),
-                name.strip(),
+                _strip_trailing_name_suffix(name.strip()),
                 pib,
                 sib,
                 pps,
@@ -2049,15 +2083,15 @@ def insert_nomenclature_row(
     max_rows: int,
     box_weight: float,
 ):
-    conflict = find_nomenclature_create_conflicts(article, name)
+    article_n = _normalize_str(article)
+    name_n = _strip_trailing_name_suffix(_normalize_str(name))
+    conflict = find_nomenclature_create_conflicts(article_n, name_n)
     if conflict:
         return conflict
     norm = _normalize_packaging(pieces_in_box, sets_in_box)
     if isinstance(norm, dict):
         return norm
     pib, sib, pps = norm
-    article_n = _normalize_str(article)
-    name_n = _normalize_str(name)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()

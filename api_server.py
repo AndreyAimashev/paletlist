@@ -189,7 +189,8 @@ def _barcode_raster_pixel_size(raw: bytes) -> tuple[int, int] | None:
 _ARNEST_A4_W_MM = 210.0
 _ARNEST_SIDE_MARGIN_MM = 20.0
 # Строка 1: высота растра полос из соотношения сторон её PNG и _ARNEST_BARCODE_HEIGHT_SCALE.
-# Строки 8 и 14: то же по своим PNG (ширина _ARNEST_LINE8_BARCODE_W_MM).
+# Строка 8: ширина _ARNEST_LINE8_BARCODE_W_MM, высота из PNG × scale.
+# Строка 14 (паллета): та же ширина; высота принудительно как у строки 8, чтобы полосы были одинаковой высоты.
 _ARNEST_BARCODE_HEIGHT_SCALE = 0.5
 _ARNEST_BARCODE_CAPTION_GAP_MM = 1.5  # между низом растра полос и подписью (PDF)
 _ARNEST_BARCODE_CAPTION_LINE_H_MM = 6.0
@@ -807,25 +808,20 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                         "barcode_fetch",
                         f"Не удалось сформировать штрих-код номера паллеты {idx}: {exc}",
                     )
-                dims_pn = _barcode_raster_pixel_size(png_pn)
-                if not dims_pn:
-                    return None, "pdf_build", ""
-                pw_pn, ph_pn = dims_pn
-                h_pn_mm = (
-                    _ARNEST_LINE8_BARCODE_W_MM * (ph_pn / pw_pn) * _ARNEST_BARCODE_HEIGHT_SCALE
-                )
+                # Как у штрих-кода коробок (стр. 8): короткий Code128 паллеты иначе получался ниже.
+                h_pallet_mm = h_boxes_mm
                 pdf.image(
                     io.BytesIO(png_pn),
                     x=x0,
                     y=y14,
                     w=_ARNEST_LINE8_BARCODE_W_MM,
-                    h=h_pn_mm,
+                    h=h_pallet_mm,
                     keep_aspect_ratio=False,
                 )
                 cap14_h = _arnest_draw_code128_caption_below(
-                    pdf, x0, _ARNEST_LINE8_BARCODE_W_MM, y14 + h_pn_mm, pallet_bc
+                    pdf, x0, _ARNEST_LINE8_BARCODE_W_MM, y14 + h_pallet_mm, pallet_bc
                 )
-                y_after_line14 = y14 + h_pn_mm + cap14_h + _ARNEST_TEXT_LINE_GAP_MM
+                y_after_line14 = y14 + h_pallet_mm + cap14_h + _ARNEST_TEXT_LINE_GAP_MM
             y15 = y_after_line14
             rem_bn = max(0.0, max_r - x_units)
             pdf.set_font("PLCalibri", "", fs)

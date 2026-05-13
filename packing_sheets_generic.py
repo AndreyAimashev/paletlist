@@ -54,6 +54,9 @@ def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
         return raw
 
 
+SUPPLIER_LINE = "М.К. АСЕПТИКА ООО"
+
+
 def _load_styles() -> str:
     if STYLES_PATH.is_file():
         return STYLES_PATH.read_text(encoding="utf-8")
@@ -66,7 +69,7 @@ def _load_styles() -> str:
 
 
 def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Полный HTML: альбомная страница на паллету (строки 1–2 шапки)."""
+    """Полный HTML: альбомная страница на паллету (строки 1–4 шапки)."""
     if _is_arnest_unirus_client(str(detail.get("client") or "")):
         return None, "arnest_client"
     st = detail.get("assemble_state")
@@ -84,6 +87,8 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     ship_e = html.escape(ship_ru, quote=True)
     total_pallets = len(pallets)
     total_e = html.escape(str(total_pallets), quote=True)
+    buyer_e = html.escape(str(detail.get("client") or "").strip() or "—", quote=True)
+    supplier_e = html.escape(SUPPLIER_LINE, quote=True)
 
     sections: list[str] = []
     for idx, pal in enumerate(pallets, start=1):
@@ -114,7 +119,19 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             f'<td class="generic-r2-cell generic-r2-cell--side">{total_e}</td>'
             "</tr></table></div>"
         )
-        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}</div>')
+        row3 = (
+            '<div class="generic-row34">'
+            '<span class="generic-r34-label">Поставщик:</span>'
+            f'<span class="generic-r34-center">{supplier_e}</span>'
+            "</div>"
+        )
+        row4 = (
+            '<div class="generic-row34">'
+            '<span class="generic-r34-label">Покупатель:</span>'
+            f'<span class="generic-r34-center">{buyer_e}</span>'
+            "</div>"
+        )
+        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}{row3}{row4}</div>')
 
     styles = _load_styles()
     doc = (

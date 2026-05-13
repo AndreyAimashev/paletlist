@@ -2788,6 +2788,15 @@
         return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
       }
 
+      /** Текущий день как 6 цифр ДДММГГ — для подсказки «Пример: …». */
+      function unirusTodayDDMMYYExample() {
+        const d = new Date();
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yy = String(d.getFullYear()).slice(-2);
+        return `${dd}${mm}${yy}`;
+      }
+
       /** «Пусто» | «ещё печатают» | «ок» | «6+ цифр, но нет такой даты» — как на сервере в паллетном PDF. */
       function parseUnirusSixDigitDateStatus(raw) {
         const digits = String(raw || "").replace(/\D/g, "");
@@ -2829,7 +2838,7 @@
           el.classList.add(INVALID);
           el.setAttribute(
             "title",
-            "Нет такой даты в календаре. Шесть цифр: ДДММГГ или ГГММДД (например 110526).",
+            `Нет такой даты в календаре. Шесть цифр: ДДММГГ или ГГММДД (Пример: ${unirusTodayDDMMYYExample()}).`,
           );
           if (msgEl) {
             msgEl.textContent = "Нет такой даты в календаре (проверьте ДДММГГ или ГГММДД).";
@@ -4739,6 +4748,7 @@
         const batchVal = escapeXml(String(slot.batchNumber ?? ""));
         const umVal = escapeXml(String(slot.unirusMfgDate ?? ""));
         const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
+        const unirusEx = unirusTodayDDMMYYExample();
         const productRowClass = "assemble-slot-product-row";
         const batchFieldHtml = showBatch
           ? `<div class="assemble-field" style="max-width:100%">
@@ -4749,13 +4759,13 @@
         const unirusDatesHtml = isAssembleUnirusMode()
           ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
               <div class="assemble-field">
-                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ или ГГММДД)</label>
-                <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. 110526" autocomplete="off" value="${umVal}" />
+                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ или ГГММДД, Пример: ${unirusEx})</label>
+                <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. ${unirusEx}" autocomplete="off" value="${umVal}" />
                 <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>
               <div class="assemble-field">
-                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ или ГГММДД)</label>
-                <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. 110526" autocomplete="off" value="${ueVal}" />
+                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ или ГГММДД, Пример: ${unirusEx})</label>
+                <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. ${unirusEx}" autocomplete="off" value="${ueVal}" />
                 <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>
             </div>`

@@ -307,14 +307,31 @@ def _arnest_barcode_caption_font_pt(pdf: FPDF, text: str, max_w_mm: float) -> fl
 
 
 def _arnest_draw_code128_caption_below(
-    pdf: FPDF, x: float, w_mm: float, y_barcode_bottom: float, text: str
+    pdf: FPDF,
+    x: float,
+    w_mm: float,
+    y_barcode_bottom: float,
+    text: str,
+    *,
+    body_caption_style: bool = False,
 ) -> float:
-    """Подпись под штрих-кодом (отдельно от PNG). Возвращает занятую высоту: зазор + строка."""
+    """Подпись под штрих-кодом (отдельно от PNG). Возвращает занятую высоту: зазор + строка.
+
+    body_caption_style: как цифры на листе (партия и т.д.) — 12 pt жирный, без уменьшения кегля.
+    """
     gap = _ARNEST_BARCODE_CAPTION_GAP_MM
+    s = str(text) if text is not None else ""
+    if body_caption_style:
+        h_line = _ARNEST_LINE2_TEXT_H_MM
+        fs = _ARNEST_TEXT_FONT_PT
+        pdf.set_font("PLCalibri", "B", fs)
+        draw = _arnest_clip_text_to_width_mm(pdf, s, w_mm) if s else ""
+        pdf.set_xy(x, y_barcode_bottom + gap)
+        pdf.cell(w_mm, h_line, draw or s, align="C")
+        return gap + h_line
     h_line = _ARNEST_BARCODE_CAPTION_LINE_H_MM
     fs = _arnest_barcode_caption_font_pt(pdf, text, w_mm)
     pdf.set_font("PLCalibri", "", fs)
-    s = str(text) if text is not None else ""
     draw = s if pdf.get_string_width(s) <= w_mm else _arnest_clip_text_to_width_mm(pdf, s, w_mm)
     pdf.set_xy(x, y_barcode_bottom + gap)
     pdf.cell(w_mm, h_line, draw or s, align="C")
@@ -720,7 +737,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                 keep_aspect_ratio=False,
             )
             cap8_h = _arnest_draw_code128_caption_below(
-                pdf, _ARNEST_SIDE_MARGIN_MM, barcode_w_mm, y8 + h_boxes_mm, boxes_qty
+                pdf,
+                _ARNEST_SIDE_MARGIN_MM,
+                barcode_w_mm,
+                y8 + h_boxes_mm,
+                boxes_qty,
+                body_caption_style=True,
             )
             y9 = y8 + h_boxes_mm + cap8_h + _ARNEST_TEXT_LINE_GAP_MM
             pdf.set_font("PLCalibri", "", fs)
@@ -819,7 +841,12 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                     keep_aspect_ratio=False,
                 )
                 cap14_h = _arnest_draw_code128_caption_below(
-                    pdf, x0, _ARNEST_LINE8_BARCODE_W_MM, y14 + h_pallet_mm, pallet_bc
+                    pdf,
+                    x0,
+                    _ARNEST_LINE8_BARCODE_W_MM,
+                    y14 + h_pallet_mm,
+                    pallet_bc,
+                    body_caption_style=True,
                 )
                 y_after_line14 = y14 + h_pallet_mm + cap14_h + _ARNEST_TEXT_LINE_GAP_MM
             y15 = y_after_line14

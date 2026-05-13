@@ -86,9 +86,19 @@ body {
 
 .generic-r2-cell {
   border: 1px solid #000000;
-  padding: 1px 10px 2px;
   text-align: center;
   vertical-align: middle;
   font-weight: normal;
   box-sizing: border-box;
+}
+
+/* «из» — базовый размер; боковые ячейки на 50% шире/выше по внутренним полям и min-width */
+.generic-r2-cell--mid {
+  padding: 1px 8px 2px;
+  min-width: 2.8ch;
+}
+
+.generic-r2-cell--side {
+  padding: 1.5px 12px 3px; /* 1×1.5, 8×1.5, 2×1.5 */
+  min-width: 4.2ch; /* 2.8ch × 1.5 */
 }

@@ -1368,7 +1368,7 @@ def init_db():
                         (
                             int(item.get("id")),
                             (item.get("article") or "").strip(),
-                            (item.get("name") or "").strip(),
+                            _strip_trailing_name_suffix((item.get("name") or "").strip()),
                             pib,
                             sib,
                             pps,

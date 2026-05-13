@@ -886,6 +886,22 @@
         white-space: nowrap;
       }
 
+      .orders-date-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .orders-date-text {
+        white-space: nowrap;
+      }
+
+      /* Дубликат кнопок под датой — только мобильная вёрстка (десктоп скрыт) */
+      .orders-row-actions.orders-row-actions--mobile {
+        display: none;
+      }
+
       .orders-table .col-actions {
         width: 1%;
         white-space: nowrap;
@@ -1882,13 +1898,17 @@
           height: 16px;
         }
 
-        /* Кнопки заказа: один ряд, прижаты к низу строки (остальные ячейки сверху) */
-        .orders-table td.col-actions {
-          vertical-align: bottom;
-          padding-top: 14px;
+        /* Столбец «Действия» не нужен — кнопки в ячейке даты слева под датой */
+        .orders-table thead th.col-actions,
+        .orders-table tbody td.col-actions {
+          display: none !important;
         }
 
-        .orders-table .orders-row-actions {
+        .orders-table .col-date {
+          white-space: normal;
+        }
+
+        .orders-row-actions.orders-row-actions--mobile {
           display: flex;
           flex-direction: row;
           flex-wrap: nowrap;
@@ -4008,10 +4028,11 @@
         }, 220);
       }
 
-      function renderOrderRowActions(orderId) {
+      function renderOrderRowActions(orderId, forMobileUnderDate) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
-        return `<div class="orders-row-actions">
+        const mobileClass = forMobileUnderDate ? " orders-row-actions--mobile" : "";
+        return `<div class="orders-row-actions${mobileClass}">
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактирование">${ORDER_ROW_ICON_EDIT}</button>
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка">${ORDER_ROW_ICON_ASSEMBLE}</button>
             <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Паллетные листы">${ORDER_ROW_ICON_PALLET}</button>
@@ -4046,13 +4067,20 @@
             const pctCellClass =
               pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
             const namesHtml = formatOrderNamesCell(o, ordersNamesDisplayUnit);
+            const actionsHtml = renderOrderRowActions(o.id, false);
+            const actionsMobileHtml = renderOrderRowActions(o.id, true);
             return `<tr>
-                  <td class="col-date">${escapeXml(o.ship_date || "—")}</td>
+                  <td class="col-date">
+                    <div class="orders-date-cell">
+                      <span class="orders-date-text">${escapeXml(o.ship_date || "—")}</span>
+                      ${actionsMobileHtml}
+                    </div>
+                  </td>
                   <td>${escapeXml(o.client || "—")}</td>
                   <td class="${pctCellClass}">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
                   <td>${namesHtml}</td>
                   <td>${escapeXml(o.extra_info || "—")}</td>
-                  <td class="col-actions">${renderOrderRowActions(o.id)}</td>
+                  <td class="col-actions">${actionsHtml}</td>
                 </tr>`;
           })
           .join("");

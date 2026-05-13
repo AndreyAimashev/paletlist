@@ -4759,12 +4759,12 @@
         const unirusDatesHtml = isAssembleUnirusMode()
           ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
               <div class="assemble-field">
-                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (ДДММГГ или ГГММДД, Пример: ${unirusEx})</label>
+                <label for="aum-${pIdx}-${sIdx}">Дата изготовления (Пример: ${unirusEx})</label>
                 <input id="aum-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusMfgDate" placeholder="Напр. ${unirusEx}" autocomplete="off" value="${umVal}" />
                 <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>
               <div class="assemble-field">
-                <label for="aue-${pIdx}-${sIdx}">Срок годности (ДДММГГ или ГГММДД, Пример: ${unirusEx})</label>
+                <label for="aue-${pIdx}-${sIdx}">Срок годности (Пример: ${unirusEx})</label>
                 <input id="aue-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="14" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="unirusExpiryDate" placeholder="Напр. ${unirusEx}" autocomplete="off" value="${ueVal}" />
                 <p class="assemble-unirus-date-msg" data-unirus-date-msg aria-live="polite"></p>
               </div>

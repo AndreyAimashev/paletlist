@@ -56,6 +56,99 @@ def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
 
 SUPPLIER_LINE = "М.К. АСЕПТИКА ООО"
 
+# Синхрон с packing_sheet_generic_styles.css: .generic-lines-table font-size
+_GENERIC_LINES_TABLE_BASE_PT = 10.89
+# Нижняя граница подбора кегля (редкие переполненные листы)
+_GENERIC_LINES_TABLE_ABS_MIN_PT = 2.0
+# A4 landscape, поля 10 мм: печатная высота ~190 мм
+_GENERIC_PAGE_CONTENT_H_MM = 190.0
+# Оценка высоты строк 1–4, margin-top у таблицы и запас (pt)
+_GENERIC_SHEET_HEADER_RESERVE_PT = 168.0
+# Оценка высоты таблицы занижает реальную вёрстку — запас против обрезания
+_GENERIC_TABLE_HEIGHT_SAFETY = 1.06
+
+
+def _mm_to_pt(mm: float) -> float:
+    return mm * (72.0 / 25.4)
+
+
+def _aggregate_pallet_lines(
+    items: list[dict[str, Any]], pal: dict[str, Any]
+) -> tuple[list[int], dict[int, dict[str, float]]]:
+    """Строки таблицы номенклатуры по паллете: порядок lineIndex и агрегаты pcs/boxes."""
+    order_keys: list[int] = []
+    agg: dict[int, dict[str, float]] = {}
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        ns = _normalize_slot(slot)
+        li = ns["lineIndex"]
+        if li is None or li < 0 or li >= len(items):
+            continue
+        it = items[li]
+        alloc = _slot_to_alloc(ns)
+        pcs = _allocation_to_pieces(it, alloc)
+        box = _allocation_to_boxes(it, alloc)
+        if pcs <= 1e-9 and box <= 1e-9:
+            continue
+        if li not in agg:
+            agg[li] = {"pcs": 0.0, "boxes": 0.0}
+            order_keys.append(li)
+        agg[li]["pcs"] += pcs
+        agg[li]["boxes"] += box
+    return order_keys, agg
+
+
+def _estimate_generic_table_row_height_pt(font_pt: float, title_len: int) -> float:
+    """Грубая оценка высоты строки таблицы (pt) с учётом переноса в колонке «Номенклатура» (~40% ширины)."""
+    pad_v_pt = max(0.55, font_pt * 0.32 + 0.45)
+    line_h = font_pt * 1.25
+    content_w_mm = 297.0 - 20.0
+    name_col_pt = _mm_to_pt(content_w_mm) * 0.40
+    ch_w = max(font_pt * 0.48, 0.1)
+    cpl = max(6, int(name_col_pt / ch_w))
+    lines = max(1, (int(title_len) + cpl - 1) // cpl)
+    return lines * line_h + 2.0 * pad_v_pt + 2.2
+
+
+def _estimate_generic_table_block_height_pt(font_pt: float, title_lens: list[int]) -> float:
+    """Оценка полной высоты thead + tbody + tfoot (pt)."""
+    if not title_lens:
+        return _estimate_generic_table_row_height_pt(font_pt, 52)
+    h_head = _estimate_generic_table_row_height_pt(font_pt, 22)
+    h_foot = _estimate_generic_table_row_height_pt(font_pt, 20)
+    h_body = sum(_estimate_generic_table_row_height_pt(font_pt, L) for L in title_lens)
+    return h_head + h_body + h_foot
+
+
+def _fit_generic_table_font_pt(title_lens: list[int]) -> float:
+    """Кегль таблицы: базовый или меньше, чтобы оценочная высота уместилась на одной странице."""
+    budget = _mm_to_pt(_GENERIC_PAGE_CONTENT_H_MM) - _GENERIC_SHEET_HEADER_RESERVE_PT
+    if budget < 80.0:
+        budget = 320.0
+    budget_eff = budget / _GENERIC_TABLE_HEIGHT_SAFETY
+
+    def block_h(pt: float) -> float:
+        return _estimate_generic_table_block_height_pt(pt, title_lens)
+
+    base = _GENERIC_LINES_TABLE_BASE_PT
+    if block_h(base) <= budget_eff:
+        return base
+
+    lo, hi = _GENERIC_LINES_TABLE_ABS_MIN_PT, base
+    best = _GENERIC_LINES_TABLE_ABS_MIN_PT
+    for _ in range(34):
+        mid = (lo + hi) / 2.0
+        if block_h(mid) <= budget_eff:
+            best = mid
+            lo = mid
+        else:
+            hi = mid
+    font = max(_GENERIC_LINES_TABLE_ABS_MIN_PT, round(min(base, best), 2))
+    while font > _GENERIC_LINES_TABLE_ABS_MIN_PT + 1e-6 and block_h(font) > budget_eff:
+        font = max(_GENERIC_LINES_TABLE_ABS_MIN_PT, round(font * 0.985, 2))
+    return font
+
 
 def _fmt_ru_num(n: float, *, max_decimals: int = 3) -> str:
     if not isinstance(n, (int, float)) or n != n:
@@ -145,29 +238,15 @@ def _nomenclature_title(it: dict[str, Any]) -> str:
 
 def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, Any]) -> str:
     """Таблица строки 5: агрегат по строкам заказа (lineIndex) на паллете."""
-    order_keys: list[int] = []
-    agg: dict[int, dict[str, float]] = {}
-    for slot in pal.get("slots") or []:
-        if not isinstance(slot, dict):
-            continue
-        ns = _normalize_slot(slot)
-        li = ns["lineIndex"]
-        if li is None or li < 0 or li >= len(items):
-            continue
-        it = items[li]
-        alloc = _slot_to_alloc(ns)
-        pcs = _allocation_to_pieces(it, alloc)
-        box = _allocation_to_boxes(it, alloc)
-        if pcs <= 1e-9 and box <= 1e-9:
-            continue
-        if li not in agg:
-            agg[li] = {"pcs": 0.0, "boxes": 0.0}
-            order_keys.append(li)
-        agg[li]["pcs"] += pcs
-        agg[li]["boxes"] += box
+    order_keys, agg = _aggregate_pallet_lines(items, pal)
+    title_lens = [len(_nomenclature_title(items[li])) for li in order_keys]
+    table_font_pt = _fit_generic_table_font_pt(title_lens)
+    fs_attr = ""
+    if table_font_pt + 0.005 < _GENERIC_LINES_TABLE_BASE_PT:
+        fs_attr = f' style="font-size:{table_font_pt:.2f}pt;line-height:1.25"'
 
     head = (
-        "<table class=\"generic-lines-table\" cellspacing=\"0\">"
+        f"<table class=\"generic-lines-table\" cellspacing=\"0\"{fs_attr}>"
         "<thead><tr>"
         '<th class="generic-th generic-th-pp">пп</th>'
         '<th class="generic-th generic-th-name">Номенклатура</th>'

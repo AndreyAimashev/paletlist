@@ -1,4 +1,4 @@
-/* Упаковочные листы (не Арнест Юнирусь): пустая альбомная страница A4 на паллету. */
+/* Упаковочные листы (не Арнест Юнирусь), WeasyPrint: альбом A4. */
 
 @page {
   size: A4 landscape;
@@ -29,4 +29,31 @@ body {
 .generic-pallet-sheet:last-of-type {
   page-break-after: auto;
   break-after: auto;
+}
+
+/* Строка 1: подписи с подчёркиванием у левого края; номер листа и дата в рамках; табуляция между блоками */
+.generic-row1 {
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  white-space: pre;
+  tab-size: 10;
+  font-size: 14pt;
+  line-height: 1.4;
+  color: #000000;
+}
+
+.generic-r1-label {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.generic-r1-frame {
+  display: inline-block;
+  border: 1px solid #000000;
+  padding: 1px 8px 2px;
+  vertical-align: baseline;
+  box-sizing: border-box;
+  font-weight: normal;
 }

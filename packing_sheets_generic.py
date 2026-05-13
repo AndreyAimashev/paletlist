@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Упаковочные листы для обычных клиентов (не «Арнест Юнирусь»): PDF/HTML через WeasyPrint.
-
-Сейчас выводится пустая страница A4 в альбомной ориентации на каждую паллету в сборке — заготовка под новый макет.
-"""
+"""Упаковочные листы для обычных клиентов (не «Арнест Юнирусь»): PDF/HTML через WeasyPrint."""
 
 from __future__ import annotations
 
+import html
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,23 @@ STYLES_PATH = BASE_DIR / "packing_sheet_generic_styles.css"
 def _is_arnest_unirus_client(client: str) -> bool:
     n = str(client or "").strip().replace("  ", " ").lower()
     return n == "арнест юнирусь"
+
+
+def _ship_date_ru(ship_date: str) -> str:
+    s = str(ship_date or "").strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    if m:
+        y, mo, d = m.groups()
+        return f"{d}.{mo}.{y}"
+    return s or "—"
+
+
+def _packing_list_number(order_id: Any, pallet_number_raw: str, pallet_index: int) -> str:
+    """Номер упаковочного листа: номер заказа и номер паллеты подряд (без разделителя)."""
+    oid = str(order_id if order_id is not None else "").strip() or "0"
+    raw = str(pallet_number_raw or "").strip()
+    part = re.sub(r"\s+", "", raw) if raw else str(pallet_index)
+    return f"{oid}{part}"
 
 
 def _migrate_pallet(p: dict[str, Any]) -> dict[str, Any]:
@@ -39,7 +55,7 @@ def _load_styles() -> str:
 
 
 def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Полный HTML: по одной пустой альбомной странице на паллету."""
+    """Полный HTML: альбомная страница на паллету (строка 1 — шапка листа)."""
     if _is_arnest_unirus_client(str(detail.get("client") or "")):
         return None, "arnest_client"
     st = detail.get("assemble_state")
@@ -52,9 +68,28 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     if not pallets:
         return None, "no_pallets"
 
+    order_id = detail.get("id")
+    ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
+    ship_e = html.escape(ship_ru, quote=True)
+
     sections: list[str] = []
-    for _pal in pallets:
-        sections.append('<div class="generic-pallet-sheet" aria-hidden="true"></div>')
+    for idx, pal in enumerate(pallets, start=1):
+        pnum_raw = str(pal.get("palletNumber") or "").strip()
+        list_no = _packing_list_number(order_id, pnum_raw, idx)
+        list_no_e = html.escape(list_no, quote=True)
+
+        row1 = (
+            '<div class="generic-pallet-sheet">'
+            '<div class="generic-row1">'
+            '<span class="generic-r1-label">Упаковочный лист №</span>'
+            '<span class="generic-r1-gap"> </span>'
+            f'<span class="generic-r1-frame">{list_no_e}</span>\t'
+            '<span class="generic-r1-label">Дата</span>'
+            '<span class="generic-r1-gap"> </span>'
+            f'<span class="generic-r1-frame">{ship_e}</span>'
+            "</div></div>"
+        )
+        sections.append(row1)
 
     styles = _load_styles()
     doc = (
@@ -70,7 +105,7 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
 
 
 def build_generic_packing_sheets_pdf_bytes(detail: dict[str, Any]) -> tuple[bytes | None, str | None]:
-    """Пустой альбомный PDF на основе того же HTML (WeasyPrint)."""
+    """Альбомный PDF из того же HTML (WeasyPrint)."""
     html, err = build_generic_packing_sheets_html(detail)
     if err:
         return None, err

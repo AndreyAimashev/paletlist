@@ -57,6 +57,163 @@ def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
 SUPPLIER_LINE = "М.К. АСЕПТИКА ООО"
 
 
+def _fmt_ru_num(n: float, *, max_decimals: int = 3) -> str:
+    if not isinstance(n, (int, float)) or n != n:
+        return "—"
+    if abs(n - round(n)) < 1e-9:
+        s = f"{int(round(n)):,}".replace(",", "\xa0")
+        return s
+    fmt = f"{{:.{max_decimals}f}}"
+    t = fmt.format(n).rstrip("0").rstrip(".")
+    return t.replace(".", ",")
+
+
+def _normalize_slot(slot: dict[str, Any]) -> dict[str, Any]:
+    li = slot.get("lineIndex")
+    line_index: int | None = None
+    if li not in ("", None):
+        try:
+            n = int(float(str(li).replace(",", ".")))
+            if n >= 0:
+                line_index = n
+        except (TypeError, ValueError):
+            pass
+    mode = slot.get("mode")
+    mode_s = "rows" if mode == "rows" else "direct"
+    du = slot.get("directUnit")
+    direct_unit = "piece" if du == "piece" else "box"
+    return {
+        "lineIndex": line_index,
+        "mode": mode_s,
+        "directUnit": direct_unit,
+        "directQty": slot.get("directQty", ""),
+        "fullRows": slot.get("fullRows", ""),
+        "partialBoxes": slot.get("partialBoxes", ""),
+    }
+
+
+def _slot_to_alloc(slot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "mode": slot["mode"],
+        "directUnit": slot["directUnit"],
+        "directQty": slot["directQty"],
+        "fullRows": slot["fullRows"],
+        "partialBoxes": slot["partialBoxes"],
+    }
+
+
+def _allocation_to_pieces(it: dict[str, Any], alloc: dict[str, Any]) -> float:
+    pib = max(0, int(it.get("pieces_in_box") or 0))
+    row_lay = max(0, int(it.get("row_layout") or 0))
+    if alloc.get("mode") == "rows":
+        if row_lay <= 0:
+            return 0.0
+        try:
+            fr = max(0, int(float(str(alloc.get("fullRows") or "").replace(",", "."))))
+        except ValueError:
+            fr = 0
+        try:
+            pb = max(0, int(float(str(alloc.get("partialBoxes") or "").replace(",", "."))))
+        except ValueError:
+            pb = 0
+        boxes = fr * row_lay + pb
+        return float(boxes * pib) if pib > 0 else 0.0
+    try:
+        dq = max(0.0, float(str(alloc.get("directQty") or "").replace(",", ".")))
+    except ValueError:
+        dq = 0.0
+    if alloc.get("directUnit") == "box":
+        return float(dq * pib) if pib > 0 else 0.0
+    return dq
+
+
+def _allocation_to_boxes(it: dict[str, Any], alloc: dict[str, Any]) -> float:
+    pib = max(0, int(it.get("pieces_in_box") or 0))
+    if pib <= 0:
+        return 0.0
+    pc = _allocation_to_pieces(it, alloc)
+    return pc / pib
+
+
+def _nomenclature_title(it: dict[str, Any]) -> str:
+    name = (it.get("name") or "—").strip() or "—"
+    art = (it.get("article") or "").strip()
+    if art:
+        return f"{art} — {name}"
+    return name
+
+
+def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, Any]) -> str:
+    """Таблица строки 5: агрегат по строкам заказа (lineIndex) на паллете."""
+    order_keys: list[int] = []
+    agg: dict[int, dict[str, float]] = {}
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        ns = _normalize_slot(slot)
+        li = ns["lineIndex"]
+        if li is None or li < 0 or li >= len(items):
+            continue
+        it = items[li]
+        alloc = _slot_to_alloc(ns)
+        pcs = _allocation_to_pieces(it, alloc)
+        box = _allocation_to_boxes(it, alloc)
+        if pcs <= 1e-9 and box <= 1e-9:
+            continue
+        if li not in agg:
+            agg[li] = {"pcs": 0.0, "boxes": 0.0}
+            order_keys.append(li)
+        agg[li]["pcs"] += pcs
+        agg[li]["boxes"] += box
+
+    head = (
+        "<table class=\"generic-lines-table\" cellspacing=\"0\">"
+        "<thead><tr>"
+        '<th class="generic-th generic-th-pp">пп</th>'
+        '<th class="generic-th generic-th-name">Номенклатура</th>'
+        '<th class="generic-th generic-th-num">Кол-во штук</th>'
+        '<th class="generic-th generic-th-num">Кол-во коробок</th>'
+        '<th class="generic-th generic-th-num">Штук в коробке</th>'
+        '<th class="generic-th generic-th-num">Вес (кг)</th>'
+        "</tr></thead><tbody>"
+    )
+    if not order_keys:
+        return (
+            head
+            + '<tr><td class="generic-td" colspan="6">Нет распределённых позиций на этой паллете.</td></tr>'
+            + "</tbody></table>"
+        )
+
+    body_parts: list[str] = []
+    for n, li in enumerate(order_keys, start=1):
+        it = items[li]
+        row = agg[li]
+        pcs = row["pcs"]
+        box = row["boxes"]
+        pib = max(0, int(it.get("pieces_in_box") or 0))
+        bw = float(it.get("box_weight") or 0)
+        weight = box * bw if bw > 0 and box > 0 else 0.0
+
+        title = _nomenclature_title(it)
+        title_e = html.escape(title, quote=True)
+        pcs_s = _fmt_ru_num(pcs, max_decimals=0) if abs(pcs - round(pcs)) < 1e-6 else _fmt_ru_num(pcs, max_decimals=3)
+        box_s = _fmt_ru_num(box, max_decimals=3)
+        pib_s = str(pib) if pib > 0 else "—"
+        w_s = _fmt_ru_num(weight, max_decimals=2) if weight > 0 else "—"
+
+        body_parts.append(
+            "<tr>"
+            f'<td class="generic-td generic-td-pp">{n}</td>'
+            f'<td class="generic-td generic-td-name">{title_e}</td>'
+            f'<td class="generic-td generic-td-num">{html.escape(pcs_s, quote=True)}</td>'
+            f'<td class="generic-td generic-td-num">{html.escape(box_s, quote=True)}</td>'
+            f'<td class="generic-td generic-td-num">{html.escape(pib_s, quote=True)}</td>'
+            f'<td class="generic-td generic-td-num">{html.escape(w_s, quote=True)}</td>'
+            "</tr>"
+        )
+    return head + "".join(body_parts) + "</tbody></table>"
+
+
 def _load_styles() -> str:
     if STYLES_PATH.is_file():
         return STYLES_PATH.read_text(encoding="utf-8")
@@ -69,7 +226,7 @@ def _load_styles() -> str:
 
 
 def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Полный HTML: альбомная страница на паллету (строки 1–4 шапки)."""
+    """Полный HTML: альбомная страница на паллету (строки 1–5: шапка + таблица номенклатуры)."""
     if _is_arnest_unirus_client(str(detail.get("client") or "")):
         return None, "arnest_client"
     st = detail.get("assemble_state")
@@ -81,6 +238,10 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     pallets = [_migrate_pallet(p) for p in pallets_raw if isinstance(p, dict)]
     if not pallets:
         return None, "no_pallets"
+
+    items = detail.get("items")
+    if not isinstance(items, list):
+        items = []
 
     order_id = detail.get("id")
     ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
@@ -131,7 +292,8 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             f'<span class="generic-r34-center">{buyer_e}</span>'
             "</div>"
         )
-        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}{row3}{row4}</div>')
+        row5 = '<div class="generic-row5-wrap">' + _build_pallet_lines_table_html(items, pal) + "</div>"
+        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}{row3}{row4}{row5}</div>')
 
     styles = _load_styles()
     doc = (

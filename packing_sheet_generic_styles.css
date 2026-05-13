@@ -138,3 +138,56 @@ body {
   box-sizing: border-box;
   pointer-events: none;
 }
+
+/* Строка 5: таблица номенклатуры на ширину страницы */
+.generic-row5-wrap {
+  width: 100%;
+  margin: 14pt 0 0 0;
+  box-sizing: border-box;
+}
+
+.generic-lines-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 9pt;
+  line-height: 1.25;
+  color: #000000;
+}
+
+.generic-lines-table th,
+.generic-lines-table td {
+  border: 1px solid #000000;
+  padding: 4px 6px;
+  vertical-align: middle;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.generic-lines-table th {
+  font-weight: bold;
+  text-align: center;
+}
+
+.generic-th-pp {
+  width: 4%;
+}
+
+.generic-th-name {
+  width: 40%;
+}
+
+.generic-th-num {
+  width: 14%;
+}
+
+.generic-td-pp,
+.generic-td-num {
+  text-align: center;
+}
+
+.generic-td-name {
+  text-align: left;
+  vertical-align: top;
+}

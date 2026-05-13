@@ -82,7 +82,7 @@ body {
   width: 100%;
   margin: 10pt 0 0 0;
   padding: 0;
-  min-height: 1.45em;
+  min-height: 2.5em;
   box-sizing: border-box;
   font-size: 16.94pt;
   line-height: 1.4;
@@ -130,9 +130,11 @@ body {
 }
 
 .generic-r2-cell--side {
-  padding: 1.5px 12px 3px;
+  padding: 2px 14px 4px;
   min-width: 4.2ch;
   font-weight: 600;
+  font-size: 200%;
+  line-height: 1.15;
 }
 
 /* Строки 3–4: подпись слева с подчёркиванием (как «Номер паллета»); значение по центру листа */

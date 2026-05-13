@@ -34,16 +34,31 @@ body {
   break-after: auto;
 }
 
-/* Строка 1: подписи с подчёркиванием у левого края; номер листа и дата в рамках; табуляция между блоками */
+/* Строка 1: номер листа слева; «Дата» и дата отгрузки у правого края */
 .generic-row1 {
   margin: 0;
   padding: 0;
-  text-align: left;
-  white-space: pre;
-  tab-size: 10;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 12pt;
   font-size: 14pt;
   line-height: 1.4;
   color: #000000;
+}
+
+.generic-r1-left {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.generic-r1-right {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .generic-r1-label {

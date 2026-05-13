@@ -278,12 +278,16 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
 
         row1 = (
             '<div class="generic-row1">'
+            '<span class="generic-r1-left">'
             '<span class="generic-r1-label">Упаковочный лист №</span>'
             '<span class="generic-r1-gap"> </span>'
-            f'<span class="generic-r1-frame">{list_no_e}</span>\t'
+            f'<span class="generic-r1-frame">{list_no_e}</span>'
+            "</span>"
+            '<span class="generic-r1-right">'
             '<span class="generic-r1-label">Дата</span>'
             '<span class="generic-r1-gap"> </span>'
             f'<span class="generic-r1-frame">{ship_e}</span>'
+            "</span>"
             "</div>"
         )
         row2 = (

@@ -189,7 +189,9 @@ def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, A
         it = items[li]
         row = agg[li]
         pcs = row["pcs"]
-        box = row["boxes"]
+        box_raw = float(row["boxes"])
+        # На паллете по каждому наименованию «Кол-во коробок» не меньше 1
+        box = max(1.0, box_raw) if (pcs > 1e-9 or box_raw > 1e-9) else box_raw
         pib = max(0, int(it.get("pieces_in_box") or 0))
         bw = float(it.get("box_weight") or 0)
         weight = box * bw if bw > 0 and box > 0 else 0.0

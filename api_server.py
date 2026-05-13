@@ -1258,12 +1258,25 @@ def _migrate_products(cur):
             )
 
 
+# Хвосты наименований: «, шт» / «, набор» и варианты (ASCII/полноширинная запятая, без пробела, NBSP).
+_NAME_SUFFIX_TRAIL_PATTERNS = (
+    re.compile(r"\s*[,，]\s*набор\s*$", re.IGNORECASE),
+    re.compile(r"\s*[,，]\s*шт\s*$", re.IGNORECASE),
+)
+
+
 def _strip_trailing_name_suffix(name: str) -> str:
-    """Убирает хвост «, шт» или «, набор» у наименования (как в номенклатуре)."""
+    """Убирает хвост «, шт» / «, набор» (и типичные варианты написания) в конце наименования."""
     s = (name or "").rstrip()
-    for suf in (", шт", ", набор"):
-        if s.endswith(suf):
-            return s[: -len(suf)].rstrip()
+    changed = True
+    while changed and s:
+        changed = False
+        for pat in _NAME_SUFFIX_TRAIL_PATTERNS:
+            nxt = pat.sub("", s).rstrip()
+            if nxt != s:
+                s = nxt
+                changed = True
+                break
     return s
 
 
@@ -2575,11 +2588,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    init_db()
     server = ThreadingHTTPServer((HOST, PORT), ApiHandler)
     print(f"API server listening on http://{HOST}:{PORT}")
     server.serve_forever()
 
+
+init_db()
 
 if __name__ == "__main__":
     main()

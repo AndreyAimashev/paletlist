@@ -364,22 +364,22 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
         pallet_disp_e = html.escape(pallet_disp, quote=True)
 
         row_head = (
-            '<div class="generic-row-head">'
-            '<span class="generic-row-head-left">'
-            '<span class="generic-r2-label">Номер паллета</span>'
+            '<table class="generic-row-head" role="presentation" aria-label="Номер паллеты и дата">'
+            "<tr>"
+            '<td class="generic-row-head-left">'
+            '<span class="generic-r2-label">Номер паллета</span> '
             '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
             "<tr>"
             f'<td class="generic-r2-cell generic-r2-cell--side">{pallet_disp_e}</td>'
             '<td class="generic-r2-cell generic-r2-cell--mid">из</td>'
             f'<td class="generic-r2-cell generic-r2-cell--side">{total_e}</td>'
             "</tr></table>"
-            "</span>"
-            '<span class="generic-row-head-right">'
-            '<span class="generic-r1-label">Дата</span>'
-            '<span class="generic-r1-gap"> </span>'
+            "</td>"
+            '<td class="generic-row-head-right">'
+            '<span class="generic-r1-label">Дата</span> '
             f'<span class="generic-r1-frame">{ship_e}</span>'
-            "</span>"
-            "</div>"
+            "</td>"
+            "</tr></table>"
         )
         row3 = (
             '<div class="generic-row34">'

@@ -34,39 +34,31 @@ body {
   break-after: auto;
 }
 
-/* Верхняя строка: номер паллеты (слева) и дата отгрузки (справа) */
-.generic-row-head {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12pt;
+/* Верхняя строка: таблица (WeasyPrint не поддерживает inline-table во flex) */
+table.generic-row-head {
   width: 100%;
   margin: 0;
   padding: 0;
-  min-height: 2.5em;
-  box-sizing: border-box;
+  border-collapse: collapse;
+  border-spacing: 0;
   font-size: 16.94pt;
   line-height: 1.4;
   color: #000000;
 }
 
 .generic-row-head-left {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8pt;
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 70%;
+  vertical-align: middle;
+  text-align: left;
+  padding: 0 8pt 0 0;
 }
 
 .generic-row-head-right {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4pt;
-  flex: 0 0 auto;
+  width: 30%;
+  vertical-align: middle;
+  text-align: right;
   white-space: nowrap;
+  padding: 0;
 }
 
 .generic-r1-label {
@@ -91,11 +83,11 @@ body {
 }
 
 .generic-r2-triplet {
-  display: inline-table;
+  display: table;
   border-collapse: collapse;
-  vertical-align: baseline;
   margin: 0;
   padding: 0;
+  width: auto;
 }
 
 .generic-r2-cell {
@@ -109,12 +101,10 @@ body {
 /* «из» — базовый размер; боковые ячейки на ~50% шире по padding и min-width */
 .generic-r2-cell--mid {
   padding: 1px 8px 2px;
-  min-width: 2.8ch;
 }
 
 .generic-r2-cell--side {
   padding: 2px 14px 4px;
-  min-width: 4.2ch;
   font-weight: 600;
   font-size: 240%;
   line-height: 1.15;

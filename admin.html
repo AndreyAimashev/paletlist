@@ -291,27 +291,6 @@
         box-shadow: 0 6px 18px rgba(0, 200, 160, 0.3);
       }
 
-      .assemble-btn--download-html {
-        margin: 0;
-        padding: 10px 16px;
-        font-family: "Orbitron", sans-serif;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.35px;
-        text-transform: uppercase;
-        color: #c8f0e6;
-        border: 1px solid rgba(0, 200, 160, 0.45);
-        border-radius: 10px;
-        cursor: pointer;
-        background: rgba(10, 18, 28, 0.65);
-        white-space: nowrap;
-      }
-
-      .assemble-btn--download-html:hover {
-        filter: brightness(1.08);
-        border-color: rgba(0, 200, 160, 0.65);
-      }
-
       .assemble-btn--download-xlsx {
         margin: 0;
         padding: 10px 18px;
@@ -2191,9 +2170,6 @@
               </button>
               <div class="pallet-sheets-toolbar-right">
                 <span class="muted" id="pallet-sheets-order-meta"></span>
-                <button type="button" id="pallet-sheets-download-html" class="assemble-btn assemble-btn--download-html" hidden>
-                  Скачать HTML (для правки)
-                </button>
                 <button type="button" id="pallet-sheets-download" class="assemble-btn assemble-btn--download-pdf" hidden>
                   Скачать PDF паллетных листов
                 </button>
@@ -2579,7 +2555,6 @@
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
       const palletSheetsDownloadBtn = document.getElementById("pallet-sheets-download");
       const palletSheetsDownloadXlsxBtn = document.getElementById("pallet-sheets-download-xlsx");
-      const palletSheetsDownloadHtmlBtn = document.getElementById("pallet-sheets-download-html");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
       const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
@@ -2806,21 +2781,6 @@
 
       async function fetchOrderPackingSheetsPdfBlob(orderId) {
         const res = await fetch(`/api/orders/${orderId}/packing-sheets-pdf`);
-        if (!res.ok) {
-          let detail = "";
-          try {
-            const j = await res.json();
-            detail = j.message || j.error || "";
-          } catch (e2) {
-            /* ignore */
-          }
-          throw new Error(detail || `HTTP ${res.status}`);
-        }
-        return res.blob();
-      }
-
-      async function fetchOrderPackingSheetsHtmlBlob(orderId) {
-        const res = await fetch(`/api/orders/${orderId}/packing-sheets-html`);
         if (!res.ok) {
           let detail = "";
           try {
@@ -3099,9 +3059,6 @@
           palletSheetsDownloadBtn.hidden = true;
           palletSheetsDownloadBtn.textContent = "Скачать PDF паллетных листов";
         }
-        if (palletSheetsDownloadHtmlBtn) {
-          palletSheetsDownloadHtmlBtn.hidden = true;
-        }
         if (palletSheetsDownloadXlsxBtn) {
           palletSheetsDownloadXlsxBtn.hidden = true;
         }
@@ -3156,9 +3113,6 @@
           if (palletSheetsDownloadBtn) {
             palletSheetsDownloadBtn.hidden = false;
           }
-          if (palletSheetsDownloadHtmlBtn) {
-            palletSheetsDownloadHtmlBtn.hidden = false;
-          }
           try {
             const blob = await fetchOrderPackingSheetsPdfBlob(oid);
             if (token !== palletSheetsLoadToken) {
@@ -3194,9 +3148,6 @@
         }
 
         palletSheetsDownloadKind = "arnest";
-        if (palletSheetsDownloadHtmlBtn) {
-          palletSheetsDownloadHtmlBtn.hidden = true;
-        }
         if (palletSheetsDownloadBtn) {
           palletSheetsDownloadBtn.hidden = false;
           palletSheetsDownloadBtn.textContent = "Скачать PDF паллетных листов";
@@ -3563,52 +3514,6 @@
           triggerDownload(
             blob,
             `Паллеты_Юнирусь_заказ_${oid}_отгрузка_${shipPart}_${n}шт.xlsx`,
-          );
-        });
-      }
-
-      if (palletSheetsDownloadHtmlBtn) {
-        palletSheetsDownloadHtmlBtn.addEventListener("click", async () => {
-          const oid = activeStageOrderId;
-          if (oid == null || !Number.isFinite(oid)) {
-            return;
-          }
-          let pallets;
-          try {
-            ({ pallets } = await resolveAssemblePalletsForOrderId(oid));
-          } catch (e) {
-            window.alert("Не удалось загрузить заказ.");
-            return;
-          }
-          if (!pallets || !pallets.length) {
-            window.alert(
-              "Нет паллет в сборке заказа. Добавьте паллеты в разделе «Сборка заказа» (данные должны быть сохранены на сервере).",
-            );
-            return;
-          }
-          const triggerDownload = (b, filename) => {
-            const url = URL.createObjectURL(b);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = filename;
-            a.rel = "noopener";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-          };
-          let blob;
-          try {
-            blob = await fetchOrderPackingSheetsHtmlBlob(oid);
-          } catch (e) {
-            window.alert(
-              "Не удалось скачать HTML: " + (e && e.message ? String(e.message) : "ошибка сервера."),
-            );
-            return;
-          }
-          triggerDownload(
-            blob,
-            `Паллетные_листы_заказ_${oid}_${pallets.length}_паллет.html`,
           );
         });
       }

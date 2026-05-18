@@ -1879,6 +1879,52 @@ def insert_order_with_items(body: dict):
     return {"ok": True, "id": int(oid)}
 
 
+_IMPORT_SKIP_META_PREFIX = "__import_skip__:"
+
+
+def _encode_import_skip_extra_info(skipped: int, baseline: int, user_text: str = "") -> str:
+    if skipped <= 0:
+        return (user_text or "").strip()
+    payload = json.dumps(
+        {"skipped": int(skipped), "baseline": int(baseline)},
+        ensure_ascii=False,
+    )
+    meta = _IMPORT_SKIP_META_PREFIX + payload
+    user_text = (user_text or "").strip()
+    if user_text:
+        return meta + "\n" + user_text
+    return meta
+
+
+def _parse_import_skip_extra_info(extra_info: str) -> tuple[int, int, str]:
+    raw = extra_info or ""
+    if not raw.startswith(_IMPORT_SKIP_META_PREFIX):
+        return 0, 0, raw
+    rest = raw[len(_IMPORT_SKIP_META_PREFIX) :]
+    nl = rest.find("\n")
+    if nl >= 0:
+        json_part = rest[:nl]
+        user_text = rest[nl + 1 :]
+    else:
+        json_part = rest
+        user_text = ""
+    try:
+        data = json.loads(json_part)
+        skipped = max(0, int(data.get("skipped", 0)))
+        baseline = max(0, int(data.get("baseline", 0)))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return 0, 0, raw
+    return skipped, baseline, user_text
+
+
+def _order_list_fields_from_extra_info(extra_info: str) -> dict:
+    skipped, _baseline, clean = _parse_import_skip_extra_info(extra_info)
+    return {
+        "extra_info": clean,
+        "import_skipped_lines": skipped,
+    }
+
+
 _EXCEL_ORDER_COL_CLIENT = "C"
 _EXCEL_ORDER_COL_PRODUCT = "I"
 _EXCEL_ORDER_COL_QTY = "J"
@@ -2063,41 +2109,24 @@ def parse_orders_from_excel_worksheet(ws):
     return orders, errors
 
 
-def _resolve_product_id_for_excel_import(cur, name: str, nomenclature: list):
+def _resolve_product_id_for_excel_import(cur, name: str):
+    """Только точное совпадение наименования с номенклатурой (без нечёткого подбора)."""
     name_n = _strip_trailing_name_suffix(_normalize_str(name))
     if not name_n:
         return None, "", ""
     rid = _try_resolve_product_id(cur, "", name_n)
-    if rid is not None:
-        row = cur.execute(
-            "SELECT article, name FROM products WHERE id = ?",
-            (rid,),
-        ).fetchone()
-        if row:
-            return (
-                rid,
-                _normalize_str(row["article"]),
-                _normalize_str(row["name"]),
-            )
-    qn = _normalize_nomenclature_search_text(name_n)
-    hits = search_nomenclature(nomenclature, name_n, limit=1)
-    if not hits:
+    if rid is None:
         return None, "", name_n
-    item = hits[0]
-    dist = _nomenclature_distance_to_item(qn, item)
-    art = _normalize_nomenclature_search_text(item.get("article", ""))
-    nam = _normalize_nomenclature_search_text(item.get("name", ""))
-    if qn in art or qn in nam:
-        dist -= 1000
-    elif art.startswith(qn) or nam.startswith(qn):
-        dist -= 500
-    threshold = max(4, len(qn) // 8)
-    if dist > threshold:
+    row = cur.execute(
+        "SELECT article, name FROM products WHERE id = ?",
+        (rid,),
+    ).fetchone()
+    if not row:
         return None, "", name_n
     return (
-        int(item["id"]),
-        _normalize_str(item.get("article", "")),
-        _normalize_str(item.get("name", "")),
+        rid,
+        _normalize_str(row["article"]),
+        _normalize_str(row["name"]),
     )
 
 
@@ -2130,7 +2159,6 @@ def import_orders_from_excel_bytes(data: bytes):
             "message": msg,
             "details": parse_errors,
         }
-    nomenclature = fetch_nomenclature()
     created_ids: list[int] = []
     import_errors: list[str] = list(parse_errors)
     with DB_LOCK:
@@ -2138,17 +2166,14 @@ def import_orders_from_excel_bytes(data: bytes):
         cur = con.cursor()
         for order in parsed_orders:
             items_payload = []
-            order_failed = False
+            skipped_count = 0
             for it in order["items"]:
                 pid, article, pname = _resolve_product_id_for_excel_import(
-                    cur, it["name"], nomenclature
+                    cur, it["name"]
                 )
                 if pid is None:
-                    import_errors.append(
-                        f"Заказ «{order['client']}»: не найден товар «{it['name']}» в номенклатуре."
-                    )
-                    order_failed = True
-                    break
+                    skipped_count += 1
+                    continue
                 items_payload.append(
                     {
                         "product_id": pid,
@@ -2158,7 +2183,10 @@ def import_orders_from_excel_bytes(data: bytes):
                         "unit": it["unit"],
                     }
                 )
-            if order_failed:
+            if not items_payload:
+                import_errors.append(
+                    f"Заказ «{order['client']}»: ни одна позиция не найдена в номенклатуре."
+                )
                 continue
             body = {
                 "ship_date": order["ship_date"],
@@ -2181,12 +2209,14 @@ def import_orders_from_excel_bytes(data: bytes):
             ship = pack["ship"]
             client_n = pack["client"]
             names_summary = _format_order_names_summary(normalized)
+            baseline = len(normalized)
+            extra_info = _encode_import_skip_extra_info(skipped_count, baseline)
             cur.execute(
                 """
                 INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
-                VALUES (?, ?, 0, ?, '')
+                VALUES (?, ?, 0, ?, ?)
                 """,
-                (ship, client_n, names_summary),
+                (ship, client_n, names_summary, extra_info),
             )
             oid = int(cur.lastrowid)
             for pid, article, name, qty, unit in normalized:
@@ -2198,6 +2228,12 @@ def import_orders_from_excel_bytes(data: bytes):
                     (oid, pid, article, name, qty, unit),
                 )
             created_ids.append(oid)
+            if skipped_count > 0:
+                import_errors.append(
+                    f"Заказ «{order['client']}»: пропущено {skipped_count} "
+                    f"{'строка' if skipped_count == 1 else 'строки' if 2 <= skipped_count <= 4 else 'строк'} "
+                    f"(нет точного совпадения в номенклатуре)."
+                )
         if created_ids:
             con.commit()
         con.close()
@@ -2240,7 +2276,13 @@ def update_order_with_items(order_id: int, body: dict):
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
         apct = max(0, min(100, int(row["assembled_percent"] or 0)))
-        xinfo = row["extra_info"] or ""
+        skipped, baseline, user_xinfo = _parse_import_skip_extra_info(
+            row["extra_info"] or ""
+        )
+        if skipped > 0 and len(normalized) >= baseline + skipped:
+            skipped = 0
+            baseline = 0
+        xinfo = _encode_import_skip_extra_info(skipped, baseline, user_xinfo)
         xasm = row["assemble_state"] or ""
         cur.execute(
             """
@@ -2315,15 +2357,16 @@ def fetch_order_detail(order_id: int):
     items = [_order_item_row_to_dict(ir) for ir in item_rows]
     if not items and (row["names"] or "").strip():
         items = _synthetic_items_from_order_names(row["names"] or "")
+    extra_fields = _order_list_fields_from_extra_info(row["extra_info"] or "")
     return {
         "id": int(row["id"]),
         "ship_date": row["ship_date"] or "",
         "client": row["client"] or "",
         "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
         "names": row["names"] or "",
-        "extra_info": row["extra_info"] or "",
         "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
         "items": items,
+        **extra_fields,
     }
 
 
@@ -2382,6 +2425,7 @@ def fetch_orders():
         items = items_by_oid.get(oid, [])
         if not items and (row["names"] or "").strip():
             items = _synthetic_items_from_order_names(row["names"] or "")
+        extra_fields = _order_list_fields_from_extra_info(row["extra_info"] or "")
         out.append(
             {
                 "id": oid,
@@ -2389,9 +2433,9 @@ def fetch_orders():
                 "client": row["client"] or "",
                 "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
                 "names": row["names"] or "",
-                "extra_info": row["extra_info"] or "",
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
                 "items": items,
+                **extra_fields,
             }
         )
     return out

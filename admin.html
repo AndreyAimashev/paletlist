@@ -766,6 +766,13 @@
         color: var(--accent-teal);
       }
 
+      .orders-import-skipped-note {
+        margin-top: 5px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #ff8da1;
+      }
+
       @media (min-width: 769px) {
         .orders-import-toolbar {
           display: flex;
@@ -3883,6 +3890,29 @@
         return "наименований";
       }
 
+      function ruSkippedExcelLinesLabel(n) {
+        const k = Math.abs(n) % 100;
+        const k1 = k % 10;
+        if (k >= 11 && k <= 19) {
+          return "строк";
+        }
+        if (k1 === 1) {
+          return "строка";
+        }
+        if (k1 >= 2 && k1 <= 4) {
+          return "строки";
+        }
+        return "строк";
+      }
+
+      function formatOrderSkippedImportNote(o) {
+        const n = Number(o.import_skipped_lines) || 0;
+        if (n <= 0) {
+          return "";
+        }
+        return `<div class="orders-import-skipped-note">Было пропущено ${n} ${ruSkippedExcelLinesLabel(n)}</div>`;
+      }
+
       /** Число позиций и сумма по заказу в выбранных единицах (штуки / коробки / наборы). */
       function formatOrderQuantityCell(o, unit) {
         const items = Array.isArray(o.items) ? o.items : [];
@@ -4091,7 +4121,8 @@
             );
             const pctCellClass =
               pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
-            const qtyCellHtml = formatOrderQuantityCell(o, ordersNamesDisplayUnit);
+            const qtyCellHtml =
+              formatOrderQuantityCell(o, ordersNamesDisplayUnit) + formatOrderSkippedImportNote(o);
             const actionsHtml = renderOrderRowActions(o.id, false);
             const actionsMobileHtml = renderOrderRowActions(o.id, true);
             return `<tr>

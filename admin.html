@@ -5466,28 +5466,11 @@
           }
           const tid = setTimeout(async () => {
             orderSearchDebounce.delete(input);
-            try {
-              const res = await fetch(`/api/nomenclature?q=${encodeURIComponent(q)}`);
-              if (!res.ok) {
-                return;
-              }
-              const list = await res.json();
-              ul.innerHTML = "";
-              row._orderSuggest = Array.isArray(list) ? list.slice(0, 15) : [];
-              if (!row._orderSuggest.length) {
-                ul.hidden = true;
-                return;
-              }
-              row._orderSuggest.forEach((item, i) => {
-                const li = document.createElement("li");
-                li.dataset.idx = String(i);
-                li.textContent = formatOrderItemSearchInput(item.article, item.name) || "—";
-                ul.appendChild(li);
-              });
-              ul.hidden = false;
-            } catch (err) {
-              ul.hidden = true;
+            const list = await resolveOrderItemSuggestions(q);
+            if (input.value.trim() !== q) {
+              return;
             }
+            showOrderItemSuggestions(row, ul, list);
           }, 280);
           orderSearchDebounce.set(input, tid);
         });
@@ -5846,11 +5829,11 @@
         return best === Infinity ? 1e9 : best;
       }
 
-      function topNomenclatureClosest(queryLower, limit) {
-        if (!queryLower || !nomenclatureItems.length) {
+      function topNomenclatureClosest(queryLower, limit, items = nomenclatureItems) {
+        if (!queryLower || !items.length) {
           return [];
         }
-        const scored = nomenclatureItems.map((item) => ({
+        const scored = items.map((item) => ({
           item,
           d: nomenclatureDistanceToItem(queryLower, item),
         }));
@@ -5875,6 +5858,88 @@
           out.push(item);
         }
         return out;
+      }
+
+      const ORDER_ITEM_SUGGEST_LIMIT = 5;
+
+      /** Топ-N подсказок для строки заказа (как поиск в номенклатуре, без подписи «ничего не нашлось»). */
+      function searchNomenclatureSuggestions(items, query, limit = ORDER_ITEM_SUGGEST_LIMIT) {
+        const qNorm = normalizeNomenclatureSearchText(query);
+        if (!qNorm || !items.length) {
+          return [];
+        }
+        const cap = Math.max(1, Math.min(50, limit));
+        const scored = items.map((item) => {
+          const art = normalizeNomenclatureSearchText(item.article || "");
+          const nam = normalizeNomenclatureSearchText(item.name || "");
+          let d = nomenclatureDistanceToItem(qNorm, item);
+          if (art.includes(qNorm) || nam.includes(qNorm)) {
+            d -= 1000;
+          } else if (art.startsWith(qNorm) || nam.startsWith(qNorm)) {
+            d -= 500;
+          }
+          return { item, d };
+        });
+        scored.sort((a, b) => {
+          if (a.d !== b.d) {
+            return a.d - b.d;
+          }
+          const aa = String(a.item.article || "");
+          const ba = String(b.item.article || "");
+          return aa.localeCompare(ba, "ru");
+        });
+        const out = [];
+        const seen = new Set();
+        for (const { item } of scored) {
+          if (out.length >= cap) {
+            break;
+          }
+          if (seen.has(item.id)) {
+            continue;
+          }
+          seen.add(item.id);
+          out.push(item);
+        }
+        return out;
+      }
+
+      async function resolveOrderItemSuggestions(query) {
+        const q = String(query || "").trim();
+        if (!q) {
+          return [];
+        }
+        if (nomenclatureItems.length) {
+          return searchNomenclatureSuggestions(nomenclatureItems, q, ORDER_ITEM_SUGGEST_LIMIT);
+        }
+        try {
+          const res = await fetch(
+            `/api/nomenclature?q=${encodeURIComponent(q)}&limit=${ORDER_ITEM_SUGGEST_LIMIT}`,
+            { cache: "no-store" },
+          );
+          if (!res.ok) {
+            return [];
+          }
+          const list = await res.json();
+          return Array.isArray(list) ? list : [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function showOrderItemSuggestions(row, ul, list) {
+        ul.innerHTML = "";
+        row._orderSuggest = list;
+        if (!list.length) {
+          ul.hidden = true;
+          return;
+        }
+        list.forEach((item, i) => {
+          const li = document.createElement("li");
+          li.dataset.idx = String(i);
+          li.textContent = formatOrderItemSearchInput(item.article, item.name) || "—";
+          ul.appendChild(li);
+        });
+        ul.hidden = false;
       }
 
       function nomenclatureStrictFilter(queryNorm) {

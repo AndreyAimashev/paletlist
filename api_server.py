@@ -101,6 +101,72 @@ def _nomenclature_matches_query(item: dict, query: str) -> bool:
     return qn in art or qn in name
 
 
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        cur = [i]
+        for j, cb in enumerate(b, start=1):
+            cur.append(
+                min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (0 if ca == cb else 1))
+            )
+        prev = cur
+    return prev[-1]
+
+
+def _nomenclature_distance_to_item(query_norm: str, item: dict) -> int:
+    art = _normalize_nomenclature_search_text(item.get("article", ""))
+    name = _normalize_nomenclature_search_text(item.get("name", ""))
+    best = 10**9
+    if art:
+        best = min(best, _levenshtein(query_norm, art))
+    if name:
+        best = min(best, _levenshtein(query_norm, name))
+        for word in re.findall(r"\S{2,}", name):
+            best = min(best, _levenshtein(query_norm, word))
+    return best
+
+
+def search_nomenclature(items: list, query: str, limit: int = 5) -> list:
+    """Топ limit позиций по релевантности (подстрока, префикс, расстояние Левенштейна)."""
+    qn = _normalize_nomenclature_search_text(query)
+    if not qn or not items:
+        return []
+    limit = max(1, min(50, int(limit)))
+    scored: list[tuple[int, dict]] = []
+    for item in items:
+        art = _normalize_nomenclature_search_text(item.get("article", ""))
+        name = _normalize_nomenclature_search_text(item.get("name", ""))
+        dist = _nomenclature_distance_to_item(qn, item)
+        if qn in art or qn in name:
+            dist -= 1000
+        elif art.startswith(qn) or name.startswith(qn):
+            dist -= 500
+        scored.append((dist, item))
+    scored.sort(
+        key=lambda pair: (
+            pair[0],
+            str(pair[1].get("article", "")).casefold(),
+        )
+    )
+    out: list[dict] = []
+    seen: set[int] = set()
+    for _, item in scored:
+        if len(out) >= limit:
+            break
+        iid = int(item.get("id") or 0)
+        if iid in seen:
+            continue
+        seen.add(iid)
+        out.append(item)
+    return out
+
+
 def _is_orders_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders"
 
@@ -2374,8 +2440,12 @@ class ApiHandler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         if "q" in qs:
             query = (qs.get("q", [""])[0] or "").strip()
+            try:
+                limit = max(1, min(50, int((qs.get("limit", ["5"]) or ["5"])[0])))
+            except (TypeError, ValueError):
+                limit = 5
             if query:
-                items = [item for item in items if _nomenclature_matches_query(item, query)]
+                items = search_nomenclature(items, query, limit)
             else:
                 items = []
         self._send_json(200, items)

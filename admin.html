@@ -792,6 +792,15 @@
         line-height: 1.4;
         color: var(--text-main);
         pointer-events: none;
+        visibility: hidden;
+      }
+
+      .orders-import-skipped-floating-tip.is-visible {
+        visibility: visible;
+      }
+
+      .orders-import-skipped-floating-tip[hidden] {
+        display: none !important;
       }
 
       .orders-import-skipped-floating-tip-title {
@@ -2254,12 +2263,6 @@
                 <tbody id="orders-table-body"></tbody>
               </table>
             </div>
-            <div
-              id="orders-import-skipped-floating-tip"
-              class="orders-import-skipped-floating-tip"
-              hidden
-              role="tooltip"
-            ></div>
           </section>
 
           <section
@@ -3962,20 +3965,33 @@
         }
         const sid = Number(o.id);
         const idAttr = Number.isFinite(sid) ? ` data-order-id="${sid}"` : "";
-        return `<div class="orders-import-skipped-note" tabindex="0"${idAttr}>Было пропущено ${n} ${ruSkippedExcelLinesLabel(n)}</div>`;
+        return `<span class="orders-import-skipped-note"${idAttr}>Было пропущено ${n} ${ruSkippedExcelLinesLabel(n)}</span>`;
       }
 
-      const ordersImportSkippedFloatingTip = document.getElementById(
-        "orders-import-skipped-floating-tip",
-      );
+      const ordersImportSkippedFloatingTip = (function createOrdersImportSkippedFloatingTip() {
+        let el = document.getElementById("orders-import-skipped-floating-tip");
+        if (!el) {
+          el = document.createElement("div");
+          el.id = "orders-import-skipped-floating-tip";
+          el.className = "orders-import-skipped-floating-tip";
+          el.hidden = true;
+          el.setAttribute("role", "tooltip");
+          document.body.appendChild(el);
+        }
+        return el;
+      })();
       let ordersImportSkippedTipAnchor = null;
 
       function hideOrdersImportSkippedFloatingTip() {
         ordersImportSkippedTipAnchor = null;
-        if (ordersImportSkippedFloatingTip) {
-          ordersImportSkippedFloatingTip.hidden = true;
-          ordersImportSkippedFloatingTip.innerHTML = "";
+        if (!ordersImportSkippedFloatingTip) {
+          return;
         }
+        ordersImportSkippedFloatingTip.classList.remove("is-visible");
+        ordersImportSkippedFloatingTip.hidden = true;
+        ordersImportSkippedFloatingTip.innerHTML = "";
+        ordersImportSkippedFloatingTip.style.top = "";
+        ordersImportSkippedFloatingTip.style.left = "";
       }
 
       function positionOrdersImportSkippedFloatingTip(anchor) {
@@ -3984,7 +4000,6 @@
         }
         const rect = anchor.getBoundingClientRect();
         const tip = ordersImportSkippedFloatingTip;
-        tip.hidden = false;
         const margin = 8;
         let top = rect.bottom + margin;
         let left = rect.left;
@@ -4025,9 +4040,12 @@
           ? order.import_skipped_names
           : [];
         ordersImportSkippedTipAnchor = anchor;
-        ordersImportSkippedFloatingTip.innerHTML = buildOrdersImportSkippedTipHtml(names);
-        ordersImportSkippedFloatingTip.hidden = false;
+        const tip = ordersImportSkippedFloatingTip;
+        tip.innerHTML = buildOrdersImportSkippedTipHtml(names);
+        tip.hidden = false;
+        tip.classList.remove("is-visible");
         positionOrdersImportSkippedFloatingTip(anchor);
+        tip.classList.add("is-visible");
       }
 
       /** Число позиций и сумма по заказу в выбранных единицах (штуки / коробки / наборы). */
@@ -5658,40 +5676,34 @@
             renderOrdersTable();
           }
         });
-        ordersWorkspace.addEventListener("mouseover", (ev) => {
+      }
+
+      if (ordersTableBody) {
+        ordersTableBody.addEventListener("mouseover", (ev) => {
           const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
-          if (!note || !ordersWorkspace.contains(note)) {
+          if (!note || !ordersTableBody.contains(note)) {
             return;
           }
-          if (ordersImportSkippedTipAnchor === note) {
+          const from = ev.relatedTarget;
+          if (from && note.contains(from)) {
             return;
           }
           showOrdersImportSkippedFloatingTip(note, note.dataset.orderId);
         });
-        ordersWorkspace.addEventListener("mouseout", (ev) => {
+        ordersTableBody.addEventListener("mouseout", (ev) => {
           const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
-          if (!note) {
+          if (!note || !ordersTableBody.contains(note)) {
             return;
           }
-          const related = ev.relatedTarget;
-          if (related && note.contains(related)) {
+          const to = ev.relatedTarget;
+          if (to && note.contains(to)) {
             return;
           }
           hideOrdersImportSkippedFloatingTip();
         });
-        ordersWorkspace.addEventListener("focusin", (ev) => {
-          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
-          if (note && ordersWorkspace.contains(note)) {
-            showOrdersImportSkippedFloatingTip(note, note.dataset.orderId);
-          }
-        });
-        ordersWorkspace.addEventListener("focusout", (ev) => {
-          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
-          if (note) {
-            hideOrdersImportSkippedFloatingTip();
-          }
-        });
-        const ordersTableWrap = ordersWorkspace.querySelector(".orders-table-wrap");
+        const ordersTableWrap = ordersWorkspace
+          ? ordersWorkspace.querySelector(".orders-table-wrap")
+          : null;
         if (ordersTableWrap) {
           ordersTableWrap.addEventListener("scroll", hideOrdersImportSkippedFloatingTip, {
             passive: true,
@@ -5702,7 +5714,7 @@
       window.addEventListener(
         "scroll",
         () => {
-          if (ordersImportSkippedTipAnchor) {
+          if (ordersImportSkippedTipAnchor && ordersImportSkippedFloatingTip) {
             positionOrdersImportSkippedFloatingTip(ordersImportSkippedTipAnchor);
           }
         },

@@ -3027,6 +3027,32 @@
         return isAssembleUnirusMode() || assembleOptionalBatchEnabled;
       }
 
+      /** Части партии из строки (разделитель — запятая; пробелы у запятых не учитываются). */
+      function parseBatchNumbers(raw) {
+        return String(raw ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      function formatBatchNumbers(parts) {
+        return parts.join(", ");
+      }
+
+      function normalizeBatchNumberField(raw) {
+        return formatBatchNumbers(parseBatchNumbers(raw));
+      }
+
+      function applyBatchNumberInputNormalization(input) {
+        if (!input || input.dataset.field !== "batchNumber") {
+          return;
+        }
+        const norm = normalizeBatchNumberField(input.value);
+        if (input.value !== norm) {
+          input.value = norm;
+        }
+      }
+
       function mountOptionalBatchToggleForClient(client) {
         if (!assembleOptionalBatchRoot) {
           return;
@@ -4194,7 +4220,7 @@
         const b = defaultAssembleLineAlloc();
         return {
           lineIndex,
-          batchNumber: String(s.batchNumber ?? "").trim(),
+          batchNumber: normalizeBatchNumberField(s.batchNumber ?? ""),
           unirusMfgDate: String(s.unirusMfgDate ?? "").trim(),
           unirusExpiryDate: String(s.unirusExpiryDate ?? "").trim(),
           mode: s.mode === "rows" ? "rows" : "direct",
@@ -4926,7 +4952,13 @@
         const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
         const showBatch = showAssembleBatchFieldInSlots();
-        const batchVal = escapeXml(String(slot.batchNumber ?? ""));
+        const batchVal = escapeXml(normalizeBatchNumberField(slot.batchNumber ?? ""));
+        const batchPlaceholder = isAssembleUnirusMode()
+          ? "Укажите партию"
+          : "Партии через запятую";
+        const batchTitle = isAssembleUnirusMode()
+          ? ""
+          : ' title="Несколько партий: через запятую, пробелы после запятой не учитываются"';
         const umVal = escapeXml(String(slot.unirusMfgDate ?? ""));
         const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
         const unirusEx = unirusTodayDDMMYYExample();
@@ -4934,7 +4966,7 @@
         const batchFieldHtml = showBatch
           ? `<div class="assemble-field" style="max-width:100%">
               <label for="ab-${pIdx}-${sIdx}">Партия</label>
-              <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="Укажите партию" autocomplete="off" value="${batchVal}" />
+              <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="${batchPlaceholder}" autocomplete="off" value="${batchVal}"${batchTitle} />
             </div>`
           : "";
         const unirusDatesHtml = isAssembleUnirusMode()
@@ -5103,9 +5135,14 @@
             }
             const bn = row.querySelector("[data-field='batchNumber']");
             if (bn) {
-              slot.batchNumber = bn.value;
+              if (document.activeElement === bn) {
+                slot.batchNumber = bn.value;
+              } else {
+                applyBatchNumberInputNormalization(bn);
+                slot.batchNumber = normalizeBatchNumberField(bn.value);
+              }
             } else if (pal.slots && pal.slots[sIdx]) {
-              slot.batchNumber = String(pal.slots[sIdx].batchNumber ?? "").trim();
+              slot.batchNumber = normalizeBatchNumberField(pal.slots[sIdx].batchNumber ?? "");
             }
             const um = row.querySelector("[data-field='unirusMfgDate']");
             if (um) {
@@ -5131,6 +5168,12 @@
           return;
         }
         if (t.matches("[data-assemble-input]")) {
+          if (t.dataset.field === "batchNumber" && ev.type === "blur") {
+            applyBatchNumberInputNormalization(t);
+            syncAssembleStateFromDom();
+            saveAssembleDraft();
+            return;
+          }
           if (
             isAssembleUnirusMode() &&
             (t.dataset.field === "unirusMfgDate" || t.dataset.field === "unirusExpiryDate")
@@ -5396,6 +5439,7 @@
       if (assemblePalletsRoot) {
         assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
         assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
+        assemblePalletsRoot.addEventListener("blur", onAssembleFormEvent, true);
         assemblePalletsRoot.addEventListener("click", onAssemblePalletClick);
       }
       if (assembleAddPalletBtn) {

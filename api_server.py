@@ -35,7 +35,7 @@ except ImportError:
     ImageWriter = None  # type: ignore
 
 try:
-    from openpyxl import Workbook
+    from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
@@ -43,6 +43,7 @@ try:
 except ImportError:
     HAVE_OPENPYXL = False
     Workbook = None  # type: ignore
+    load_workbook = None  # type: ignore
     Alignment = None  # type: ignore
     Border = None  # type: ignore
     Font = None  # type: ignore
@@ -171,6 +172,10 @@ def search_nomenclature(items: list, query: str, limit: int = 5) -> list:
 
 def _is_orders_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders"
+
+
+def _is_orders_import_excel_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/orders/import-excel"
 
 
 def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
@@ -1874,6 +1879,344 @@ def insert_order_with_items(body: dict):
     return {"ok": True, "id": int(oid)}
 
 
+_EXCEL_ORDER_COL_CLIENT = "C"
+_EXCEL_ORDER_COL_PRODUCT = "I"
+_EXCEL_ORDER_COL_QTY = "J"
+_EXCEL_ORDER_COL_UNIT = "K"
+_EXCEL_ORDER_COL_SHIP = "M"
+
+
+def _excel_cell(ws, col: str, row: int):
+    return ws[f"{col}{row}"].value
+
+
+def _excel_row_is_empty(ws, row: int) -> bool:
+    for col in (
+        _EXCEL_ORDER_COL_CLIENT,
+        _EXCEL_ORDER_COL_PRODUCT,
+        _EXCEL_ORDER_COL_QTY,
+        _EXCEL_ORDER_COL_UNIT,
+        _EXCEL_ORDER_COL_SHIP,
+    ):
+        val = _excel_cell(ws, col, row)
+        if val is not None and str(val).strip() != "":
+            return False
+    return True
+
+
+def _excel_value_to_ship_iso(value) -> str:
+    if value is None or str(value).strip() == "":
+        return ""
+    if isinstance(value, datetime.datetime):
+        return value.date().isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    s = str(value).strip()
+    m = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        try:
+            return datetime.date(y, mo, d).isoformat()
+        except ValueError:
+            return ""
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return s
+    return ""
+
+
+def _parse_excel_quantity(value):
+    if value is None or str(value).strip() == "":
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            q = float(value)
+        except (TypeError, ValueError):
+            return None
+        return q if q > 0 else None
+    try:
+        q = float(str(value).strip().replace(",", ".").replace(" ", ""))
+    except (TypeError, ValueError):
+        return None
+    return q if q > 0 else None
+
+
+def _parse_excel_unit(value) -> str:
+    raw = str(value or "").strip().lower().replace("\u00a0", " ")
+    if not raw:
+        return "piece"
+    compact = re.sub(r"\s+", "", raw)
+    if compact in ("шт", "штука", "штуки", "штук", "piece", "pcs", "pc"):
+        return "piece"
+    if compact in ("наб", "набор", "наборы", "наборов", "set", "sets"):
+        return "set"
+    if compact in (
+        "кор",
+        "кор.",
+        "короб",
+        "коробка",
+        "коробки",
+        "коробок",
+        "box",
+        "boxes",
+    ):
+        return "box"
+    if "набор" in raw:
+        return "set"
+    if "короб" in raw or raw.startswith("кор"):
+        return "box"
+    if "шт" in raw or "штук" in raw:
+        return "piece"
+    return "piece"
+
+
+def parse_orders_from_excel_worksheet(ws):
+    """Строки с клиентом в C начинают заказ; следующие строки без C — позиции того же заказа."""
+    errors: list[str] = []
+    orders: list[dict] = []
+    current: dict | None = None
+
+    def flush_current():
+        nonlocal current
+        if not current:
+            return
+        if not current.get("items"):
+            current = None
+            return
+        client = current.get("client") or ""
+        ship = current.get("ship_date") or ""
+        start = current.get("_start_row", "?")
+        if not client:
+            errors.append(f"Строка {start}: в заказе не указан клиент (колонка C).")
+        elif not ship:
+            errors.append(f"Заказ «{client}» (строка {start}): не указана дата отгрузки (колонка M).")
+        else:
+            orders.append(
+                {
+                    "client": client,
+                    "ship_date": ship,
+                    "items": current["items"],
+                }
+            )
+        current = None
+
+    max_row = int(ws.max_row or 0)
+    for row in range(2, max_row + 1):
+        if _excel_row_is_empty(ws, row):
+            continue
+        client_raw = _excel_cell(ws, _EXCEL_ORDER_COL_CLIENT, row)
+        ship_raw = _excel_cell(ws, _EXCEL_ORDER_COL_SHIP, row)
+        product_raw = _excel_cell(ws, _EXCEL_ORDER_COL_PRODUCT, row)
+        qty_raw = _excel_cell(ws, _EXCEL_ORDER_COL_QTY, row)
+        unit_raw = _excel_cell(ws, _EXCEL_ORDER_COL_UNIT, row)
+
+        client_s = (
+            _normalize_str(client_raw)
+            if client_raw is not None and str(client_raw).strip() != ""
+            else ""
+        )
+        if client_s:
+            flush_current()
+            ship_iso = (
+                _excel_value_to_ship_iso(ship_raw)
+                if ship_raw is not None and str(ship_raw).strip() != ""
+                else ""
+            )
+            current = {
+                "client": client_s,
+                "ship_date": ship_iso,
+                "items": [],
+                "_start_row": row,
+            }
+        elif (
+            ship_raw is not None
+            and str(ship_raw).strip() != ""
+            and current is not None
+        ):
+            ship_iso = _excel_value_to_ship_iso(ship_raw)
+            if ship_iso:
+                current["ship_date"] = ship_iso
+
+        product_s = (
+            _strip_trailing_name_suffix(_normalize_str(product_raw))
+            if product_raw is not None and str(product_raw).strip() != ""
+            else ""
+        )
+        if not product_s:
+            continue
+        if current is None:
+            errors.append(
+                f"Строка {row}: позиция без заказа — сначала укажите клиента в колонке C."
+            )
+            continue
+        qty = _parse_excel_quantity(qty_raw)
+        if qty is None:
+            errors.append(f"Строка {row}: укажите количество больше нуля (колонка J).")
+            continue
+        unit = _parse_excel_unit(unit_raw)
+        current["items"].append(
+            {"name": product_s, "quantity": qty, "unit": unit}
+        )
+
+    flush_current()
+    return orders, errors
+
+
+def _resolve_product_id_for_excel_import(cur, name: str, nomenclature: list):
+    name_n = _strip_trailing_name_suffix(_normalize_str(name))
+    if not name_n:
+        return None, "", ""
+    rid = _try_resolve_product_id(cur, "", name_n)
+    if rid is not None:
+        row = cur.execute(
+            "SELECT article, name FROM products WHERE id = ?",
+            (rid,),
+        ).fetchone()
+        if row:
+            return (
+                rid,
+                _normalize_str(row["article"]),
+                _normalize_str(row["name"]),
+            )
+    qn = _normalize_nomenclature_search_text(name_n)
+    hits = search_nomenclature(nomenclature, name_n, limit=1)
+    if not hits:
+        return None, "", name_n
+    item = hits[0]
+    dist = _nomenclature_distance_to_item(qn, item)
+    art = _normalize_nomenclature_search_text(item.get("article", ""))
+    nam = _normalize_nomenclature_search_text(item.get("name", ""))
+    if qn in art or qn in nam:
+        dist -= 1000
+    elif art.startswith(qn) or nam.startswith(qn):
+        dist -= 500
+    threshold = max(4, len(qn) // 8)
+    if dist > threshold:
+        return None, "", name_n
+    return (
+        int(item["id"]),
+        _normalize_str(item.get("article", "")),
+        _normalize_str(item.get("name", "")),
+    )
+
+
+def import_orders_from_excel_bytes(data: bytes):
+    if not HAVE_OPENPYXL or load_workbook is None:
+        return {
+            "error": "no_openpyxl",
+            "message": "На сервере не установлен openpyxl (pip install openpyxl).",
+        }
+    if not data:
+        return {"error": "validation", "message": "Файл пустой."}
+    try:
+        wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception:
+        return {
+            "error": "invalid_file",
+            "message": "Не удалось прочитать Excel. Используйте файл .xlsx.",
+        }
+    try:
+        ws = wb.active
+        parsed_orders, parse_errors = parse_orders_from_excel_worksheet(ws)
+    finally:
+        wb.close()
+    if not parsed_orders:
+        msg = "В файле нет заказов для импорта."
+        if parse_errors:
+            msg = parse_errors[0]
+        return {
+            "error": "validation",
+            "message": msg,
+            "details": parse_errors,
+        }
+    nomenclature = fetch_nomenclature()
+    created_ids: list[int] = []
+    import_errors: list[str] = list(parse_errors)
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        for order in parsed_orders:
+            items_payload = []
+            order_failed = False
+            for it in order["items"]:
+                pid, article, pname = _resolve_product_id_for_excel_import(
+                    cur, it["name"], nomenclature
+                )
+                if pid is None:
+                    import_errors.append(
+                        f"Заказ «{order['client']}»: не найден товар «{it['name']}» в номенклатуре."
+                    )
+                    order_failed = True
+                    break
+                items_payload.append(
+                    {
+                        "product_id": pid,
+                        "article": article,
+                        "name": pname,
+                        "quantity": it["quantity"],
+                        "unit": it["unit"],
+                    }
+                )
+            if order_failed:
+                continue
+            body = {
+                "ship_date": order["ship_date"],
+                "client": order["client"],
+                "items": items_payload,
+            }
+            pack = _normalize_order_items_body(body)
+            if pack.get("error"):
+                import_errors.append(
+                    f"Заказ «{order['client']}»: {pack.get('message', 'ошибка валидации')}"
+                )
+                continue
+            normalized = pack["normalized"]
+            normalized, res_err = _resolve_normalized_product_ids(normalized, cur)
+            if res_err:
+                import_errors.append(
+                    f"Заказ «{order['client']}»: {res_err.get('message', 'ошибка')}"
+                )
+                continue
+            ship = pack["ship"]
+            client_n = pack["client"]
+            names_summary = _format_order_names_summary(normalized)
+            cur.execute(
+                """
+                INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
+                VALUES (?, ?, 0, ?, '')
+                """,
+                (ship, client_n, names_summary),
+            )
+            oid = int(cur.lastrowid)
+            for pid, article, name, qty, unit in normalized:
+                cur.execute(
+                    """
+                    INSERT INTO order_items (order_id, product_id, article, name, quantity, unit)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (oid, pid, article, name, qty, unit),
+                )
+            created_ids.append(oid)
+        if created_ids:
+            con.commit()
+        con.close()
+    if not created_ids:
+        return {
+            "error": "validation",
+            "message": import_errors[0]
+            if import_errors
+            else "Не удалось создать заказы.",
+            "details": import_errors,
+        }
+    return {
+        "ok": True,
+        "created_ids": created_ids,
+        "count": len(created_ids),
+        "errors": import_errors,
+    }
+
+
 def update_order_with_items(order_id: int, body: dict):
     pack = _normalize_order_items_body(body)
     if pack.get("error"):
@@ -2254,6 +2597,54 @@ class ApiHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw else {}
 
+    def _read_multipart_file_field(self, field_name: str = "file"):
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            return None, {
+                "error": "validation",
+                "message": "Ожидается загрузка файла (multipart/form-data).",
+            }
+        boundary = None
+        for piece in content_type.split(";"):
+            piece = piece.strip()
+            if piece.startswith("boundary="):
+                boundary = piece.split("=", 1)[1].strip().strip('"')
+                break
+        if not boundary:
+            return None, {
+                "error": "validation",
+                "message": "Некорректная загрузка файла.",
+            }
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return None, {"error": "validation", "message": "Файл не передан."}
+        body = self.rfile.read(length)
+        delimiter = ("--" + boundary).encode("ascii", "ignore")
+        name_token = f'name="{field_name}"'.encode("ascii", "ignore")
+        for part in body.split(delimiter):
+            if not part or part in (b"--", b"--\r\n"):
+                continue
+            chunk = part
+            if chunk.startswith(b"\r\n"):
+                chunk = chunk[2:]
+            if chunk.endswith(b"--"):
+                chunk = chunk[:-2]
+            if chunk.endswith(b"\r\n"):
+                chunk = chunk[:-2]
+            header_end = chunk.find(b"\r\n\r\n")
+            if header_end < 0:
+                continue
+            headers = chunk[:header_end]
+            if name_token not in headers:
+                continue
+            data = chunk[header_end + 4 :]
+            if data.endswith(b"\r\n"):
+                data = data[:-2]
+            if not data:
+                return None, {"error": "validation", "message": "Файл пустой."}
+            return data, None
+        return None, {"error": "validation", "message": "Файл не передан."}
+
     def _respond_arnest_unirus_pallet_sheets_pdf(self, body: dict):
         """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
         (даты — 6 цифр ДДММГГ), опционально pallet_number для штрих-кода строки 14 (1500000+суффикс),
@@ -2482,6 +2873,25 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             self._respond_arnest_unirus_pallet_sheets_pdf(body)
+            return
+        if _is_orders_import_excel_path(path):
+            data, read_err = self._read_multipart_file_field("file")
+            if read_err:
+                self._send_json(400, read_err)
+                return
+            try:
+                result = import_orders_from_excel_bytes(data)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "no_openpyxl":
+                self._send_json(503, result)
+                return
+            if err in ("validation", "invalid_file"):
+                self._send_json(400, result)
+                return
+            self._send_json(201, result)
             return
         if _is_orders_list_path(path):
             try:

@@ -367,7 +367,7 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             '<table class="generic-row-head" role="presentation" aria-label="Номер паллеты и дата">'
             "<tr>"
             '<td class="generic-row-head-left">'
-            '<span class="generic-r2-label">Номер паллета</span> '
+            '<span class="generic-r2-label">Номер паллета</span>\t'
             '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
             "<tr>"
             f'<td class="generic-r2-cell generic-r2-cell--side">{pallet_disp_e}</td>'

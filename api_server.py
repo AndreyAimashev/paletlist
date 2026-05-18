@@ -83,6 +83,24 @@ def _is_nomenclature_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/nomenclature"
 
 
+def _normalize_nomenclature_search_text(value: str) -> str:
+    """Единый вид строки для поиска: регистр, пробелы, №/No, латинская x и кириллическая х."""
+    t = unicodedata.normalize("NFKC", str(value or "")).lower().replace("\u00a0", " ")
+    t = t.replace("№", "no")
+    t = re.sub(r"[xх]", "х", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _nomenclature_matches_query(item: dict, query: str) -> bool:
+    qn = _normalize_nomenclature_search_text(query)
+    if not qn:
+        return True
+    art = _normalize_nomenclature_search_text(item.get("article", ""))
+    name = _normalize_nomenclature_search_text(item.get("name", ""))
+    return qn in art or qn in name
+
+
 def _is_orders_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders"
 
@@ -2355,13 +2373,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         items = fetch_nomenclature()
         qs = parse_qs(parsed.query)
         if "q" in qs:
-            query = (qs.get("q", [""])[0] or "").strip().lower()
+            query = (qs.get("q", [""])[0] or "").strip()
             if query:
-                items = [
-                    item
-                    for item in items
-                    if query in item["article"].lower() or query in item["name"].lower()
-                ]
+                items = [item for item in items if _nomenclature_matches_query(item, query)]
             else:
                 items = []
         self._send_json(200, items)

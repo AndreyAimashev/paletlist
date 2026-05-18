@@ -5784,6 +5784,25 @@
         }
       });
 
+      /** Нормализация для поиска номенклатуры (пробелы, №/No, x/х). */
+      function normalizeNomenclatureSearchText(value) {
+        return String(value ?? "")
+          .normalize("NFKC")
+          .toLowerCase()
+          .replace(/\u00a0/g, " ")
+          .replace(/№/g, "no")
+          .replace(/[xх]/g, "х")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function nomenclatureFuzzyMatchThreshold(queryNorm) {
+        if (queryNorm.length < 4) {
+          return 1;
+        }
+        return Math.max(2, Math.round(queryNorm.length * 0.03));
+      }
+
       function levenshtein(a, b) {
         if (a === b) {
           return 0;
@@ -5811,8 +5830,8 @@
       }
 
       function nomenclatureDistanceToItem(queryLower, item) {
-        const art = (item.article || "").toLowerCase();
-        const nam = (item.name || "").toLowerCase();
+        const art = normalizeNomenclatureSearchText(item.article || "");
+        const nam = normalizeNomenclatureSearchText(item.name || "");
         let best = Infinity;
         if (art) {
           best = Math.min(best, levenshtein(queryLower, art));
@@ -5858,25 +5877,35 @@
         return out;
       }
 
-      function nomenclatureStrictFilter(queryLower) {
+      function nomenclatureStrictFilter(queryNorm) {
+        if (!queryNorm) {
+          return nomenclatureItems;
+        }
         return nomenclatureItems.filter((item) => {
-          const article = (item.article || "").toLowerCase();
-          const name = (item.name || "").toLowerCase();
-          return article.includes(queryLower) || name.includes(queryLower);
+          const article = normalizeNomenclatureSearchText(item.article || "");
+          const name = normalizeNomenclatureSearchText(item.name || "");
+          return article.includes(queryNorm) || name.includes(queryNorm);
         });
       }
 
       function nomenclatureListForCurrentSearch() {
         const query = nomenclatureSearch.value.trim();
-        const qLower = query.toLowerCase();
+        const qNorm = normalizeNomenclatureSearchText(query);
         if (!query) {
           return { items: nomenclatureItems, suggestHint: false };
         }
-        const filtered = nomenclatureStrictFilter(qLower);
+        const filtered = nomenclatureStrictFilter(qNorm);
         if (filtered.length) {
           return { items: filtered, suggestHint: false };
         }
-        const closest = topNomenclatureClosest(qLower, 10);
+        const thresh = nomenclatureFuzzyMatchThreshold(qNorm);
+        const closeMatches = nomenclatureItems.filter(
+          (item) => nomenclatureDistanceToItem(qNorm, item) <= thresh,
+        );
+        if (closeMatches.length) {
+          return { items: closeMatches, suggestHint: false };
+        }
+        const closest = topNomenclatureClosest(qNorm, 10);
         return { items: closest, suggestHint: closest.length > 0 };
       }
 

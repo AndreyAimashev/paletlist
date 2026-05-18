@@ -44,19 +44,26 @@ table.generic-row-head {
   font-size: 16.94pt;
   line-height: 1.4;
   color: #000000;
+  min-height: 3em;
 }
 
 .generic-row-head-left {
-  width: 1%;
+  width: 33%;
   vertical-align: middle;
   text-align: left;
   padding: 0;
-  white-space: pre;
-  tab-size: 10;
+  white-space: nowrap;
+}
+
+.generic-row-head-center {
+  width: 34%;
+  vertical-align: middle;
+  text-align: center;
+  padding: 0;
 }
 
 .generic-row-head-right {
-  width: 30%;
+  width: 33%;
   vertical-align: middle;
   text-align: right;
   white-space: nowrap;
@@ -85,12 +92,11 @@ table.generic-row-head {
 }
 
 .generic-r2-triplet {
-  display: inline-table;
+  display: table;
   border-collapse: collapse;
-  margin: 0;
+  margin: 0 auto;
   padding: 0;
   width: auto;
-  vertical-align: middle;
 }
 
 .generic-r2-cell {
@@ -109,7 +115,7 @@ table.generic-row-head {
 .generic-r2-cell--side {
   padding: 2px 14px 4px;
   font-weight: 600;
-  font-size: 240%;
+  font-size: 480%;
   line-height: 1.15;
 }
 

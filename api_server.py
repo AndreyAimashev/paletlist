@@ -61,11 +61,13 @@ try:
         build_generic_packing_sheets_html,
         build_generic_packing_sheets_pdf_bytes,
         generic_packing_error_message,
+        sort_assemble_pallets_by_number,
     )
 except ImportError:
     build_generic_packing_sheets_html = None  # type: ignore[misc, assignment]
     build_generic_packing_sheets_pdf_bytes = None  # type: ignore[misc, assignment]
     generic_packing_error_message = None  # type: ignore[misc, assignment]
+    sort_assemble_pallets_by_number = None  # type: ignore[misc, assignment]
 
 PORT = 8081
 DB_LOCK = threading.Lock()
@@ -638,7 +640,10 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
         return None, "no_fpdf", ""
     if not HAVE_CODE128_BARCODE:
         return None, "no_barcode", _arnest_pallet_pdf_error_message("no_barcode")
-    n = len(pallets)
+    pallet_rows = [p for p in pallets if isinstance(p, dict)]
+    if sort_assemble_pallets_by_number is not None:
+        pallet_rows = sort_assemble_pallets_by_number(pallet_rows)
+    n = len(pallet_rows)
     if n < 1 or n > MAX_PALLET_SHEET_PDF_PAGES:
         return None, "validation_pallets", ""
     try:
@@ -649,9 +654,7 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
             return None, font_err, _arnest_pallet_pdf_error_message(font_err)
         barcode_w_mm = _ARNEST_A4_W_MM - 2 * _ARNEST_SIDE_MARGIN_MM
         y_top = 14.0
-        for idx, row in enumerate(pallets, start=1):
-            if not isinstance(row, dict):
-                return None, "validation_pallet", f"Паллета {idx}: ожидался объект с полями."
+        for idx, row in enumerate(pallet_rows, start=1):
             data, err_detail = _arnest_line_barcode_data(row)
             if err_detail:
                 return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
@@ -1032,6 +1035,9 @@ def build_arnest_unirus_pallet_sheets_xlsx_bytes(
         if err_detail:
             return None, "validation_pallet", f"Паллета {idx}: {err_detail}."
         validated.append(row)
+
+    if sort_assemble_pallets_by_number is not None:
+        validated = sort_assemble_pallets_by_number(validated)
 
     try:
         wb = Workbook()

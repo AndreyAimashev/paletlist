@@ -54,6 +54,26 @@ def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
         return raw
 
 
+def _pallet_sort_key(pal: dict[str, Any], fallback_index: int) -> tuple[int, float, str]:
+    """Ключ сортировки: числовой номер паллеты, иначе текст; пустой — порядковый fallback_index."""
+    raw = str(pal.get("palletNumber") or pal.get("pallet_number") or "").strip()
+    if not raw:
+        return (0, float(fallback_index), "")
+    try:
+        return (0, float(raw.replace(",", ".")), "")
+    except ValueError:
+        return (1, 0.0, raw.casefold())
+
+
+def sort_assemble_pallets_by_number(pallets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Паллеты по возрастанию номера паллеты (для PDF и предпросмотра)."""
+    if len(pallets) < 2:
+        return list(pallets)
+    indexed = list(enumerate(pallets, start=1))
+    indexed.sort(key=lambda pair: _pallet_sort_key(pair[1], pair[0]))
+    return [p for _, p in indexed]
+
+
 SUPPLIER_LINE = "М.К. АСЕПТИКА ООО"
 
 # Синхрон с packing_sheet_generic_styles.css: .generic-lines-table font-size
@@ -331,7 +351,9 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     pallets_raw = st.get("pallets")
     if not isinstance(pallets_raw, list) or len(pallets_raw) == 0:
         return None, "no_pallets"
-    pallets = [_migrate_pallet(p) for p in pallets_raw if isinstance(p, dict)]
+    pallets = sort_assemble_pallets_by_number(
+        [_migrate_pallet(p) for p in pallets_raw if isinstance(p, dict)]
+    )
     if not pallets:
         return None, "no_pallets"
 

@@ -2912,7 +2912,7 @@
           return [];
         }
         const items = Array.isArray(orderItems) ? orderItems : [];
-        return draftPallets.map((pal) => {
+        return sortAssemblePalletsByNumber(draftPallets).map((pal) => {
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
           let name = "";
@@ -4177,6 +4177,38 @@
           return orderItems[li] || null;
         }
         return null;
+      }
+
+      function palletSortKey(pal, fallbackIndex) {
+        const raw = String(pal.palletNumber ?? pal.pallet_number ?? "").trim();
+        if (!raw) {
+          return [0, fallbackIndex, ""];
+        }
+        const n = Number(String(raw).replace(",", "."));
+        if (Number.isFinite(n)) {
+          return [0, n, ""];
+        }
+        return [1, 0, raw.toLowerCase()];
+      }
+
+      function sortAssemblePalletsByNumber(pallets) {
+        if (!Array.isArray(pallets) || pallets.length < 2) {
+          return Array.isArray(pallets) ? pallets.slice() : [];
+        }
+        return pallets
+          .map((pal, i) => ({ pal, i: i + 1 }))
+          .sort((a, b) => {
+            const ka = palletSortKey(a.pal, a.i);
+            const kb = palletSortKey(b.pal, b.i);
+            if (ka[0] !== kb[0]) {
+              return ka[0] - kb[0];
+            }
+            if (ka[1] !== kb[1]) {
+              return ka[1] - kb[1];
+            }
+            return String(ka[2]).localeCompare(String(kb[2]), "ru");
+          })
+          .map((x) => x.pal);
       }
 
       function migratePalletRecord(p) {

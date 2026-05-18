@@ -26,14 +26,6 @@ def _ship_date_ru(ship_date: str) -> str:
     return s or "—"
 
 
-def _packing_list_number(order_id: Any, pallet_number_raw: str, pallet_index: int) -> str:
-    """Номер упаковочного листа: номер заказа и номер паллеты подряд (без разделителя)."""
-    oid = str(order_id if order_id is not None else "").strip() or "0"
-    raw = str(pallet_number_raw or "").strip()
-    part = re.sub(r"\s+", "", raw) if raw else str(pallet_index)
-    return f"{oid}{part}"
-
-
 def _migrate_pallet(p: dict[str, Any]) -> dict[str, Any]:
     """Нормализация id и номера паллеты (как раньше, для совместимости со сборкой)."""
     pid = int(p.get("id") or 0)
@@ -44,7 +36,7 @@ def _migrate_pallet(p: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pallet_no_display(pnum_raw: str, pallet_index: int) -> str:
-    """Номер паллеты для строки 2: цифра в рамке; если пусто — порядковый номер."""
+    """Номер паллеты в шапке листа: цифра в рамке; если пусто — порядковый номер."""
     raw = str(pnum_raw or "").strip()
     if not raw:
         return str(pallet_index)
@@ -83,7 +75,7 @@ _GENERIC_LINES_TABLE_ABS_MIN_PT = 2.0
 # A4 landscape, поля 10 мм: печатная высота ~190 мм
 _GENERIC_PAGE_CONTENT_H_MM = 190.0
 # Оценка высоты строк 1–4, margin-top у таблицы и запас (pt)
-_GENERIC_SHEET_HEADER_RESERVE_PT = 168.0
+_GENERIC_SHEET_HEADER_RESERVE_PT = 140.0
 # Оценка высоты таблицы занижает реальную вёрстку — запас против обрезания
 _GENERIC_TABLE_HEIGHT_SAFETY = 1.06
 
@@ -358,7 +350,6 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     if not isinstance(items, list):
         items = []
 
-    order_id = detail.get("id")
     ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
     ship_e = html.escape(ship_ru, quote=True)
     total_pallets = len(pallets)
@@ -369,36 +360,25 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     sections: list[str] = []
     for idx, pal in enumerate(pallets, start=1):
         pnum_raw = str(pal.get("palletNumber") or "").strip()
-        list_no = _packing_list_number(order_id, pnum_raw, idx)
-        list_no_e = html.escape(list_no, quote=True)
         pallet_disp = _pallet_no_display(pnum_raw, idx)
         pallet_disp_e = html.escape(pallet_disp, quote=True)
 
-        row1 = (
-            '<div class="generic-row1">'
-            '<span class="generic-r1-left">'
-            '<span class="generic-r1-label">Упаковочный лист №</span>'
-            '<span class="generic-r1-gap"> </span>'
-            f'<span class="generic-r1-frame">{list_no_e}</span>'
-            "</span>"
-            '<span class="generic-r1-right">'
-            '<span class="generic-r1-label">Дата</span>'
-            '<span class="generic-r1-gap"> </span>'
-            f'<span class="generic-r1-frame">{ship_e}</span>'
-            "</span>"
-            "</div>"
-        )
-        row2 = (
-            '<div class="generic-row2">'
+        row_head = (
+            '<div class="generic-row-head">'
+            '<span class="generic-row-head-left">'
             '<span class="generic-r2-label">Номер паллета</span>'
-            '<span class="generic-r2-center">'
             '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
             "<tr>"
             f'<td class="generic-r2-cell generic-r2-cell--side">{pallet_disp_e}</td>'
             '<td class="generic-r2-cell generic-r2-cell--mid">из</td>'
             f'<td class="generic-r2-cell generic-r2-cell--side">{total_e}</td>'
-            "</tr></table></span>"
-            '<span class="generic-r2-spacer" aria-hidden="true"></span>'
+            "</tr></table>"
+            "</span>"
+            '<span class="generic-row-head-right">'
+            '<span class="generic-r1-label">Дата</span>'
+            '<span class="generic-r1-gap"> </span>'
+            f'<span class="generic-r1-frame">{ship_e}</span>'
+            "</span>"
             "</div>"
         )
         row3 = (
@@ -414,7 +394,7 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             "</div>"
         )
         row5 = '<div class="generic-row5-wrap">' + _build_pallet_lines_table_html(items, pal) + "</div>"
-        sections.append(f'<div class="generic-pallet-sheet">{row1}{row2}{row3}{row4}{row5}</div>')
+        sections.append(f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row5}</div>')
 
     styles = _load_styles()
     doc = (

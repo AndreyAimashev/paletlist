@@ -1882,24 +1882,36 @@ def insert_order_with_items(body: dict):
 _IMPORT_SKIP_META_PREFIX = "__import_skip__:"
 
 
-def _encode_import_skip_extra_info(skipped: int, baseline: int, user_text: str = "") -> str:
+def _encode_import_skip_extra_info(
+    skipped: int,
+    baseline: int,
+    user_text: str = "",
+    skipped_names: list | None = None,
+) -> str:
     if skipped <= 0:
         return (user_text or "").strip()
-    payload = json.dumps(
-        {"skipped": int(skipped), "baseline": int(baseline)},
-        ensure_ascii=False,
-    )
-    meta = _IMPORT_SKIP_META_PREFIX + payload
+    names_out: list[str] = []
+    if skipped_names:
+        for raw in skipped_names:
+            n = _normalize_str(str(raw or ""))
+            if n:
+                names_out.append(n)
+    payload: dict = {
+        "skipped": int(skipped),
+        "baseline": int(baseline),
+        "names": names_out,
+    }
+    meta = _IMPORT_SKIP_META_PREFIX + json.dumps(payload, ensure_ascii=False)
     user_text = (user_text or "").strip()
     if user_text:
         return meta + "\n" + user_text
     return meta
 
 
-def _parse_import_skip_extra_info(extra_info: str) -> tuple[int, int, str]:
+def _parse_import_skip_extra_info(extra_info: str) -> tuple[int, int, list[str], str]:
     raw = extra_info or ""
     if not raw.startswith(_IMPORT_SKIP_META_PREFIX):
-        return 0, 0, raw
+        return 0, 0, [], raw
     rest = raw[len(_IMPORT_SKIP_META_PREFIX) :]
     nl = rest.find("\n")
     if nl >= 0:
@@ -1912,16 +1924,24 @@ def _parse_import_skip_extra_info(extra_info: str) -> tuple[int, int, str]:
         data = json.loads(json_part)
         skipped = max(0, int(data.get("skipped", 0)))
         baseline = max(0, int(data.get("baseline", 0)))
+        names_raw = data.get("names")
+        if isinstance(names_raw, list):
+            skipped_names = [
+                _normalize_str(str(x)) for x in names_raw if _normalize_str(str(x))
+            ]
+        else:
+            skipped_names = []
     except (json.JSONDecodeError, TypeError, ValueError):
-        return 0, 0, raw
-    return skipped, baseline, user_text
+        return 0, 0, [], raw
+    return skipped, baseline, skipped_names, user_text
 
 
 def _order_list_fields_from_extra_info(extra_info: str) -> dict:
-    skipped, _baseline, clean = _parse_import_skip_extra_info(extra_info)
+    skipped, _baseline, skipped_names, clean = _parse_import_skip_extra_info(extra_info)
     return {
         "extra_info": clean,
         "import_skipped_lines": skipped,
+        "import_skipped_names": skipped_names,
     }
 
 
@@ -2167,12 +2187,14 @@ def import_orders_from_excel_bytes(data: bytes):
         for order in parsed_orders:
             items_payload = []
             skipped_count = 0
+            skipped_names: list[str] = []
             for it in order["items"]:
                 pid, article, pname = _resolve_product_id_for_excel_import(
                     cur, it["name"]
                 )
                 if pid is None:
                     skipped_count += 1
+                    skipped_names.append(_normalize_str(it.get("name", "")))
                     continue
                 items_payload.append(
                     {
@@ -2210,7 +2232,9 @@ def import_orders_from_excel_bytes(data: bytes):
             client_n = pack["client"]
             names_summary = _format_order_names_summary(normalized)
             baseline = len(normalized)
-            extra_info = _encode_import_skip_extra_info(skipped_count, baseline)
+            extra_info = _encode_import_skip_extra_info(
+                skipped_count, baseline, "", skipped_names
+            )
             cur.execute(
                 """
                 INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
@@ -2276,13 +2300,16 @@ def update_order_with_items(order_id: int, body: dict):
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
         apct = max(0, min(100, int(row["assembled_percent"] or 0)))
-        skipped, baseline, user_xinfo = _parse_import_skip_extra_info(
+        skipped, baseline, skipped_names, user_xinfo = _parse_import_skip_extra_info(
             row["extra_info"] or ""
         )
         if skipped > 0 and len(normalized) >= baseline + skipped:
             skipped = 0
             baseline = 0
-        xinfo = _encode_import_skip_extra_info(skipped, baseline, user_xinfo)
+            skipped_names = []
+        xinfo = _encode_import_skip_extra_info(
+            skipped, baseline, user_xinfo, skipped_names
+        )
         xasm = row["assemble_state"] or ""
         cur.execute(
             """

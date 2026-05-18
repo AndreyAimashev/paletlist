@@ -771,6 +771,50 @@
         font-size: 12px;
         line-height: 1.35;
         color: #ff8da1;
+        cursor: help;
+        text-decoration: underline dotted;
+        text-decoration-color: rgba(255, 141, 161, 0.65);
+        text-underline-offset: 2px;
+      }
+
+      .orders-import-skipped-floating-tip {
+        position: fixed;
+        z-index: 10000;
+        max-width: min(440px, calc(100vw - 24px));
+        max-height: min(300px, calc(100vh - 24px));
+        overflow: auto;
+        padding: 10px 12px;
+        background: rgba(18, 24, 38, 0.97);
+        border: 1px solid rgba(255, 141, 161, 0.45);
+        border-radius: 10px;
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--text-main);
+        pointer-events: none;
+      }
+
+      .orders-import-skipped-floating-tip-title {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #ff8da1;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .orders-import-skipped-floating-tip-list {
+        margin: 0;
+        padding: 0 0 0 1.2em;
+      }
+
+      .orders-import-skipped-floating-tip-list li {
+        margin: 0 0 6px;
+        overflow-wrap: anywhere;
+      }
+
+      .orders-import-skipped-floating-tip-list li:last-child {
+        margin-bottom: 0;
       }
 
       @media (min-width: 769px) {
@@ -2210,6 +2254,12 @@
                 <tbody id="orders-table-body"></tbody>
               </table>
             </div>
+            <div
+              id="orders-import-skipped-floating-tip"
+              class="orders-import-skipped-floating-tip"
+              hidden
+              role="tooltip"
+            ></div>
           </section>
 
           <section
@@ -3910,7 +3960,74 @@
         if (n <= 0) {
           return "";
         }
-        return `<div class="orders-import-skipped-note">Было пропущено ${n} ${ruSkippedExcelLinesLabel(n)}</div>`;
+        const sid = Number(o.id);
+        const idAttr = Number.isFinite(sid) ? ` data-order-id="${sid}"` : "";
+        return `<div class="orders-import-skipped-note" tabindex="0"${idAttr}>Было пропущено ${n} ${ruSkippedExcelLinesLabel(n)}</div>`;
+      }
+
+      const ordersImportSkippedFloatingTip = document.getElementById(
+        "orders-import-skipped-floating-tip",
+      );
+      let ordersImportSkippedTipAnchor = null;
+
+      function hideOrdersImportSkippedFloatingTip() {
+        ordersImportSkippedTipAnchor = null;
+        if (ordersImportSkippedFloatingTip) {
+          ordersImportSkippedFloatingTip.hidden = true;
+          ordersImportSkippedFloatingTip.innerHTML = "";
+        }
+      }
+
+      function positionOrdersImportSkippedFloatingTip(anchor) {
+        if (!ordersImportSkippedFloatingTip || !anchor) {
+          return;
+        }
+        const rect = anchor.getBoundingClientRect();
+        const tip = ordersImportSkippedFloatingTip;
+        tip.hidden = false;
+        const margin = 8;
+        let top = rect.bottom + margin;
+        let left = rect.left;
+        const tipRect = tip.getBoundingClientRect();
+        if (top + tipRect.height > window.innerHeight - margin) {
+          top = Math.max(margin, rect.top - tipRect.height - margin);
+        }
+        if (left + tipRect.width > window.innerWidth - margin) {
+          left = Math.max(margin, window.innerWidth - tipRect.width - margin);
+        }
+        if (left < margin) {
+          left = margin;
+        }
+        tip.style.top = `${Math.round(top)}px`;
+        tip.style.left = `${Math.round(left)}px`;
+      }
+
+      function buildOrdersImportSkippedTipHtml(names) {
+        const list = Array.isArray(names) ? names.filter((n) => String(n || "").trim()) : [];
+        if (!list.length) {
+          return '<p class="orders-import-skipped-floating-tip-title">Пропущенные наименования</p><p class="muted">Список недоступен для этого заказа.</p>';
+        }
+        const items = list
+          .map((name) => `<li>${escapeXml(String(name))}</li>`)
+          .join("");
+        return `<p class="orders-import-skipped-floating-tip-title">Пропущенные наименования</p><ol class="orders-import-skipped-floating-tip-list">${items}</ol>`;
+      }
+
+      function showOrdersImportSkippedFloatingTip(anchor, orderId) {
+        if (!ordersImportSkippedFloatingTip || !anchor) {
+          return;
+        }
+        const id = Number(orderId);
+        const order = Number.isFinite(id)
+          ? cachedOrdersListRows.find((row) => row.id === id)
+          : null;
+        const names = order && Array.isArray(order.import_skipped_names)
+          ? order.import_skipped_names
+          : [];
+        ordersImportSkippedTipAnchor = anchor;
+        ordersImportSkippedFloatingTip.innerHTML = buildOrdersImportSkippedTipHtml(names);
+        ordersImportSkippedFloatingTip.hidden = false;
+        positionOrdersImportSkippedFloatingTip(anchor);
       }
 
       /** Число позиций и сумма по заказу в выбранных единицах (штуки / коробки / наборы). */
@@ -4096,6 +4213,7 @@
       }
 
       function renderOrdersTable() {
+        hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
         syncOrdersClientFilterSelect();
         syncOrdersSortIndicators();
@@ -5540,7 +5658,56 @@
             renderOrdersTable();
           }
         });
+        ordersWorkspace.addEventListener("mouseover", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (!note || !ordersWorkspace.contains(note)) {
+            return;
+          }
+          if (ordersImportSkippedTipAnchor === note) {
+            return;
+          }
+          showOrdersImportSkippedFloatingTip(note, note.dataset.orderId);
+        });
+        ordersWorkspace.addEventListener("mouseout", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (!note) {
+            return;
+          }
+          const related = ev.relatedTarget;
+          if (related && note.contains(related)) {
+            return;
+          }
+          hideOrdersImportSkippedFloatingTip();
+        });
+        ordersWorkspace.addEventListener("focusin", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (note && ordersWorkspace.contains(note)) {
+            showOrdersImportSkippedFloatingTip(note, note.dataset.orderId);
+          }
+        });
+        ordersWorkspace.addEventListener("focusout", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (note) {
+            hideOrdersImportSkippedFloatingTip();
+          }
+        });
+        const ordersTableWrap = ordersWorkspace.querySelector(".orders-table-wrap");
+        if (ordersTableWrap) {
+          ordersTableWrap.addEventListener("scroll", hideOrdersImportSkippedFloatingTip, {
+            passive: true,
+          });
+        }
       }
+
+      window.addEventListener(
+        "scroll",
+        () => {
+          if (ordersImportSkippedTipAnchor) {
+            positionOrdersImportSkippedFloatingTip(ordersImportSkippedTipAnchor);
+          }
+        },
+        true,
+      );
 
       const orderSearchDebounce = new Map();
 

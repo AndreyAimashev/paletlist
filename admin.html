@@ -2708,6 +2708,8 @@
       let palletSheetsPdfjsWorkerReady = false;
       /** «arnest» — PDF со штрих-кодами; «generic» — PDF по HTML-шаблону для остальных клиентов. */
       let palletSheetsDownloadKind = null;
+      /** Последний заказ, загруженный на экране «Паллетные листы» (для скачивания без localStorage). */
+      let palletSheetsCachedOrder = null;
 
       function releasePalletSheetsPdfPreview() {
         if (palletSheetsPdfPages) {
@@ -3082,6 +3084,7 @@
           return;
         }
         const token = ++palletSheetsLoadToken;
+        palletSheetsCachedOrder = null;
         releasePalletSheetsPdfPreview();
         palletSheetsDownloadKind = null;
         palletSheetsError.hidden = true;
@@ -3123,6 +3126,7 @@
           return;
         }
 
+        palletSheetsCachedOrder = order;
         const assemblePallets = getAssemblePalletsFromOrderOrStorage(order, oid);
         const palletCount = assemblePallets ? assemblePallets.length : 0;
 
@@ -3447,13 +3451,6 @@
           if (oid == null || !Number.isFinite(oid)) {
             return;
           }
-          const pallets = tryGetAssembleDraftPallets(oid);
-          if (!pallets || !pallets.length) {
-            window.alert(
-              "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
-            );
-            return;
-          }
           const triggerDownload = (b, filename) => {
             const url = URL.createObjectURL(b);
             const a = document.createElement("a");
@@ -3465,6 +3462,20 @@
             a.remove();
             URL.revokeObjectURL(url);
           };
+          let order;
+          let pallets;
+          try {
+            ({ order, pallets } = await resolveAssemblePalletsForOrderId(oid));
+          } catch (e) {
+            window.alert("Не удалось загрузить заказ.");
+            return;
+          }
+          if (!pallets || !pallets.length) {
+            window.alert(
+              "Нет паллет в сборке заказа. Добавьте паллеты в разделе «Сборка заказа» (данные должны быть сохранены на сервере).",
+            );
+            return;
+          }
           if (palletSheetsDownloadKind === "generic") {
             let blob;
             try {
@@ -3481,13 +3492,7 @@
           const n = pallets.length;
           let blob;
           try {
-            const res = await fetch(`/api/orders/${oid}`);
-            if (!res.ok) {
-              window.alert("Не удалось загрузить заказ для формирования штрих-кодов.");
-              return;
-            }
-            const ord = await res.json();
-            const orderItems = ord.items || [];
+            const orderItems = order.items || [];
             const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
             blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
           } catch (e) {
@@ -3509,13 +3514,6 @@
           if (palletSheetsDownloadKind !== "arnest") {
             return;
           }
-          const pallets = tryGetAssembleDraftPallets(oid);
-          if (!pallets || !pallets.length) {
-            window.alert(
-              "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
-            );
-            return;
-          }
           const triggerDownload = (b, filename) => {
             const url = URL.createObjectURL(b);
             const a = document.createElement("a");
@@ -3527,17 +3525,24 @@
             a.remove();
             URL.revokeObjectURL(url);
           };
+          let ord;
+          let pallets;
+          try {
+            ({ order: ord, pallets } = await resolveAssemblePalletsForOrderId(oid));
+          } catch (e) {
+            window.alert("Не удалось загрузить заказ для выгрузки Excel.");
+            return;
+          }
+          if (!pallets || !pallets.length) {
+            window.alert(
+              "Нет паллет в сборке заказа. Добавьте паллеты в разделе «Сборка заказа» (данные должны быть сохранены на сервере).",
+            );
+            return;
+          }
           const n = pallets.length;
           let blob;
-          let ordForName = null;
+          let ordForName = ord;
           try {
-            const res = await fetch(`/api/orders/${oid}`);
-            if (!res.ok) {
-              window.alert("Не удалось загрузить заказ для выгрузки Excel.");
-              return;
-            }
-            const ord = await res.json();
-            ordForName = ord;
             const orderItems = ord.items || [];
             const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
             blob = await fetchArnestPalletSheetsXlsxBlob({
@@ -3568,10 +3573,16 @@
           if (oid == null || !Number.isFinite(oid)) {
             return;
           }
-          const pallets = tryGetAssembleDraftPallets(oid);
+          let pallets;
+          try {
+            ({ pallets } = await resolveAssemblePalletsForOrderId(oid));
+          } catch (e) {
+            window.alert("Не удалось загрузить заказ.");
+            return;
+          }
           if (!pallets || !pallets.length) {
             window.alert(
-              "Нет паллет в сборке заказа. Откройте «Сборка заказа» и добавьте хотя бы одну паллету.",
+              "Нет паллет в сборке заказа. Добавьте паллеты в разделе «Сборка заказа» (данные должны быть сохранены на сервере).",
             );
             return;
           }
@@ -4495,6 +4506,22 @@
           return orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
         }
         return tryGetAssembleDraftPallets(orderId);
+      }
+
+      /** Паллеты для скачивания листов: сначала assemble_state с сервера, иначе черновик в localStorage. */
+      async function resolveAssemblePalletsForOrderId(orderId) {
+        let order = palletSheetsCachedOrder;
+        if (!order || order.id !== orderId) {
+          const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+          if (!res.ok) {
+            throw new Error("not_found");
+          }
+          order = await res.json();
+        }
+        return {
+          order,
+          pallets: getAssemblePalletsFromOrderOrStorage(order, orderId),
+        };
       }
 
       async function loadOrders() {

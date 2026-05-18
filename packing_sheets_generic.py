@@ -249,11 +249,8 @@ def _allocation_to_boxes(it: dict[str, Any], alloc: dict[str, Any]) -> float:
 
 
 def _nomenclature_title(it: dict[str, Any]) -> str:
-    name = (it.get("name") or "—").strip() or "—"
-    art = (it.get("article") or "").strip()
-    if art:
-        return f"{art} — {name}"
-    return name
+    """Колонка «Номенклатура» на листе — только наименование."""
+    return (it.get("name") or "—").strip() or "—"
 
 
 def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, Any]) -> str:

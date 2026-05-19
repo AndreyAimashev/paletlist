@@ -2105,6 +2105,7 @@ def parse_orders_from_excel_worksheet(ws):
                     "ship_date": ship,
                     "items": items,
                     "extra_info": _excel_delivery_extra_info_from_texts(delivery_texts),
+                    "_delivery_texts": list(delivery_texts),
                 }
             )
         current = None
@@ -2176,7 +2177,94 @@ def parse_orders_from_excel_worksheet(ws):
         )
 
     flush_current()
-    return orders, errors
+    return merge_parsed_excel_orders(orders), errors
+
+
+def merge_parsed_excel_orders(orders: list[dict]) -> list[dict]:
+    """Один заказ на пару (клиент, дата отгрузки); одинаковые товары — сумма количества."""
+    if not orders:
+        return []
+    buckets: dict[tuple[str, str], dict] = {}
+    order_keys: list[tuple[str, str]] = []
+
+    for order in orders:
+        client = _normalize_str(order.get("client", ""))
+        ship = (order.get("ship_date") or "").strip()
+        if not client or not ship:
+            continue
+        key = (client, ship)
+        if key not in buckets:
+            buckets[key] = {
+                "client": client,
+                "ship_date": ship,
+                "items": [],
+                "_delivery_texts": [],
+            }
+            order_keys.append(key)
+        bucket = buckets[key]
+        bucket["_delivery_texts"].extend(order.get("_delivery_texts") or [])
+        item_map: dict[tuple[str, str], dict] = {
+            (
+                _strip_trailing_name_suffix(_normalize_str(it.get("name", ""))),
+                (it.get("unit") or "piece"),
+            ): dict(it)
+            for it in bucket["items"]
+        }
+        for it in order.get("items") or []:
+            name = _strip_trailing_name_suffix(_normalize_str(it.get("name", "")))
+            unit = (it.get("unit") or "piece").strip().lower()
+            if unit not in ("box", "set", "piece"):
+                unit = "piece"
+            try:
+                qty = float(it.get("quantity") or 0)
+            except (TypeError, ValueError):
+                qty = 0
+            if not name or qty <= 0:
+                continue
+            ik = (name, unit)
+            if ik in item_map:
+                item_map[ik]["quantity"] = float(item_map[ik]["quantity"]) + qty
+            else:
+                item_map[ik] = {"name": name, "quantity": qty, "unit": unit}
+        bucket["items"] = list(item_map.values())
+
+    out: list[dict] = []
+    for key in order_keys:
+        b = buckets[key]
+        delivery_texts = b.pop("_delivery_texts", [])
+        out.append(
+            {
+                "client": b["client"],
+                "ship_date": b["ship_date"],
+                "items": b["items"],
+                "extra_info": _excel_delivery_extra_info_from_texts(delivery_texts),
+            }
+        )
+    return out
+
+
+def _merge_import_items_payload(items: list[dict]) -> list[dict]:
+    """Суммирует количество по product_id и единице (после привязки к номенклатуре)."""
+    merged: dict[tuple[int, str], dict] = {}
+    for it in items:
+        pid = int(it["product_id"])
+        unit = (it.get("unit") or "piece").strip().lower()
+        if unit not in ("box", "set", "piece"):
+            unit = "piece"
+        key = (pid, unit)
+        if key in merged:
+            merged[key]["quantity"] = float(merged[key]["quantity"]) + float(
+                it.get("quantity") or 0
+            )
+        else:
+            merged[key] = {
+                "product_id": pid,
+                "article": it.get("article", ""),
+                "name": it.get("name", ""),
+                "quantity": float(it.get("quantity") or 0),
+                "unit": unit,
+            }
+    return list(merged.values())
 
 
 def _resolve_product_id_for_excel_import(cur, name: str):
@@ -2255,6 +2343,7 @@ def import_orders_from_excel_bytes(data: bytes):
                         "unit": it["unit"],
                     }
                 )
+            items_payload = _merge_import_items_payload(items_payload)
             if not items_payload:
                 ship = _format_ship_date_storage(order.get("ship_date", ""))
                 client_n = _normalize_str(order.get("client", ""))

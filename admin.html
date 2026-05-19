@@ -1111,8 +1111,38 @@
         justify-content: center;
       }
 
-      .orders-table th.col-pct .orders-filter-select {
-        text-align: center;
+      .orders-table th.col-pct {
+        position: relative;
+        vertical-align: top;
+      }
+
+      .orders-pct-filter-btn {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        box-sizing: border-box;
+      }
+
+      .orders-filter-pct-options {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .orders-filter-pct-options label {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-main);
+        cursor: pointer;
+      }
+
+      .orders-filter-pct-options input {
+        margin-top: 2px;
+        accent-color: var(--accent-teal);
+        flex-shrink: 0;
       }
 
       .orders-table th.col-extra-info {
@@ -2327,11 +2357,16 @@
                           <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                         </button>
                       </div>
-                      <select class="orders-filter-select" id="orders-filter-pct" aria-label="Фильтр по проценту сборки">
-                        <option value="">Все</option>
-                        <option value="100">Только 100%</option>
-                        <option value="open">Меньше 100%</option>
-                      </select>
+                      <button
+                        type="button"
+                        class="orders-th-filter-btn orders-pct-filter-btn"
+                        id="orders-filter-pct-toggle"
+                        aria-expanded="false"
+                        aria-controls="orders-filter-pct-popover"
+                        title="Фильтр по проценту сборки"
+                      >
+                        Фильтр
+                      </button>
                     </th>
                     <th scope="col">Количество</th>
                     <th scope="col" class="col-extra-info">
@@ -2352,6 +2387,28 @@
                 </thead>
                 <tbody id="orders-table-body"></tbody>
               </table>
+            </div>
+            <div
+              id="orders-filter-pct-popover"
+              class="orders-filter-extra-popover orders-filter-pct-popover"
+              hidden
+              role="dialog"
+              aria-label="Фильтр по проценту сборки"
+            >
+              <div id="orders-filter-pct-options" class="orders-filter-pct-options">
+                <label>
+                  <input type="radio" name="orders-filter-pct" value="" checked />
+                  <span>Все</span>
+                </label>
+                <label>
+                  <input type="radio" name="orders-filter-pct" value="100" />
+                  <span>Только 100%</span>
+                </label>
+                <label>
+                  <input type="radio" name="orders-filter-pct" value="open" />
+                  <span>Меньше 100%</span>
+                </label>
+              </div>
             </div>
             <div
               id="orders-filter-extra-popover"
@@ -4300,6 +4357,85 @@
         setOrdersExtraInfoFilterOpen(false);
       }
 
+      function updateOrdersPctFilterToggle() {
+        const toggle = document.getElementById("orders-filter-pct-toggle");
+        if (toggle) {
+          toggle.classList.toggle("is-active", ordersFilterPct !== "");
+        }
+      }
+
+      function syncOrdersPctFilterRadios() {
+        const pop = document.getElementById("orders-filter-pct-popover");
+        if (!pop) {
+          return;
+        }
+        pop.querySelectorAll('input[name="orders-filter-pct"]').forEach((radio) => {
+          radio.checked = radio.value === (ordersFilterPct || "");
+        });
+        updateOrdersPctFilterToggle();
+      }
+
+      function ensureOrdersPctFilterPopoverMounted() {
+        const pop = document.getElementById("orders-filter-pct-popover");
+        if (pop && pop.parentElement !== document.body) {
+          document.body.appendChild(pop);
+        }
+      }
+
+      function positionOrdersPctFilterPopover() {
+        const pop = document.getElementById("orders-filter-pct-popover");
+        const toggle = document.getElementById("orders-filter-pct-toggle");
+        if (!pop || !toggle || pop.hidden) {
+          return;
+        }
+        const margin = 8;
+        const rect = toggle.getBoundingClientRect();
+        let top = rect.bottom + 4;
+        let left = rect.left;
+        const popRect = pop.getBoundingClientRect();
+        if (left + popRect.width > window.innerWidth - margin) {
+          left = Math.max(margin, window.innerWidth - popRect.width - margin);
+        }
+        if (top + popRect.height > window.innerHeight - margin) {
+          top = Math.max(margin, rect.top - popRect.height - 4);
+        }
+        if (left < margin) {
+          left = margin;
+        }
+        pop.style.top = `${Math.round(top)}px`;
+        pop.style.left = `${Math.round(left)}px`;
+      }
+
+      function setOrdersPctFilterOpen(open) {
+        const pop = document.getElementById("orders-filter-pct-popover");
+        const toggle = document.getElementById("orders-filter-pct-toggle");
+        if (!pop || !toggle) {
+          return;
+        }
+        ensureOrdersPctFilterPopoverMounted();
+        const show = !!open;
+        pop.hidden = !show;
+        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        if (show) {
+          syncOrdersPctFilterRadios();
+          requestAnimationFrame(() => {
+            positionOrdersPctFilterPopover();
+          });
+        } else {
+          pop.style.top = "";
+          pop.style.left = "";
+        }
+      }
+
+      function closeOrdersPctFilterPopover() {
+        setOrdersPctFilterOpen(false);
+      }
+
+      function positionOpenOrdersFilterPopovers() {
+        positionOrdersExtraInfoFilterPopover();
+        positionOrdersPctFilterPopover();
+      }
+
       let ordersNamesDisplayUnit = (function initOrdersNamesUnit() {
         try {
           const v = sessionStorage.getItem(ORDERS_NAMES_UNIT_STORAGE);
@@ -6111,14 +6247,38 @@
           }
         });
         ordersWorkspace.addEventListener("change", (ev) => {
-          if (ev.target.id === "orders-filter-pct") {
-            ordersFilterPct = String(ev.target.value || "");
-            renderOrdersTable();
-          } else if (ev.target.id === "orders-filter-client") {
+          if (ev.target.id === "orders-filter-client") {
             ordersFilterClient = String(ev.target.value || "");
             renderOrdersTable();
           }
         });
+        const pctToggle = document.getElementById("orders-filter-pct-toggle");
+        const pctPopover = document.getElementById("orders-filter-pct-popover");
+        const pctOptions = document.getElementById("orders-filter-pct-options");
+        if (pctToggle && pctPopover) {
+          pctToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const willOpen = pctPopover.hidden;
+            if (willOpen) {
+              closeOrdersExtraInfoFilterPopover();
+            }
+            setOrdersPctFilterOpen(willOpen);
+          });
+        }
+        if (pctOptions) {
+          pctOptions.addEventListener("change", (ev) => {
+            ev.stopPropagation();
+            const radio = ev.target;
+            if (!radio || radio.type !== "radio" || radio.name !== "orders-filter-pct") {
+              return;
+            }
+            ordersFilterPct = String(radio.value || "");
+            updateOrdersPctFilterToggle();
+            renderOrdersTable();
+            closeOrdersPctFilterPopover();
+          });
+        }
+        updateOrdersPctFilterToggle();
         const extraToggle = document.getElementById("orders-filter-extra-toggle");
         const extraPopover = document.getElementById("orders-filter-extra-popover");
         const extraAllBtn = document.getElementById("orders-filter-extra-all");
@@ -6129,6 +6289,7 @@
             ev.stopPropagation();
             const willOpen = extraPopover.hidden;
             if (willOpen) {
+              closeOrdersPctFilterPopover();
               syncOrdersExtraInfoFilterUi();
             }
             setOrdersExtraInfoFilterOpen(willOpen);
@@ -6171,37 +6332,38 @@
           });
         }
         document.addEventListener("click", (ev) => {
-          if (!extraPopover || extraPopover.hidden) {
-            return;
+          if (extraPopover && !extraPopover.hidden) {
+            if (
+              !ev.target.closest("#orders-filter-extra-popover") &&
+              !ev.target.closest("#orders-filter-extra-toggle")
+            ) {
+              closeOrdersExtraInfoFilterPopover();
+            }
           }
-          if (
-            ev.target.closest("#orders-filter-extra-popover") ||
-            ev.target.closest("#orders-filter-extra-toggle")
-          ) {
-            return;
+          if (pctPopover && !pctPopover.hidden) {
+            if (
+              !ev.target.closest("#orders-filter-pct-popover") &&
+              !ev.target.closest("#orders-filter-pct-toggle")
+            ) {
+              closeOrdersPctFilterPopover();
+            }
           }
-          closeOrdersExtraInfoFilterPopover();
         });
         document.addEventListener("keydown", (ev) => {
           if (ev.key === "Escape") {
             closeOrdersExtraInfoFilterPopover();
+            closeOrdersPctFilterPopover();
           }
         });
         window.addEventListener(
           "scroll",
           () => {
-            const pop = document.getElementById("orders-filter-extra-popover");
-            if (pop && !pop.hidden) {
-              positionOrdersExtraInfoFilterPopover();
-            }
+            positionOpenOrdersFilterPopovers();
           },
           true,
         );
         window.addEventListener("resize", () => {
-          const pop = document.getElementById("orders-filter-extra-popover");
-          if (pop && !pop.hidden) {
-            positionOrdersExtraInfoFilterPopover();
-          }
+          positionOpenOrdersFilterPopovers();
         });
       }
 

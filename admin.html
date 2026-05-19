@@ -1045,6 +1045,106 @@
         text-align: center;
       }
 
+      .orders-table th.col-extra-info {
+        position: relative;
+        min-width: 10rem;
+      }
+
+      .orders-th-filter-btn {
+        flex-shrink: 0;
+        margin: 0;
+        padding: 2px 8px;
+        font-size: 11px;
+        line-height: 1.2;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 6px;
+        background: rgba(10, 14, 23, 0.75);
+        color: var(--accent-teal);
+        cursor: pointer;
+        font-family: inherit;
+      }
+
+      .orders-th-filter-btn:hover {
+        border-color: rgba(0, 200, 160, 0.65);
+        background: rgba(0, 200, 160, 0.12);
+      }
+
+      .orders-th-filter-btn.is-active {
+        border-color: rgba(255, 160, 72, 0.65);
+        color: #ffc090;
+        background: rgba(40, 28, 14, 0.55);
+      }
+
+      .orders-filter-extra-popover {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        z-index: 50;
+        min-width: 200px;
+        max-width: min(280px, 90vw);
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        background: rgba(18, 24, 38, 0.98);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+      }
+
+      .orders-filter-extra-popover[hidden] {
+        display: none !important;
+      }
+
+      .orders-filter-extra-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.18);
+      }
+
+      .orders-filter-extra-toolbar button {
+        margin: 0;
+        padding: 4px 10px;
+        font-family: "Roboto", sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .orders-filter-extra-toolbar button:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.4);
+      }
+
+      .orders-filter-extra-checkboxes {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: min(220px, 40vh);
+        overflow-y: auto;
+      }
+
+      .orders-filter-extra-checkboxes label {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-main);
+        cursor: pointer;
+      }
+
+      .orders-filter-extra-checkboxes input {
+        margin: 2px 0 0;
+        flex-shrink: 0;
+      }
+
       .stage-order-context {
         margin: 0 0 10px;
       }
@@ -2264,7 +2364,34 @@
                       </select>
                     </th>
                     <th scope="col">Количество</th>
-                    <th scope="col">Доп. информация</th>
+                    <th scope="col" class="col-extra-info">
+                      <div class="orders-th-inner">
+                        <span class="orders-th-title">Доп. информация</span>
+                        <button
+                          type="button"
+                          class="orders-th-filter-btn"
+                          id="orders-filter-extra-toggle"
+                          aria-expanded="false"
+                          aria-controls="orders-filter-extra-popover"
+                          title="Фильтр по доп. информации"
+                        >
+                          Фильтр
+                        </button>
+                      </div>
+                      <div
+                        id="orders-filter-extra-popover"
+                        class="orders-filter-extra-popover"
+                        hidden
+                        role="dialog"
+                        aria-label="Фильтр по доп. информации"
+                      >
+                        <div class="orders-filter-extra-toolbar">
+                          <button type="button" id="orders-filter-extra-all">Все</button>
+                          <button type="button" id="orders-filter-extra-none">Снять</button>
+                        </div>
+                        <div id="orders-filter-extra-checkboxes" class="orders-filter-extra-checkboxes"></div>
+                      </div>
+                    </th>
                     <th scope="col" class="col-actions">Действия</th>
                   </tr>
                 </thead>
@@ -3884,6 +4011,102 @@
       let ordersFilterClient = "";
       let ordersFilterPct = "";
       let ordersFilterInputTimer = null;
+      /** @type {Set<string> | null} */
+      let ordersFilterExtraInfoSelected = null;
+      const ORDERS_EXTRA_INFO_FILTER_PRESETS = ["Самовывоз", "Деловые Линии", "Обычный"];
+
+      function getOrderExtraInfoFilterLabel(o) {
+        const t = String(o.extra_info || "").trim();
+        return t || "—";
+      }
+
+      function collectOrdersExtraInfoFilterValues() {
+        const set = new Set();
+        (cachedOrdersListRows || []).forEach((o) => set.add(getOrderExtraInfoFilterLabel(o)));
+        const presets = ORDERS_EXTRA_INFO_FILTER_PRESETS.filter((p) => set.has(p));
+        const rest = [...set]
+          .filter((v) => !ORDERS_EXTRA_INFO_FILTER_PRESETS.includes(v))
+          .sort((a, b) => a.localeCompare(b, "ru", { sensitivity: "base" }));
+        return [...presets, ...rest];
+      }
+
+      function ensureOrdersExtraInfoFilterSelection(values) {
+        const valueSet = new Set(values);
+        if (ordersFilterExtraInfoSelected === null) {
+          ordersFilterExtraInfoSelected = new Set(values);
+          return;
+        }
+        for (const v of [...ordersFilterExtraInfoSelected]) {
+          if (!valueSet.has(v)) {
+            ordersFilterExtraInfoSelected.delete(v);
+          }
+        }
+        for (const v of values) {
+          if (!ordersFilterExtraInfoSelected.has(v)) {
+            ordersFilterExtraInfoSelected.add(v);
+          }
+        }
+      }
+
+      function isOrdersExtraInfoFilterNarrowed() {
+        const all = collectOrdersExtraInfoFilterValues();
+        if (!ordersFilterExtraInfoSelected) {
+          return false;
+        }
+        if (all.length === 0) {
+          return false;
+        }
+        return ordersFilterExtraInfoSelected.size < all.length;
+      }
+
+      function syncOrdersExtraInfoFilterUi() {
+        const toggle = document.getElementById("orders-filter-extra-toggle");
+        const box = document.getElementById("orders-filter-extra-checkboxes");
+        if (!box) {
+          return;
+        }
+        const values = collectOrdersExtraInfoFilterValues();
+        ensureOrdersExtraInfoFilterSelection(values);
+        if (toggle) {
+          toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
+        }
+        box.innerHTML = "";
+        if (!values.length) {
+          box.innerHTML = '<p class="muted" style="margin:0;font-size:12px;">Нет данных</p>';
+          return;
+        }
+        const selected = ordersFilterExtraInfoSelected || new Set();
+        values.forEach((label) => {
+          const id = `orders-filter-extra-cb-${label.replace(/[^\w\u0400-\u04FF-]+/g, "_")}`;
+          const wrap = document.createElement("label");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.id = id;
+          cb.value = label;
+          cb.checked = selected.has(label);
+          cb.dataset.ordersExtraFilter = label;
+          const span = document.createElement("span");
+          span.textContent = label;
+          wrap.appendChild(cb);
+          wrap.appendChild(span);
+          box.appendChild(wrap);
+        });
+      }
+
+      function setOrdersExtraInfoFilterOpen(open) {
+        const pop = document.getElementById("orders-filter-extra-popover");
+        const toggle = document.getElementById("orders-filter-extra-toggle");
+        if (!pop || !toggle) {
+          return;
+        }
+        const show = !!open;
+        pop.hidden = !show;
+        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+      }
+
+      function closeOrdersExtraInfoFilterPopover() {
+        setOrdersExtraInfoFilterOpen(false);
+      }
 
       let ordersNamesDisplayUnit = (function initOrdersNamesUnit() {
         try {
@@ -4140,6 +4363,18 @@
         } else if (ordersFilterPct === "open") {
           list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) < 100);
         }
+        const extraValues = collectOrdersExtraInfoFilterValues();
+        if (
+          ordersFilterExtraInfoSelected &&
+          extraValues.length &&
+          ordersFilterExtraInfoSelected.size < extraValues.length
+        ) {
+          list = list.filter((o) =>
+            ordersFilterExtraInfoSelected.has(getOrderExtraInfoFilterLabel(o)),
+          );
+        } else if (ordersFilterExtraInfoSelected && ordersFilterExtraInfoSelected.size === 0) {
+          list = [];
+        }
         if (ordersSortKey) {
           const dir = ordersSortDir === "desc" ? -1 : 1;
           list.sort((a, b) => {
@@ -4242,6 +4477,7 @@
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
         syncOrdersClientFilterSelect();
+        syncOrdersExtraInfoFilterUi();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
           return;
@@ -4265,8 +4501,10 @@
             );
             const pctCellClass =
               pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
-            const qtyCellHtml =
-              formatOrderQuantityCell(o, ordersNamesDisplayUnit) + formatOrderSkippedImportNote(o);
+            const skippedNote = formatOrderSkippedImportNote(o);
+            const qtyCellHtml = skippedNote
+              ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit)}${skippedNote}</div>`
+              : formatOrderQuantityCell(o, ordersNamesDisplayUnit);
             const actionsHtml = renderOrderRowActions(o.id, false);
             const actionsMobileHtml = renderOrderRowActions(o.id, true);
             return `<tr>
@@ -5682,6 +5920,76 @@
           } else if (ev.target.id === "orders-filter-client") {
             ordersFilterClient = String(ev.target.value || "");
             renderOrdersTable();
+          }
+        });
+        const extraToggle = document.getElementById("orders-filter-extra-toggle");
+        const extraPopover = document.getElementById("orders-filter-extra-popover");
+        const extraAllBtn = document.getElementById("orders-filter-extra-all");
+        const extraNoneBtn = document.getElementById("orders-filter-extra-none");
+        const extraCheckboxes = document.getElementById("orders-filter-extra-checkboxes");
+        if (extraToggle && extraPopover) {
+          extraToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const willOpen = extraPopover.hidden;
+            if (willOpen) {
+              syncOrdersExtraInfoFilterUi();
+            }
+            setOrdersExtraInfoFilterOpen(willOpen);
+          });
+        }
+        if (extraAllBtn) {
+          extraAllBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterExtraInfoSelected = new Set(collectOrdersExtraInfoFilterValues());
+            syncOrdersExtraInfoFilterUi();
+            renderOrdersTable();
+          });
+        }
+        if (extraNoneBtn) {
+          extraNoneBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterExtraInfoSelected = new Set();
+            syncOrdersExtraInfoFilterUi();
+            renderOrdersTable();
+          });
+        }
+        if (extraCheckboxes) {
+          extraCheckboxes.addEventListener("change", (ev) => {
+            const cb = ev.target;
+            if (!cb || cb.type !== "checkbox" || !cb.dataset.ordersExtraFilter) {
+              return;
+            }
+            if (!ordersFilterExtraInfoSelected) {
+              ordersFilterExtraInfoSelected = new Set(collectOrdersExtraInfoFilterValues());
+            }
+            const label = cb.dataset.ordersExtraFilter;
+            if (cb.checked) {
+              ordersFilterExtraInfoSelected.add(label);
+            } else {
+              ordersFilterExtraInfoSelected.delete(label);
+            }
+            const toggle = document.getElementById("orders-filter-extra-toggle");
+            if (toggle) {
+              toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
+            }
+            renderOrdersTable();
+          });
+        }
+        document.addEventListener("click", (ev) => {
+          if (!extraPopover || extraPopover.hidden) {
+            return;
+          }
+          if (
+            ev.target.closest("#orders-filter-extra-popover") ||
+            ev.target.closest("#orders-filter-extra-toggle")
+          ) {
+            return;
+          }
+          closeOrdersExtraInfoFilterPopover();
+        });
+        document.addEventListener("keydown", (ev) => {
+          if (ev.key === "Escape") {
+            closeOrdersExtraInfoFilterPopover();
           }
         });
       }

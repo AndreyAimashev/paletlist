@@ -2086,12 +2086,34 @@
 
         .orders-table-wrap {
           max-height: min(62vh, 640px);
+          overflow: auto;
           -webkit-overflow-scrolling: touch;
         }
 
         .orders-table {
           min-width: 700px;
           font-size: 12px;
+          border-collapse: separate;
+          border-spacing: 0;
+        }
+
+        .orders-table thead {
+          position: sticky;
+          top: 0;
+          z-index: 4;
+        }
+
+        .orders-table thead th {
+          position: sticky;
+          top: 0;
+          z-index: 5;
+          background: rgb(14, 20, 32);
+          box-shadow: 0 1px 0 rgba(0, 200, 160, 0.18);
+        }
+
+        .orders-table tbody td {
+          position: relative;
+          z-index: 0;
         }
 
         .orders-table th,
@@ -2216,6 +2238,46 @@
           margin-top: 4px;
           padding: 4px 6px;
           font-size: 11px;
+        }
+
+        .orders-table thead th.col-pct,
+        .orders-table tbody td.col-pct {
+          width: 3.35rem;
+          min-width: 3.1rem;
+          max-width: 13vw;
+          padding-left: 4px;
+          padding-right: 4px;
+        }
+
+        .orders-table thead th.col-pct .orders-th-inner {
+          justify-content: center;
+          gap: 2px;
+        }
+
+        .orders-table thead th.col-pct .orders-th-title {
+          font-size: 9px;
+          line-height: 1.2;
+          white-space: normal;
+          text-align: center;
+        }
+
+        .orders-pct-filter-btn {
+          margin-top: 4px;
+          padding: 4px 5px;
+          font-size: 10px;
+        }
+
+        .orders-table tbody td.col-pct .orders-pct-cell {
+          gap: 2px;
+        }
+
+        .orders-table tbody td.col-pct .orders-pct-value {
+          font-size: 12px;
+        }
+
+        .orders-table tbody td.col-pct .orders-pct-pallets {
+          font-size: 9px;
+          line-height: 1.2;
         }
 
         .orders-table thead th.col-extra-info,

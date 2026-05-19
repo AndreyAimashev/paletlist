@@ -2038,10 +2038,15 @@ def _parse_excel_unit(value) -> str:
 
 
 def parse_orders_from_excel_worksheet(ws):
-    """Строки с клиентом в C начинают заказ; следующие строки без C — позиции того же заказа."""
+    """Строки с клиентом в C начинают заказ; следующие строки без C — позиции того же заказа.
+
+    Дата в M: при объединённых ячейках Excel значение часто только в первой строке блока.
+    Если в строке M пусто — используется последняя дата из M выше, пока не встретится новая.
+    """
     errors: list[str] = []
     orders: list[dict] = []
     current: dict | None = None
+    last_ship_iso = ""
 
     def flush_current():
         nonlocal current
@@ -2077,6 +2082,11 @@ def parse_orders_from_excel_worksheet(ws):
         qty_raw = _excel_cell(ws, _EXCEL_ORDER_COL_QTY, row)
         unit_raw = _excel_cell(ws, _EXCEL_ORDER_COL_UNIT, row)
 
+        if ship_raw is not None and str(ship_raw).strip() != "":
+            ship_iso_row = _excel_value_to_ship_iso(ship_raw)
+            if ship_iso_row:
+                last_ship_iso = ship_iso_row
+
         client_s = (
             _normalize_str(client_raw)
             if client_raw is not None and str(client_raw).strip() != ""
@@ -2084,25 +2094,14 @@ def parse_orders_from_excel_worksheet(ws):
         )
         if client_s:
             flush_current()
-            ship_iso = (
-                _excel_value_to_ship_iso(ship_raw)
-                if ship_raw is not None and str(ship_raw).strip() != ""
-                else ""
-            )
             current = {
                 "client": client_s,
-                "ship_date": ship_iso,
+                "ship_date": last_ship_iso,
                 "items": [],
                 "_start_row": row,
             }
-        elif (
-            ship_raw is not None
-            and str(ship_raw).strip() != ""
-            and current is not None
-        ):
-            ship_iso = _excel_value_to_ship_iso(ship_raw)
-            if ship_iso:
-                current["ship_date"] = ship_iso
+        elif current is not None and last_ship_iso and not current.get("ship_date"):
+            current["ship_date"] = last_ship_iso
 
         product_s = (
             _strip_trailing_name_suffix(_normalize_str(product_raw))
@@ -2116,6 +2115,8 @@ def parse_orders_from_excel_worksheet(ws):
                 f"Строка {row}: позиция без заказа — сначала укажите клиента в колонке C."
             )
             continue
+        if not current.get("ship_date") and last_ship_iso:
+            current["ship_date"] = last_ship_iso
         qty = _parse_excel_quantity(qty_raw)
         if qty is None:
             errors.append(f"Строка {row}: укажите количество больше нуля (колонка J).")

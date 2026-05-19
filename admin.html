@@ -313,6 +313,54 @@
         box-shadow: 0 6px 18px rgba(45, 143, 111, 0.36);
       }
 
+      .pallet-sheets-search-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0 16px;
+        padding: 14px 16px;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 12px;
+        background: linear-gradient(
+          120deg,
+          rgba(0, 200, 160, 0.1) 0%,
+          rgba(18, 24, 38, 0.92) 45%,
+          rgba(185, 103, 255, 0.08) 100%
+        );
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+        color: var(--text-main);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .pallet-sheets-search-status[hidden] {
+        display: none !important;
+      }
+
+      .pallet-sheets-search-status__spinner {
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        border: 2px solid rgba(0, 200, 160, 0.25);
+        border-top-color: var(--accent-teal);
+        border-radius: 50%;
+        animation: palletSheetsSearchSpin 0.85s linear infinite;
+      }
+
+      @keyframes palletSheetsSearchSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .pallet-sheets-empty-hint {
+        margin: 12px 0 0;
+        padding: 14px 16px;
+        border: 1px dashed rgba(160, 160, 192, 0.35);
+        border-radius: 10px;
+        background: rgba(10, 14, 23, 0.45);
+      }
+
       .pallet-sheets-pdf-preview-wrap {
         margin-top: 4px;
         border: 1px solid rgba(0, 200, 160, 0.28);
@@ -2317,8 +2365,17 @@
                 </button>
               </div>
             </div>
-            <p id="pallet-sheets-draft-hint" class="muted" hidden></p>
-            <p id="pallet-sheets-loading" class="muted" hidden>Загрузка…</p>
+            <div
+              id="pallet-sheets-search-status"
+              class="pallet-sheets-search-status"
+              hidden
+              role="status"
+              aria-live="polite"
+            >
+              <span class="pallet-sheets-search-status__spinner" aria-hidden="true"></span>
+              <span id="pallet-sheets-search-status-text" class="pallet-sheets-search-status__text"></span>
+            </div>
+            <p id="pallet-sheets-draft-hint" class="muted pallet-sheets-empty-hint" hidden></p>
             <div id="pallet-sheets-error" class="assemble-alert" hidden></div>
             <div id="pallet-sheets-pdf-preview-wrap" class="pallet-sheets-pdf-preview-wrap" hidden>
               <div
@@ -2696,7 +2753,8 @@
       const palletSheetsDownloadXlsxBtn = document.getElementById("pallet-sheets-download-xlsx");
       const palletSheetsPdfPreviewWrap = document.getElementById("pallet-sheets-pdf-preview-wrap");
       const palletSheetsPdfPages = document.getElementById("pallet-sheets-pdf-pages");
-      const palletSheetsLoading = document.getElementById("pallet-sheets-loading");
+      const palletSheetsSearchStatus = document.getElementById("pallet-sheets-search-status");
+      const palletSheetsSearchStatusText = document.getElementById("pallet-sheets-search-status-text");
       const palletSheetsDraftHint = document.getElementById("pallet-sheets-draft-hint");
       const palletSheetsError = document.getElementById("pallet-sheets-error");
       const assembleWorkspace = document.getElementById("assemble-workspace");
@@ -2821,6 +2879,9 @@
       let nomenclatureItems = [];
 
       let palletSheetsLoadToken = 0;
+      const PALLET_SHEETS_SEARCH_RETRY_MS = 420;
+      const PALLET_SHEETS_SEARCH_ATTEMPTS_MIN = 3;
+      const PALLET_SHEETS_SEARCH_ATTEMPTS_ASSEMBLED = 7;
       let palletSheetsPdfjsWorkerReady = false;
       /** «arnest» — PDF со штрих-кодами; «generic» — PDF по HTML-шаблону для остальных клиентов. */
       let palletSheetsDownloadKind = null;
@@ -3179,6 +3240,86 @@
         return t || fallback;
       }
 
+      function sleepMs(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function setPalletSheetsSearchStatus(visible, text) {
+        if (!palletSheetsSearchStatus) {
+          return;
+        }
+        palletSheetsSearchStatus.hidden = !visible;
+        if (palletSheetsSearchStatusText) {
+          palletSheetsSearchStatusText.textContent = visible ? text || "Загрузка…" : "";
+        }
+      }
+
+      function showPalletSheetsNoPalletsHint(order) {
+        if (!palletSheetsDraftHint) {
+          return;
+        }
+        palletSheetsDraftHint.hidden = false;
+        if (isArnestUnirusClient(order.client)) {
+          palletSheetsDraftHint.textContent =
+            "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число страниц PDF совпадает с числом паллет.";
+        } else {
+          palletSheetsDraftHint.textContent =
+            "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Здесь отобразятся паллетные листы в формате PDF.";
+        }
+      }
+
+      function palletSheetsSearchAttemptCount(order) {
+        const pct = Math.max(0, Math.min(100, Number(order?.assembled_percent) || 0));
+        return pct > 0 ? PALLET_SHEETS_SEARCH_ATTEMPTS_ASSEMBLED : PALLET_SHEETS_SEARCH_ATTEMPTS_MIN;
+      }
+
+      async function fetchOrderDetailForPalletSheets(orderId) {
+        const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error("not_found");
+        }
+        return res.json();
+      }
+
+      /** Повторные запросы заказа: сборка с другого устройства может ещё не успеть попасть в assemble_state. */
+      async function resolveOrderAndPalletsForPalletSheets(oid, token) {
+        let order = await fetchOrderDetailForPalletSheets(oid);
+        if (token !== palletSheetsLoadToken) {
+          return null;
+        }
+        let pallets = getAssemblePalletsFromOrderOrStorage(order, oid);
+        let palletCount = pallets ? pallets.length : 0;
+        const maxAttempts = palletSheetsSearchAttemptCount(order);
+
+        setPalletSheetsSearchStatus(true, "Загрузка данных заказа…");
+        if (palletCount > 0) {
+          return { order, pallets, palletCount };
+        }
+
+        for (let attempt = 2; attempt <= maxAttempts; attempt += 1) {
+          if (token !== palletSheetsLoadToken) {
+            return null;
+          }
+          const searchLabel =
+            maxAttempts > PALLET_SHEETS_SEARCH_ATTEMPTS_MIN
+              ? `Поиск паллетных листов в сборке… (${attempt - 1} из ${maxAttempts - 1})`
+              : "Поиск паллетных листов в сборке…";
+          setPalletSheetsSearchStatus(true, searchLabel);
+          await sleepMs(PALLET_SHEETS_SEARCH_RETRY_MS);
+          if (token !== palletSheetsLoadToken) {
+            return null;
+          }
+          order = await fetchOrderDetailForPalletSheets(oid);
+          pallets = getAssemblePalletsFromOrderOrStorage(order, oid);
+          palletCount = pallets ? pallets.length : 0;
+          if (palletCount > 0) {
+            return { order, pallets, palletCount };
+          }
+        }
+
+        return { order, pallets, palletCount };
+      }
+
       async function refreshPalletSheetsPanel() {
         const oid = activeStageOrderId;
         if (!palletSheetsWorkspace || oid == null || !Number.isFinite(oid)) {
@@ -3190,7 +3331,7 @@
         palletSheetsDownloadKind = null;
         palletSheetsError.hidden = true;
         palletSheetsError.textContent = "";
-        palletSheetsLoading.hidden = false;
+        setPalletSheetsSearchStatus(true, "Загрузка данных заказа…");
         if (palletSheetsDraftHint) {
           palletSheetsDraftHint.hidden = true;
           palletSheetsDraftHint.textContent = "";
@@ -3204,44 +3345,82 @@
           palletSheetsDownloadXlsxBtn.hidden = true;
         }
 
-        let order;
+        let resolved;
         try {
-          const res = await fetch(`/api/orders/${oid}`);
-          if (!res.ok) {
-            throw new Error("not_found");
-          }
-          order = await res.json();
+          resolved = await resolveOrderAndPalletsForPalletSheets(oid, token);
         } catch (e) {
           if (token !== palletSheetsLoadToken) {
             return;
           }
-          palletSheetsLoading.hidden = true;
+          setPalletSheetsSearchStatus(false, "");
           palletSheetsError.hidden = false;
           palletSheetsError.textContent = "Не удалось загрузить заказ.";
           return;
         }
-        if (token !== palletSheetsLoadToken) {
+        if (!resolved || token !== palletSheetsLoadToken) {
           return;
         }
 
+        const { order, pallets: assemblePallets, palletCount } = resolved;
         palletSheetsCachedOrder = order;
-        const assemblePallets = getAssemblePalletsFromOrderOrStorage(order, oid);
-        const palletCount = assemblePallets ? assemblePallets.length : 0;
 
         palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"} · листов (паллет): ${palletCount}`;
 
         if (palletCount === 0) {
-          palletSheetsLoading.hidden = true;
-          if (palletSheetsDraftHint) {
-            palletSheetsDraftHint.hidden = false;
-            if (isArnestUnirusClient(order.client)) {
-              palletSheetsDraftHint.textContent =
-                "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Число страниц PDF совпадает с числом паллет.";
-            } else {
-              palletSheetsDraftHint.textContent =
-                "В сборке заказа нет паллет — добавьте паллеты в разделе «Сборка заказа». Здесь отобразятся паллетные листы в формате PDF.";
+          if (!isArnestUnirusClient(order.client)) {
+            setPalletSheetsSearchStatus(true, "Проверка паллетных листов на сервере…");
+            try {
+              const blob = await fetchOrderPackingSheetsPdfBlob(oid);
+              if (token !== palletSheetsLoadToken) {
+                return;
+              }
+              setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
+              palletSheetsDownloadKind = "generic";
+              if (palletSheetsDownloadBtn) {
+                palletSheetsDownloadBtn.hidden = false;
+              }
+              await renderPalletSheetsPdfPreviewFromBlob(blob, token, palletSheetsWorkspace);
+              if (token !== palletSheetsLoadToken) {
+                return;
+              }
+              if (palletSheetsPdfPreviewWrap) {
+                palletSheetsPdfPreviewWrap.hidden = false;
+              }
+              try {
+                const fresh = await fetchOrderDetailForPalletSheets(oid);
+                if (token === palletSheetsLoadToken) {
+                  palletSheetsCachedOrder = fresh;
+                  order = fresh;
+                }
+              } catch (e2) {
+                /* meta below uses last known order */
+              }
+              const serverPallets = getAssemblePalletsFromOrderOrStorage(order, oid);
+              const serverCount = serverPallets ? serverPallets.length : 0;
+              palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"} · листов (паллет): ${serverCount || "—"}`;
+              setPalletSheetsSearchStatus(false, "");
+              return;
+            } catch (e) {
+              if (token !== palletSheetsLoadToken) {
+                return;
+              }
+              const msg = e && e.message ? String(e.message) : "";
+              const noSheets =
+                /нет паллет|no_pallets|no_assembly|нет данных сборки/i.test(msg);
+              if (!noSheets) {
+                setPalletSheetsSearchStatus(false, "");
+                palletSheetsError.hidden = false;
+                palletSheetsError.textContent =
+                  "Не удалось сформировать PDF для предпросмотра: " + (msg || "ошибка сервера.");
+                return;
+              }
             }
           }
+          if (token !== palletSheetsLoadToken) {
+            return;
+          }
+          setPalletSheetsSearchStatus(false, "");
+          showPalletSheetsNoPalletsHint(order);
           return;
         }
 
@@ -3255,6 +3434,7 @@
             palletSheetsDownloadBtn.hidden = false;
           }
           try {
+            setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
             const blob = await fetchOrderPackingSheetsPdfBlob(oid);
             if (token !== palletSheetsLoadToken) {
               return;
@@ -3282,7 +3462,7 @@
               (e && e.message ? String(e.message) : "ошибка сервера.");
           } finally {
             if (token === palletSheetsLoadToken) {
-              palletSheetsLoading.hidden = true;
+              setPalletSheetsSearchStatus(false, "");
             }
           }
           return;
@@ -3298,6 +3478,7 @@
         }
 
         try {
+          setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
           const palletsPayload = buildArnestPalletPdfPayloadFromDraft(
             order.items || [],
             assemblePallets,
@@ -3329,7 +3510,7 @@
             (e && e.message ? String(e.message) : "ошибка сервера.");
         } finally {
           if (token === palletSheetsLoadToken) {
-            palletSheetsLoading.hidden = true;
+            setPalletSheetsSearchStatus(false, "");
           }
         }
       }

@@ -2317,6 +2317,14 @@
               >
                 Загрузить из Excel
               </button>
+              <button
+                type="button"
+                id="orders-export-batches-btn"
+                class="assemble-btn--download-xlsx"
+                title="PDF с партиями по заказам из текущего списка (с учётом фильтров)"
+              >
+                Выгрузить партии
+              </button>
               <input
                 type="file"
                 id="orders-import-excel-input"
@@ -2885,6 +2893,7 @@
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
       const ordersImportExcelBtn = document.getElementById("orders-import-excel-btn");
+      const ordersExportBatchesBtn = document.getElementById("orders-export-batches-btn");
       const ordersImportExcelInput = document.getElementById("orders-import-excel-input");
       const ordersImportExcelStatus = document.getElementById("orders-import-excel-status");
       const newOrderOverlay = document.getElementById("new-order-overlay");
@@ -5409,6 +5418,69 @@
         return tryGetAssembleDraftPallets(orderId);
       }
 
+      function extractOrderBatchExportLines(order) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const pallets = getAssemblePalletsFromOrderOrStorage(order, order.id);
+        if (!pallets || !pallets.length || !items.length) {
+          return [];
+        }
+        const batchByLine = new Map();
+        for (const pal of pallets) {
+          const slots = Array.isArray(pal.slots) ? pal.slots : [];
+          for (const s of slots) {
+            const ns = normalizeSlot(s);
+            const bn = normalizeBatchNumberField(ns.batchNumber ?? "");
+            if (!bn) {
+              continue;
+            }
+            const li = Number(ns.lineIndex);
+            if (!Number.isFinite(li) || li < 0 || li >= items.length) {
+              continue;
+            }
+            const parts = parseBatchNumbers(bn);
+            if (!parts.length) {
+              continue;
+            }
+            if (!batchByLine.has(li)) {
+              batchByLine.set(li, []);
+            }
+            const bucket = batchByLine.get(li);
+            for (const p of parts) {
+              if (!bucket.includes(p)) {
+                bucket.push(p);
+              }
+            }
+          }
+        }
+        const lines = [];
+        for (const li of [...batchByLine.keys()].sort((a, b) => a - b)) {
+          const it = items[li];
+          const name = String(it?.name || "").trim() || `Позиция ${li + 1}`;
+          lines.push({ name, batches: formatBatchNumbers(batchByLine.get(li)) });
+        }
+        return lines;
+      }
+
+      async function fetchOrderDetailForBatchExport(orderId) {
+        const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error("not_found");
+        }
+        return res.json();
+      }
+
+      async function resolveOrderRowForBatchExport(orderRow) {
+        const needsItems = !Array.isArray(orderRow.items) || !orderRow.items.length;
+        const pallets = getAssemblePalletsFromOrderOrStorage(orderRow, orderRow.id);
+        const hasServerState = !!(
+          orderRow.assemble_state && Array.isArray(orderRow.assemble_state.pallets)
+        );
+        if (!needsItems && (hasServerState || (pallets && pallets.length))) {
+          return orderRow;
+        }
+        return fetchOrderDetailForBatchExport(orderRow.id);
+      }
+
       /** Паллеты для скачивания листов: сначала assemble_state с сервера, иначе черновик в localStorage. */
       async function resolveAssemblePalletsForOrderId(orderId) {
         let order = palletSheetsCachedOrder;
@@ -6941,6 +7013,116 @@
         ordersImportExcelStatus.textContent = message;
         ordersImportExcelStatus.classList.toggle("is-error", kind === "error");
         ordersImportExcelStatus.classList.toggle("is-ok", kind === "ok");
+      }
+
+      async function exportFilteredOrdersBatchesPdf() {
+        const filtered = getOrdersRowsForDisplay();
+        if (!filtered.length) {
+          setOrdersImportExcelStatus("Нет заказов по текущим фильтрам.", "error");
+          return;
+        }
+        if (ordersExportBatchesBtn) {
+          ordersExportBatchesBtn.disabled = true;
+        }
+        if (ordersImportExcelBtn) {
+          ordersImportExcelBtn.disabled = true;
+        }
+        setOrdersImportExcelStatus("Подготовка выгрузки партий…", null);
+        const ordersPayload = [];
+        try {
+          for (const row of filtered) {
+            let order;
+            try {
+              order = await resolveOrderRowForBatchExport(row);
+            } catch (e) {
+              continue;
+            }
+            const lines = extractOrderBatchExportLines(order);
+            if (!lines.length) {
+              continue;
+            }
+            ordersPayload.push({
+              ship_date: order.ship_date || "",
+              client: order.client || "",
+              lines,
+            });
+          }
+        } catch (e) {
+          setOrdersImportExcelStatus("Не удалось подготовить данные для выгрузки.", "error");
+          if (ordersExportBatchesBtn) {
+            ordersExportBatchesBtn.disabled = false;
+          }
+          if (ordersImportExcelBtn) {
+            ordersImportExcelBtn.disabled = false;
+          }
+          return;
+        }
+        if (!ordersPayload.length) {
+          setOrdersImportExcelStatus(
+            "Нет заказов с указанными партиями по текущим фильтрам.",
+            "error",
+          );
+          if (ordersExportBatchesBtn) {
+            ordersExportBatchesBtn.disabled = false;
+          }
+          if (ordersImportExcelBtn) {
+            ordersImportExcelBtn.disabled = false;
+          }
+          return;
+        }
+        setOrdersImportExcelStatus("Формирование PDF…", null);
+        try {
+          const res = await fetch("/api/orders/batches-export-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orders: ordersPayload }),
+          });
+          if (!res.ok) {
+            let msg = `Не удалось сформировать PDF (код ${res.status}).`;
+            try {
+              const j = await res.json();
+              if (j.message) {
+                msg = j.message;
+              }
+            } catch (e2) {
+              /* ignore */
+            }
+            setOrdersImportExcelStatus(msg, "error");
+            return;
+          }
+          const blob = await res.blob();
+          const d = new Date();
+          const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `partii-zakazov-${stamp}.pdf`;
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          const n = ordersPayload.length;
+          setOrdersImportExcelStatus(
+            n === 1 ? "Выгружен 1 заказ с партиями." : `Выгружено заказов с партиями: ${n}.`,
+            "ok",
+          );
+        } catch (e) {
+          setOrdersImportExcelStatus("Нет связи с сервером при выгрузке партий.", "error");
+        } finally {
+          if (ordersExportBatchesBtn) {
+            ordersExportBatchesBtn.disabled = false;
+          }
+          if (ordersImportExcelBtn) {
+            ordersImportExcelBtn.disabled = false;
+          }
+        }
+      }
+
+      if (ordersExportBatchesBtn) {
+        ordersExportBatchesBtn.addEventListener("click", () => {
+          void exportFilteredOrdersBatchesPdf();
+        });
       }
 
       if (ordersImportExcelBtn && ordersImportExcelInput) {

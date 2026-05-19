@@ -178,6 +178,10 @@ def _is_orders_import_excel_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders/import-excel"
 
 
+def _is_orders_batches_export_pdf_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/orders/batches-export-pdf"
+
+
 def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-pdf"
 
@@ -987,6 +991,107 @@ def build_blank_arnest_unirus_pallet_sheets_pdf(page_count: int) -> tuple[bytes 
     if isinstance(raw, str):
         return raw.encode("latin-1"), ""
     return None, "pdf_build"
+
+
+def _batches_export_pdf_draw_row(
+    pdf: FPDF,
+    x: float,
+    y: float,
+    w_name: float,
+    w_batch: float,
+    line_h: float,
+    name: str,
+    batches: str,
+) -> float:
+    """Две ячейки в строке; возвращает высоту строки (мм)."""
+    name_s = str(name or "—").strip() or "—"
+    batch_s = str(batches or "").strip() or "—"
+    pdf.set_xy(x, y)
+    pdf.multi_cell(w_name, line_h, name_s, border=1)
+    y2 = pdf.get_y()
+    h_row = max(line_h, y2 - y)
+    pdf.set_xy(x + w_name, y)
+    pdf.multi_cell(w_batch, line_h, batch_s, border=1)
+    y3 = pdf.get_y()
+    h_row = max(h_row, y3 - y)
+    return h_row
+
+
+def build_orders_batches_export_pdf_bytes(body: dict) -> tuple[bytes | None, str | None, str | None]:
+    """PDF: дата отгрузки, клиент, наименования и партии по отфильтрованным заказам (тело с клиента)."""
+    orders_raw = body.get("orders")
+    if not isinstance(orders_raw, list) or len(orders_raw) == 0:
+        return None, "validation", "Нет заказов для выгрузки."
+    if not HAVE_FPDF or FPDF is None:
+        return None, "no_fpdf", _arnest_pallet_pdf_error_message("no_fpdf")
+    try:
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        font_err = _arnest_pdf_register_text_fonts(pdf)
+        if font_err:
+            return None, font_err, _arnest_pallet_pdf_error_message(font_err)
+        margin = 12.0
+        pdf.set_auto_page_break(auto=True, margin=margin)
+        pdf.set_margins(margin, margin, margin)
+        pdf.add_page()
+        page_w = pdf.w - 2 * margin
+        col_name = page_w * 0.62
+        col_batch = page_w - col_name
+        line_h = 6.0
+
+        pdf.set_font("PLCalibri", "B", 14)
+        pdf.cell(0, 10, "Партии по заказам", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.ln(3)
+
+        wrote_any = False
+        for block in orders_raw:
+            if not isinstance(block, dict):
+                continue
+            lines_raw = block.get("lines")
+            if not isinstance(lines_raw, list) or not lines_raw:
+                continue
+            lines = [ln for ln in lines_raw if isinstance(ln, dict)]
+            if not lines:
+                continue
+            if wrote_any:
+                pdf.ln(4)
+            wrote_any = True
+
+            ship = str(block.get("ship_date") or "—").strip() or "—"
+            client = str(block.get("client") or "—").strip() or "—"
+            pdf.set_font("PLCalibri", "B", 11)
+            pdf.cell(0, 6, f"Дата отгрузки: {ship}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 6, f"Клиент: {client}", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
+
+            x0 = pdf.l_margin
+            pdf.set_font("PLCalibri", "B", 10)
+            pdf.set_fill_color(228, 238, 234)
+            pdf.cell(col_name, 7, "Наименование", border=1, fill=True)
+            pdf.cell(col_batch, 7, "Партия", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("PLCalibri", "", 10)
+            for ln in lines:
+                name = str(ln.get("name") or "—").strip() or "—"
+                batches = str(ln.get("batches") or "").strip() or "—"
+                y = pdf.get_y()
+                if y + line_h > pdf.h - margin:
+                    pdf.add_page()
+                    y = pdf.get_y()
+                h_row = _batches_export_pdf_draw_row(
+                    pdf, x0, y, col_name, col_batch, line_h, name, batches
+                )
+                pdf.set_xy(x0, y + h_row)
+
+        if not wrote_any:
+            return None, "validation", "Нет заказов с указанными партиями."
+
+        raw = pdf.output(dest="S")
+    except Exception:
+        return None, "pdf_build", "Не удалось сформировать PDF."
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw), None, None
+    if isinstance(raw, str):
+        return raw.encode("latin-1"), None, None
+    return None, "pdf_build", "Не удалось сформировать PDF."
 
 
 def build_arnest_unirus_pallet_sheets_pdf_bytes(body: dict) -> tuple[bytes | None, str | None, str | None]:
@@ -2908,6 +3013,31 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(blob)
 
+    def _respond_orders_batches_export_pdf(self, body: dict):
+        """POST JSON: { \"orders\": [{ ship_date, client, lines: [{ name, batches }] }] }."""
+        blob, err, err_detail = build_orders_batches_export_pdf_bytes(body)
+        if err:
+            status_map = {
+                "validation": 400,
+                "no_fpdf": 503,
+                "no_line2_font": 503,
+                "pdf_build": 500,
+            }
+            status = status_map.get(err, 500)
+            msg = err_detail or _arnest_pallet_pdf_error_message(err)
+            self._send_json(status, {"error": err, "message": msg})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(blob)))
+        self.send_header(
+            "Content-Disposition",
+            'attachment; filename="partii-zakazov.pdf"',
+        )
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(blob)
+
     def _respond_arnest_unirus_pallet_sheets_xlsx(self, body: dict):
         """POST JSON: { \"pallets\": [...] }; опционально ship_date, order_id — для шапки. Файл только в ответе, на диск не пишется."""
         blob, err, err_detail = build_arnest_unirus_pallet_sheets_xlsx_bytes(body)
@@ -3109,6 +3239,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             self._respond_arnest_unirus_pallet_sheets_pdf(body)
+            return
+        if _is_orders_batches_export_pdf_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            self._respond_orders_batches_export_pdf(body)
             return
         if _is_orders_import_excel_path(path):
             data, read_err = self._read_multipart_file_field("file")

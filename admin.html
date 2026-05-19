@@ -1088,17 +1088,17 @@
       }
 
       .orders-filter-extra-popover {
-        position: absolute;
-        top: calc(100% + 4px);
-        right: 0;
-        z-index: 50;
+        position: fixed;
+        z-index: 10001;
         min-width: 200px;
-        max-width: min(280px, 90vw);
+        max-width: min(280px, calc(100vw - 16px));
+        max-height: min(320px, calc(100vh - 16px));
         padding: 10px 12px;
         border-radius: 10px;
         border: 1px solid rgba(0, 200, 160, 0.35);
         background: rgba(18, 24, 38, 0.98);
         box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+        box-sizing: border-box;
       }
 
       .orders-filter-extra-popover[hidden] {
@@ -2388,25 +2388,25 @@
                       >
                         Фильтр
                       </button>
-                      <div
-                        id="orders-filter-extra-popover"
-                        class="orders-filter-extra-popover"
-                        hidden
-                        role="dialog"
-                        aria-label="Фильтр по доп. информации"
-                      >
-                        <div class="orders-filter-extra-toolbar">
-                          <button type="button" id="orders-filter-extra-all">Все</button>
-                          <button type="button" id="orders-filter-extra-none">Снять</button>
-                        </div>
-                        <div id="orders-filter-extra-checkboxes" class="orders-filter-extra-checkboxes"></div>
-                      </div>
                     </th>
                     <th scope="col" class="col-actions">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="orders-table-body"></tbody>
               </table>
+            </div>
+            <div
+              id="orders-filter-extra-popover"
+              class="orders-filter-extra-popover"
+              hidden
+              role="dialog"
+              aria-label="Фильтр по доп. информации"
+            >
+              <div class="orders-filter-extra-toolbar">
+                <button type="button" id="orders-filter-extra-all">Все</button>
+                <button type="button" id="orders-filter-extra-none">Снять</button>
+              </div>
+              <div id="orders-filter-extra-checkboxes" class="orders-filter-extra-checkboxes"></div>
             </div>
           </section>
 
@@ -4118,10 +4118,45 @@
           box.appendChild(wrap);
         });
         updateOrdersExtraInfoFilterToggle();
+        const pop = document.getElementById("orders-filter-extra-popover");
+        if (pop && !pop.hidden) {
+          requestAnimationFrame(() => positionOrdersExtraInfoFilterPopover());
+        }
       }
 
       function syncOrdersExtraInfoFilterUi() {
         rebuildOrdersExtraInfoFilterCheckboxes();
+      }
+
+      function ensureOrdersExtraInfoFilterPopoverMounted() {
+        const pop = document.getElementById("orders-filter-extra-popover");
+        if (pop && pop.parentElement !== document.body) {
+          document.body.appendChild(pop);
+        }
+      }
+
+      function positionOrdersExtraInfoFilterPopover() {
+        const pop = document.getElementById("orders-filter-extra-popover");
+        const toggle = document.getElementById("orders-filter-extra-toggle");
+        if (!pop || !toggle || pop.hidden) {
+          return;
+        }
+        const margin = 8;
+        const rect = toggle.getBoundingClientRect();
+        let top = rect.bottom + 4;
+        let left = rect.left;
+        const popRect = pop.getBoundingClientRect();
+        if (left + popRect.width > window.innerWidth - margin) {
+          left = Math.max(margin, window.innerWidth - popRect.width - margin);
+        }
+        if (top + popRect.height > window.innerHeight - margin) {
+          top = Math.max(margin, rect.top - popRect.height - 4);
+        }
+        if (left < margin) {
+          left = margin;
+        }
+        pop.style.top = `${Math.round(top)}px`;
+        pop.style.left = `${Math.round(left)}px`;
       }
 
       function setOrdersExtraInfoFilterOpen(open) {
@@ -4130,9 +4165,18 @@
         if (!pop || !toggle) {
           return;
         }
+        ensureOrdersExtraInfoFilterPopoverMounted();
         const show = !!open;
         pop.hidden = !show;
         toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        if (show) {
+          requestAnimationFrame(() => {
+            positionOrdersExtraInfoFilterPopover();
+          });
+        } else {
+          pop.style.top = "";
+          pop.style.left = "";
+        }
       }
 
       function closeOrdersExtraInfoFilterPopover() {
@@ -5906,6 +5950,8 @@
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
+      ensureOrdersExtraInfoFilterPopoverMounted();
+
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {
           const sortBtn = ev.target.closest("[data-orders-sort]");
@@ -6020,6 +6066,22 @@
         document.addEventListener("keydown", (ev) => {
           if (ev.key === "Escape") {
             closeOrdersExtraInfoFilterPopover();
+          }
+        });
+        window.addEventListener(
+          "scroll",
+          () => {
+            const pop = document.getElementById("orders-filter-extra-popover");
+            if (pop && !pop.hidden) {
+              positionOrdersExtraInfoFilterPopover();
+            }
+          },
+          true,
+        );
+        window.addEventListener("resize", () => {
+          const pop = document.getElementById("orders-filter-extra-popover");
+          if (pop && !pop.hidden) {
+            positionOrdersExtraInfoFilterPopover();
           }
         });
       }

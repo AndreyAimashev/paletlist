@@ -2052,12 +2052,13 @@ def parse_orders_from_excel_worksheet(ws):
         nonlocal current
         if not current:
             return
-        if not current.get("items"):
-            current = None
-            return
         client = current.get("client") or ""
         ship = current.get("ship_date") or ""
+        items = current.get("items") or []
         start = current.get("_start_row", "?")
+        if not client and not items:
+            current = None
+            return
         if not client:
             errors.append(f"Строка {start}: в заказе не указан клиент (колонка C).")
         elif not ship:
@@ -2067,7 +2068,7 @@ def parse_orders_from_excel_worksheet(ws):
                 {
                     "client": client,
                     "ship_date": ship,
-                    "items": current["items"],
+                    "items": items,
                 }
             )
         current = None
@@ -2207,9 +2208,33 @@ def import_orders_from_excel_bytes(data: bytes):
                     }
                 )
             if not items_payload:
-                import_errors.append(
-                    f"Заказ «{order['client']}»: ни одна позиция не найдена в номенклатуре."
+                ship = _format_ship_date_storage(order.get("ship_date", ""))
+                client_n = _normalize_str(order.get("client", ""))
+                if not ship or not client_n:
+                    import_errors.append(
+                        f"Заказ «{order.get('client', '')}»: укажите дату отгрузки и клиента."
+                    )
+                    continue
+                names_summary = ""
+                baseline = 0
+                extra_info = _encode_import_skip_extra_info(
+                    skipped_count, baseline, "", skipped_names
                 )
+                cur.execute(
+                    """
+                    INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
+                    VALUES (?, ?, 0, ?, ?)
+                    """,
+                    (ship, client_n, names_summary, extra_info),
+                )
+                oid = int(cur.lastrowid)
+                created_ids.append(oid)
+                if skipped_count > 0:
+                    import_errors.append(
+                        f"Заказ «{client_n}»: создан без позиций, пропущено {skipped_count} "
+                        f"{'строка' if skipped_count == 1 else 'строки' if 2 <= skipped_count <= 4 else 'строк'} "
+                        f"(нет точного совпадения в номенклатуре)."
+                    )
                 continue
             body = {
                 "ship_date": order["ship_date"],

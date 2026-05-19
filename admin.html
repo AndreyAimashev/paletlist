@@ -1846,76 +1846,15 @@
       }
 
       @media (max-width: 768px) {
-        .mobile-nav-toggle {
-          display: flex;
-          position: fixed;
-          top: max(10px, env(safe-area-inset-top, 0px));
-          right: max(10px, env(safe-area-inset-right, 0px));
-          z-index: 120;
-          align-items: center;
-          justify-content: center;
-          width: 46px;
-          height: 46px;
-          margin: 0;
-          padding: 0;
-          border: 1px solid rgba(0, 200, 160, 0.45);
-          border-radius: 12px;
-          background: rgba(12, 16, 28, 0.95);
-          color: var(--accent-teal);
-          font-size: 20px;
-          line-height: 1;
-          cursor: pointer;
-          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-        }
-
-        .mobile-nav-toggle:active {
-          transform: scale(0.96);
-        }
-
-        body.mobile-drawer-open .mobile-nav-toggle {
-          visibility: hidden;
-          pointer-events: none;
-        }
-
-        .mobile-nav-backdrop {
-          display: block;
-          position: fixed;
-          inset: 0;
-          z-index: 110;
-          margin: 0;
-          padding: 0;
-          cursor: pointer;
-          background: rgba(4, 8, 14, 0.55);
-          backdrop-filter: blur(2px);
-        }
-
-        .mobile-nav-backdrop[hidden] {
+        .mobile-nav-toggle,
+        .mobile-nav-backdrop,
+        .mobile-sidebar-close,
+        .sidebar {
           display: none !important;
         }
 
-        .mobile-sidebar-close {
-          display: flex;
-          position: absolute;
-          top: max(10px, env(safe-area-inset-top, 0px));
-          right: max(10px, env(safe-area-inset-right, 0px));
-          z-index: 5;
-          align-items: center;
-          justify-content: center;
-          width: 40px;
-          height: 40px;
-          margin: 0;
-          padding: 0;
-          border: 1px solid rgba(0, 200, 160, 0.4);
-          border-radius: 10px;
-          background: rgba(10, 14, 23, 0.9);
-          color: var(--text-main);
-          font-size: 22px;
-          line-height: 1;
-          cursor: pointer;
-        }
-
         body.mobile-drawer-open {
-          overflow: hidden;
+          overflow: auto;
         }
 
         .main-area {
@@ -1925,7 +1864,6 @@
         .panel {
           padding: 18px 14px 22px;
           padding-top: max(18px, calc(12px + env(safe-area-inset-top, 0px)));
-          padding-right: max(14px, calc(56px + env(safe-area-inset-right, 0px)));
         }
 
         h1 {
@@ -2207,56 +2145,6 @@
 
         .pallet-sheets-pdf-preview-wrap {
           max-height: min(70vh, 800px);
-        }
-
-        .sidebar {
-          position: fixed;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          left: auto;
-          width: min(300px, 88vw) !important;
-          max-width: min(300px, 88vw) !important;
-          min-width: 0 !important;
-          z-index: 115;
-          padding: 16px 12px;
-          padding-top: max(52px, env(safe-area-inset-top, 0px));
-          border-left: 1px solid rgba(0, 200, 160, 0.28);
-          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
-          transform: translateX(100%);
-          transition: transform 0.28s ease;
-        }
-
-        .sidebar.mobile-open {
-          transform: translateX(0);
-        }
-
-        .sidebar.collapsed {
-          width: min(300px, 88vw) !important;
-          max-width: min(300px, 88vw) !important;
-          min-width: 0 !important;
-          padding: 16px 12px;
-          padding-top: max(52px, env(safe-area-inset-top, 0px));
-          border-left: 1px solid rgba(0, 200, 160, 0.28);
-          overflow: auto;
-        }
-
-        .sidebar.collapsed > :not(.sidebar-toggle):not(.resize-handle):not(.mobile-sidebar-close) {
-          display: none;
-        }
-
-        .sidebar-toggle {
-          display: none;
-        }
-
-        .resize-handle {
-          display: none;
-        }
-
-        .quick-nav button {
-          padding: 12px 12px;
-          font-size: 13px;
-          min-height: 44px;
         }
       }
     </style>
@@ -2923,9 +2811,8 @@
 
       function syncMobileLayoutState() {
         document.body.classList.toggle("is-mobile-layout", isMobileLayout());
+        closeMobileNavDrawer();
         if (!isMobileLayout()) {
-          closeMobileNavDrawer();
-        } else {
           sidebar.style.width = "";
           setSidebarCollapsed(false);
         }
@@ -6999,7 +6886,6 @@
 
       sidebarToggle.addEventListener("click", () => {
         if (isMobileLayout()) {
-          openMobileNavDrawer();
           return;
         }
         setSidebarCollapsed(!sidebarCollapsed);

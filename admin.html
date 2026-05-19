@@ -2090,7 +2090,7 @@
         }
 
         .orders-table {
-          min-width: 620px;
+          min-width: 700px;
           font-size: 12px;
         }
 
@@ -2240,6 +2240,22 @@
         .orders-extra-info-filter-btn {
           margin-top: 4px;
           padding: 4px 6px;
+          font-size: 11px;
+        }
+
+        .orders-table thead th.col-qty,
+        .orders-table tbody td.col-qty {
+          width: 12.5rem;
+          min-width: 12.5rem;
+          max-width: 48vw;
+          padding-left: 8px;
+          padding-right: 8px;
+          font-size: 11px;
+          line-height: 1.35;
+          vertical-align: top;
+        }
+
+        .orders-table thead th.col-qty {
           font-size: 11px;
         }
 
@@ -2483,7 +2499,7 @@
                         Фильтр
                       </button>
                     </th>
-                    <th scope="col">Количество</th>
+                    <th scope="col" class="col-qty">Количество</th>
                     <th scope="col" class="col-extra-info">
                       <span class="orders-th-title orders-th-title--block">Доп. информация</span>
                       <button
@@ -5114,7 +5130,7 @@
                   </td>
                   <td class="col-client">${escapeXml(o.client || "—")}</td>
                   <td class="${pctCellClass}">${formatOrderAssembledPctCell(o)}</td>
-                  <td>${qtyCellHtml}</td>
+                  <td class="col-qty">${qtyCellHtml}</td>
                   <td class="col-extra-info">${escapeXml(o.extra_info || "—")}</td>
                   <td class="col-actions">${actionsHtml}</td>
                 </tr>`;

@@ -1145,6 +1145,19 @@
         flex-shrink: 0;
       }
 
+      .orders-table th.col-client {
+        position: relative;
+        vertical-align: top;
+        min-width: 9rem;
+      }
+
+      .orders-client-filter-btn {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        box-sizing: border-box;
+      }
+
       .orders-table th.col-extra-info {
         position: relative;
         min-width: 10rem;
@@ -2339,16 +2352,23 @@
                       </div>
                       <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
                     </th>
-                    <th scope="col">
+                    <th scope="col" class="col-client">
                       <div class="orders-th-inner">
                         <span class="orders-th-title">Клиент</span>
                         <button type="button" class="orders-th-sort" data-orders-sort="client" title="Сортировка по клиенту" aria-label="Сортировка по клиенту">
                           <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                         </button>
                       </div>
-                      <select class="orders-filter-select" id="orders-filter-client" aria-label="Фильтр по клиенту">
-                        <option value="">Все клиенты</option>
-                      </select>
+                      <button
+                        type="button"
+                        class="orders-th-filter-btn orders-client-filter-btn"
+                        id="orders-filter-client-toggle"
+                        aria-expanded="false"
+                        aria-controls="orders-filter-client-popover"
+                        title="Фильтр по клиенту"
+                      >
+                        Фильтр
+                      </button>
                     </th>
                     <th scope="col" class="col-pct">
                       <div class="orders-th-inner">
@@ -2387,6 +2407,15 @@
                 </thead>
                 <tbody id="orders-table-body"></tbody>
               </table>
+            </div>
+            <div
+              id="orders-filter-client-popover"
+              class="orders-filter-extra-popover orders-filter-client-popover"
+              hidden
+              role="dialog"
+              aria-label="Фильтр по клиенту"
+            >
+              <div id="orders-filter-client-options" class="orders-filter-extra-checkboxes"></div>
             </div>
             <div
               id="orders-filter-pct-popover"
@@ -4431,9 +4460,72 @@
         setOrdersPctFilterOpen(false);
       }
 
+      function ensureOrdersClientFilterPopoverMounted() {
+        const pop = document.getElementById("orders-filter-client-popover");
+        if (pop && pop.parentElement !== document.body) {
+          document.body.appendChild(pop);
+        }
+      }
+
+      function positionOrdersClientFilterPopover() {
+        const pop = document.getElementById("orders-filter-client-popover");
+        const toggle = document.getElementById("orders-filter-client-toggle");
+        if (!pop || !toggle || pop.hidden) {
+          return;
+        }
+        const margin = 8;
+        const rect = toggle.getBoundingClientRect();
+        let top = rect.bottom + 4;
+        let left = rect.left;
+        const popRect = pop.getBoundingClientRect();
+        if (left + popRect.width > window.innerWidth - margin) {
+          left = Math.max(margin, window.innerWidth - popRect.width - margin);
+        }
+        if (top + popRect.height > window.innerHeight - margin) {
+          top = Math.max(margin, rect.top - popRect.height - 4);
+        }
+        if (left < margin) {
+          left = margin;
+        }
+        pop.style.top = `${Math.round(top)}px`;
+        pop.style.left = `${Math.round(left)}px`;
+      }
+
+      function setOrdersClientFilterOpen(open) {
+        const pop = document.getElementById("orders-filter-client-popover");
+        const toggle = document.getElementById("orders-filter-client-toggle");
+        if (!pop || !toggle) {
+          return;
+        }
+        ensureOrdersClientFilterPopoverMounted();
+        const show = !!open;
+        pop.hidden = !show;
+        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        if (show) {
+          syncOrdersClientFilterUi();
+          requestAnimationFrame(() => {
+            positionOrdersClientFilterPopover();
+          });
+        } else {
+          pop.style.top = "";
+          pop.style.left = "";
+        }
+      }
+
+      function closeOrdersClientFilterPopover() {
+        setOrdersClientFilterOpen(false);
+      }
+
+      function closeAllOrdersFilterPopovers() {
+        closeOrdersExtraInfoFilterPopover();
+        closeOrdersPctFilterPopover();
+        closeOrdersClientFilterPopover();
+      }
+
       function positionOpenOrdersFilterPopovers() {
         positionOrdersExtraInfoFilterPopover();
         positionOrdersPctFilterPopover();
+        positionOrdersClientFilterPopover();
       }
 
       let ordersNamesDisplayUnit = (function initOrdersNamesUnit() {
@@ -4743,12 +4835,7 @@
         });
       }
 
-      function syncOrdersClientFilterSelect() {
-        const sel = document.getElementById("orders-filter-client");
-        if (!sel) {
-          return;
-        }
-        const prev = String(ordersFilterClient || "").trim();
+      function collectOrdersClientFilterValues() {
         const set = new Set();
         (cachedOrdersListRows || []).forEach((o) => {
           const c = String(o.client || "").trim();
@@ -4756,27 +4843,61 @@
             set.add(c);
           }
         });
-        const names = [...set].sort((a, b) =>
-          a.localeCompare(b, "ru", { sensitivity: "base" }),
-        );
-        sel.innerHTML = "";
-        const optAll = document.createElement("option");
-        optAll.value = "";
-        optAll.textContent = "Все клиенты";
-        sel.appendChild(optAll);
+        return [...set].sort((a, b) => a.localeCompare(b, "ru", { sensitivity: "base" }));
+      }
+
+      function updateOrdersClientFilterToggle() {
+        const toggle = document.getElementById("orders-filter-client-toggle");
+        if (toggle) {
+          toggle.classList.toggle("is-active", String(ordersFilterClient || "").trim() !== "");
+        }
+      }
+
+      function syncOrdersClientFilterUi() {
+        const box = document.getElementById("orders-filter-client-options");
+        if (!box) {
+          return;
+        }
+        const prev = String(ordersFilterClient || "").trim();
+        const names = collectOrdersClientFilterValues();
+        box.innerHTML = "";
+        if (!names.length) {
+          box.innerHTML = '<p class="muted" style="margin:0;font-size:12px;">Нет клиентов</p>';
+          ordersFilterClient = "";
+          updateOrdersClientFilterToggle();
+          return;
+        }
+        const appendRadio = (value, label, checked) => {
+          const wrap = document.createElement("label");
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = "orders-filter-client";
+          radio.value = value;
+          radio.checked = checked;
+          const span = document.createElement("span");
+          span.textContent = label;
+          wrap.appendChild(radio);
+          wrap.appendChild(span);
+          box.appendChild(wrap);
+        };
+        appendRadio("", "Все клиенты", !prev || !names.includes(prev));
         names.forEach((c) => {
-          const opt = document.createElement("option");
-          opt.value = c;
-          opt.textContent = c;
-          sel.appendChild(opt);
+          appendRadio(c, c, prev === c);
         });
         if (prev && names.includes(prev)) {
-          sel.value = prev;
           ordersFilterClient = prev;
         } else {
-          sel.value = "";
           ordersFilterClient = "";
         }
+        updateOrdersClientFilterToggle();
+        const pop = document.getElementById("orders-filter-client-popover");
+        if (pop && !pop.hidden) {
+          requestAnimationFrame(() => positionOrdersClientFilterPopover());
+        }
+      }
+
+      function syncOrdersClientFilterSelect() {
+        syncOrdersClientFilterUi();
       }
 
       function scheduleOrdersTableReRender() {
@@ -4806,6 +4927,7 @@
         syncOrdersNamesUnitButtons();
         syncOrdersClientFilterSelect();
         updateOrdersExtraInfoFilterToggle();
+        updateOrdersClientFilterToggle();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
           return;
@@ -6246,12 +6368,34 @@
             scheduleOrdersTableReRender();
           }
         });
-        ordersWorkspace.addEventListener("change", (ev) => {
-          if (ev.target.id === "orders-filter-client") {
-            ordersFilterClient = String(ev.target.value || "");
+        const clientToggle = document.getElementById("orders-filter-client-toggle");
+        const clientPopover = document.getElementById("orders-filter-client-popover");
+        const clientOptions = document.getElementById("orders-filter-client-options");
+        if (clientToggle && clientPopover) {
+          clientToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const willOpen = clientPopover.hidden;
+            if (willOpen) {
+              closeOrdersExtraInfoFilterPopover();
+              closeOrdersPctFilterPopover();
+            }
+            setOrdersClientFilterOpen(willOpen);
+          });
+        }
+        if (clientOptions) {
+          clientOptions.addEventListener("change", (ev) => {
+            ev.stopPropagation();
+            const radio = ev.target;
+            if (!radio || radio.type !== "radio" || radio.name !== "orders-filter-client") {
+              return;
+            }
+            ordersFilterClient = String(radio.value || "");
+            updateOrdersClientFilterToggle();
             renderOrdersTable();
-          }
-        });
+            closeOrdersClientFilterPopover();
+          });
+        }
+        updateOrdersClientFilterToggle();
         const pctToggle = document.getElementById("orders-filter-pct-toggle");
         const pctPopover = document.getElementById("orders-filter-pct-popover");
         const pctOptions = document.getElementById("orders-filter-pct-options");
@@ -6261,6 +6405,7 @@
             const willOpen = pctPopover.hidden;
             if (willOpen) {
               closeOrdersExtraInfoFilterPopover();
+              closeOrdersClientFilterPopover();
             }
             setOrdersPctFilterOpen(willOpen);
           });
@@ -6290,6 +6435,7 @@
             const willOpen = extraPopover.hidden;
             if (willOpen) {
               closeOrdersPctFilterPopover();
+              closeOrdersClientFilterPopover();
               syncOrdersExtraInfoFilterUi();
             }
             setOrdersExtraInfoFilterOpen(willOpen);
@@ -6348,11 +6494,18 @@
               closeOrdersPctFilterPopover();
             }
           }
+          if (clientPopover && !clientPopover.hidden) {
+            if (
+              !ev.target.closest("#orders-filter-client-popover") &&
+              !ev.target.closest("#orders-filter-client-toggle")
+            ) {
+              closeOrdersClientFilterPopover();
+            }
+          }
         });
         document.addEventListener("keydown", (ev) => {
           if (ev.key === "Escape") {
-            closeOrdersExtraInfoFilterPopover();
-            closeOrdersPctFilterPopover();
+            closeAllOrdersFilterPopovers();
           }
         });
         window.addEventListener(

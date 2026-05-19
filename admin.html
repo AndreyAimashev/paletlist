@@ -1048,13 +1048,18 @@
       .orders-table th.col-extra-info {
         position: relative;
         min-width: 10rem;
+        vertical-align: top;
+      }
+
+      .orders-table th.col-extra-info .orders-th-title--block {
+        display: block;
+        width: 100%;
       }
 
       .orders-th-filter-btn {
-        flex-shrink: 0;
         margin: 0;
-        padding: 2px 8px;
-        font-size: 11px;
+        padding: 5px 8px;
+        font-size: 12px;
         line-height: 1.2;
         border: 1px solid rgba(0, 200, 160, 0.35);
         border-radius: 6px;
@@ -1062,6 +1067,13 @@
         color: var(--accent-teal);
         cursor: pointer;
         font-family: inherit;
+      }
+
+      .orders-extra-info-filter-btn {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        box-sizing: border-box;
       }
 
       .orders-th-filter-btn:hover {
@@ -2365,19 +2377,17 @@
                     </th>
                     <th scope="col">Количество</th>
                     <th scope="col" class="col-extra-info">
-                      <div class="orders-th-inner">
-                        <span class="orders-th-title">Доп. информация</span>
-                        <button
-                          type="button"
-                          class="orders-th-filter-btn"
-                          id="orders-filter-extra-toggle"
-                          aria-expanded="false"
-                          aria-controls="orders-filter-extra-popover"
-                          title="Фильтр по доп. информации"
-                        >
-                          Фильтр
-                        </button>
-                      </div>
+                      <span class="orders-th-title orders-th-title--block">Доп. информация</span>
+                      <button
+                        type="button"
+                        class="orders-th-filter-btn orders-extra-info-filter-btn"
+                        id="orders-filter-extra-toggle"
+                        aria-expanded="false"
+                        aria-controls="orders-filter-extra-popover"
+                        title="Фильтр по доп. информации"
+                      >
+                        Фильтр
+                      </button>
                       <div
                         id="orders-filter-extra-popover"
                         class="orders-filter-extra-popover"
@@ -4013,6 +4023,8 @@
       let ordersFilterInputTimer = null;
       /** @type {Set<string> | null} */
       let ordersFilterExtraInfoSelected = null;
+      /** @type {Set<string> | null} */
+      let ordersExtraInfoFilterValuesSnapshot = null;
       const ORDERS_EXTRA_INFO_FILTER_PRESETS = ["Самовывоз", "Деловые Линии", "Обычный"];
 
       function getOrderExtraInfoFilterLabel(o) {
@@ -4030,22 +4042,33 @@
         return [...presets, ...rest];
       }
 
-      function ensureOrdersExtraInfoFilterSelection(values) {
-        const valueSet = new Set(values);
+      function pruneOrdersExtraInfoFilterSelection(values) {
         if (ordersFilterExtraInfoSelected === null) {
-          ordersFilterExtraInfoSelected = new Set(values);
           return;
         }
+        const valueSet = new Set(values);
         for (const v of [...ordersFilterExtraInfoSelected]) {
           if (!valueSet.has(v)) {
             ordersFilterExtraInfoSelected.delete(v);
           }
         }
+      }
+
+      function mergeOrdersExtraInfoFilterOnLoad(values) {
+        const valueSet = new Set(values);
+        if (ordersFilterExtraInfoSelected === null) {
+          ordersFilterExtraInfoSelected = new Set(values);
+          ordersExtraInfoFilterValuesSnapshot = valueSet;
+          return;
+        }
+        pruneOrdersExtraInfoFilterSelection(values);
+        const prev = ordersExtraInfoFilterValuesSnapshot || new Set();
         for (const v of values) {
-          if (!ordersFilterExtraInfoSelected.has(v)) {
+          if (!prev.has(v)) {
             ordersFilterExtraInfoSelected.add(v);
           }
         }
+        ordersExtraInfoFilterValuesSnapshot = valueSet;
       }
 
       function isOrdersExtraInfoFilterNarrowed() {
@@ -4059,17 +4082,20 @@
         return ordersFilterExtraInfoSelected.size < all.length;
       }
 
-      function syncOrdersExtraInfoFilterUi() {
+      function updateOrdersExtraInfoFilterToggle() {
         const toggle = document.getElementById("orders-filter-extra-toggle");
+        if (toggle) {
+          toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
+        }
+      }
+
+      function rebuildOrdersExtraInfoFilterCheckboxes() {
         const box = document.getElementById("orders-filter-extra-checkboxes");
         if (!box) {
           return;
         }
         const values = collectOrdersExtraInfoFilterValues();
-        ensureOrdersExtraInfoFilterSelection(values);
-        if (toggle) {
-          toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
-        }
+        pruneOrdersExtraInfoFilterSelection(values);
         box.innerHTML = "";
         if (!values.length) {
           box.innerHTML = '<p class="muted" style="margin:0;font-size:12px;">Нет данных</p>';
@@ -4091,6 +4117,11 @@
           wrap.appendChild(span);
           box.appendChild(wrap);
         });
+        updateOrdersExtraInfoFilterToggle();
+      }
+
+      function syncOrdersExtraInfoFilterUi() {
+        rebuildOrdersExtraInfoFilterCheckboxes();
       }
 
       function setOrdersExtraInfoFilterOpen(open) {
@@ -4477,7 +4508,7 @@
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
         syncOrdersClientFilterSelect();
-        syncOrdersExtraInfoFilterUi();
+        updateOrdersExtraInfoFilterToggle();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
           return;
@@ -4970,6 +5001,7 @@
             }),
           );
           cachedOrdersListRows = enriched;
+          mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           renderOrdersTable();
         } catch (error) {
           cachedOrdersListRows = [];
@@ -5955,6 +5987,7 @@
         }
         if (extraCheckboxes) {
           extraCheckboxes.addEventListener("change", (ev) => {
+            ev.stopPropagation();
             const cb = ev.target;
             if (!cb || cb.type !== "checkbox" || !cb.dataset.ordersExtraFilter) {
               return;
@@ -5968,10 +6001,7 @@
             } else {
               ordersFilterExtraInfoSelected.delete(label);
             }
-            const toggle = document.getElementById("orders-filter-extra-toggle");
-            if (toggle) {
-              toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
-            }
+            updateOrdersExtraInfoFilterToggle();
             renderOrdersTable();
           });
         }

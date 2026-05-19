@@ -1006,6 +1006,28 @@
         font-weight: 600;
       }
 
+      .orders-pct-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        line-height: 1.2;
+      }
+
+      .orders-pct-pallets {
+        font-size: 11px;
+        font-weight: 400;
+        opacity: 0.82;
+      }
+
+      .orders-table td.col-pct--complete .orders-pct-pallets {
+        color: #9de8c8;
+      }
+
+      .orders-table td.col-pct--incomplete .orders-pct-pallets {
+        color: #ffc4b8;
+      }
+
       .orders-table .col-date {
         white-space: nowrap;
       }
@@ -4081,6 +4103,33 @@
         return String(r);
       }
 
+      function orderAssemblePalletCount(orderRow) {
+        if (orderRow != null && Number.isFinite(orderRow.assemble_pallet_count)) {
+          return Math.max(0, Math.floor(orderRow.assemble_pallet_count));
+        }
+        const pallets = getAssemblePalletsFromOrderOrStorage(orderRow, orderRow?.id);
+        return pallets ? pallets.length : 0;
+      }
+
+      function formatOrderPalletCount(count) {
+        const n = Math.max(0, Math.floor(Number(count) || 0));
+        const mod10 = n % 10;
+        const mod100 = n % 100;
+        let word = "паллет";
+        if (mod100 < 11 || mod100 > 14) {
+          if (mod10 >= 2 && mod10 <= 4) {
+            word = "паллета";
+          }
+        }
+        return `${n} ${word}`;
+      }
+
+      function formatOrderAssembledPctCell(orderRow) {
+        const pct = formatOrderPct(orderRow.assembled_percent);
+        const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
+        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span></motion.div>`;
+      }
+
       const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";
       let cachedOrdersListRows = [];
       let ordersSortKey = null;
@@ -4658,7 +4707,7 @@
                     </div>
                   </td>
                   <td>${escapeXml(o.client || "—")}</td>
-                  <td class="${pctCellClass}">${escapeXml(`${formatOrderPct(o.assembled_percent)} %`)}</td>
+                  <td class="${pctCellClass}">${formatOrderAssembledPctCell(o)}</td>
                   <td>${qtyCellHtml}</td>
                   <td>${escapeXml(o.extra_info || "—")}</td>
                   <td class="col-actions">${actionsHtml}</td>
@@ -5079,8 +5128,9 @@
           const enriched = await Promise.all(
             rows.map(async (o) => {
               const pallets = getAssemblePalletsFromOrderOrStorage(o, o.id);
-              if (!pallets) {
-                return o;
+              const assemble_pallet_count = pallets ? pallets.length : 0;
+              if (!pallets || !pallets.length) {
+                return { ...o, assemble_pallet_count };
               }
               let items = Array.isArray(o.items) && o.items.length ? o.items : null;
               if (!items) {
@@ -5088,26 +5138,27 @@
                 try {
                   detailRes = await fetch(`/api/orders/${o.id}`);
                 } catch (e) {
-                  return o;
+                  return { ...o, assemble_pallet_count };
                 }
                 if (!detailRes.ok) {
-                  return o;
+                  return { ...o, assemble_pallet_count };
                 }
                 let data;
                 try {
                   data = await detailRes.json();
                 } catch (e) {
-                  return o;
+                  return { ...o, assemble_pallet_count };
                 }
                 items = Array.isArray(data.items) ? data.items : [];
               }
               if (!items.length) {
-                return o;
+                return { ...o, assemble_pallet_count };
               }
               const pct = computeAssembledPercentFromDraftItems(items, pallets);
               return {
                 ...o,
                 assembled_percent: pct,
+                assemble_pallet_count,
                 items: Array.isArray(o.items) && o.items.length ? o.items : items,
               };
             }),

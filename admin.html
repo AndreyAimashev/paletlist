@@ -4127,7 +4127,7 @@
       function formatOrderAssembledPctCell(orderRow) {
         const pct = formatOrderPct(orderRow.assembled_percent);
         const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
-        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span></motion.div>`;
+        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span></div>`;
       }
 
       const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";

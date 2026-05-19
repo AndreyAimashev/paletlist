@@ -886,6 +886,43 @@
         .orders-import-toolbar {
           display: flex;
         }
+
+        .orders-table-wrap {
+          overflow: auto;
+        }
+
+        .orders-table-head-holder {
+          overflow: visible;
+          border-bottom: none;
+          box-shadow: none;
+          position: sticky;
+          top: 0;
+          background: rgb(14, 20, 32);
+        }
+
+        .orders-table-body-holder {
+          overflow: visible;
+        }
+
+        .orders-table--head,
+        .orders-table--body {
+          width: 100%;
+          min-width: 0;
+          table-layout: auto;
+        }
+
+        .orders-table--head col,
+        .orders-table--body col {
+          width: auto;
+        }
+
+        .orders-table--head thead th {
+          position: sticky;
+          top: 0;
+          z-index: 5;
+          background: rgb(14, 20, 32);
+          box-shadow: 0 1px 0 rgba(0, 200, 160, 0.18);
+        }
       }
 
       .orders-names-toolbar {
@@ -936,10 +973,24 @@
       }
 
       .orders-table-wrap {
-        overflow-x: auto;
+        display: flex;
+        flex-direction: column;
         max-height: min(52vh, 560px);
-        overflow-y: auto;
         margin-top: 4px;
+        min-height: 0;
+      }
+
+      .orders-table-head-holder {
+        flex-shrink: 0;
+        overflow: hidden;
+        z-index: 4;
+      }
+
+      .orders-table-body-holder {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       .orders-table {
@@ -947,6 +998,18 @@
         border-collapse: collapse;
         font-size: 13px;
         line-height: 1.4;
+      }
+
+      .orders-table--head {
+        margin: 0;
+      }
+
+      .orders-table--body {
+        margin: 0;
+      }
+
+      .orders-table--body tbody tr:first-child td {
+        border-top: none;
       }
 
       .orders-table th,
@@ -2086,34 +2149,67 @@
 
         .orders-table-wrap {
           max-height: min(62vh, 640px);
+        }
+
+        .orders-table-head-holder {
+          overflow-x: hidden;
+          overflow-y: visible;
+          width: 100%;
+          border-bottom: 1px solid rgba(0, 200, 160, 0.22);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .orders-table-body-holder {
           overflow: auto;
           -webkit-overflow-scrolling: touch;
         }
 
-        .orders-table {
-          min-width: 700px;
+        .orders-table--head {
+          width: 100%;
+          min-width: 0;
+          table-layout: fixed;
           font-size: 12px;
           border-collapse: separate;
           border-spacing: 0;
         }
 
-        .orders-table thead {
-          position: sticky;
-          top: 0;
-          z-index: 4;
+        .orders-table--head col.col-date {
+          width: 20.3%;
         }
 
-        .orders-table thead th {
-          position: sticky;
-          top: 0;
-          z-index: 5;
+        .orders-table--head col.col-client {
+          width: 10.9%;
+        }
+
+        .orders-table--head col.col-pct {
+          width: 7.7%;
+        }
+
+        .orders-table--head col.col-qty {
+          width: 28.6%;
+        }
+
+        .orders-table--head col.col-extra-info {
+          width: 9.7%;
+        }
+
+        .orders-table--head col.col-actions {
+          width: 0;
+        }
+
+        .orders-table--head thead th {
+          position: static;
           background: rgb(14, 20, 32);
-          box-shadow: 0 1px 0 rgba(0, 200, 160, 0.18);
+          box-shadow: none;
         }
 
-        .orders-table tbody td {
-          position: relative;
-          z-index: 0;
+        .orders-table--body {
+          min-width: 700px;
+          width: 700px;
+          table-layout: fixed;
+          font-size: 12px;
+          border-collapse: separate;
+          border-spacing: 0;
         }
 
         .orders-table th,
@@ -2514,8 +2610,17 @@
               </div>
             </div>
             <div class="orders-table-wrap">
-              <table class="orders-table">
-                <thead>
+              <div class="orders-table-head-holder">
+                <table class="orders-table orders-table--head">
+                  <colgroup>
+                    <col class="col-date" />
+                    <col class="col-client" />
+                    <col class="col-pct" />
+                    <col class="col-qty" />
+                    <col class="col-extra-info" />
+                    <col class="col-actions" />
+                  </colgroup>
+                  <thead>
                   <tr>
                     <th scope="col" class="col-date">
                       <div class="orders-th-inner">
@@ -2579,8 +2684,21 @@
                     <th scope="col" class="col-actions">Действия</th>
                   </tr>
                 </thead>
-                <tbody id="orders-table-body"></tbody>
-              </table>
+                </table>
+              </div>
+              <div class="orders-table-body-holder" id="orders-table-body-scroll">
+                <table class="orders-table orders-table--body">
+                  <colgroup>
+                    <col class="col-date" />
+                    <col class="col-client" />
+                    <col class="col-pct" />
+                    <col class="col-qty" />
+                    <col class="col-extra-info" />
+                    <col class="col-actions" />
+                  </colgroup>
+                  <tbody id="orders-table-body"></tbody>
+                </table>
+              </div>
             </div>
             <div
               id="orders-filter-client-popover"
@@ -5149,6 +5267,53 @@
           </div>`;
       }
 
+      function syncOrdersTableColumnWidths() {
+        const headTable = document.querySelector(".orders-table--head");
+        const bodyTable = document.querySelector(".orders-table--body");
+        if (!headTable || !bodyTable || !ordersTableBody) {
+          return;
+        }
+        const headCols = headTable.querySelectorAll("colgroup col");
+        const bodyCols = bodyTable.querySelectorAll("colgroup col");
+        const headCells = headTable.querySelectorAll("thead th");
+        const clearWidths = () => {
+          headCells.forEach((th) => {
+            th.style.width = "";
+          });
+          headCols.forEach((col) => {
+            col.style.width = "";
+          });
+          bodyCols.forEach((col) => {
+            col.style.width = "";
+          });
+          headTable.style.width = "";
+          bodyTable.style.width = "";
+        };
+        if (window.matchMedia("(max-width: 768px)").matches) {
+          clearWidths();
+          return;
+        }
+        const sampleRow = ordersTableBody.querySelector("tr");
+        if (!sampleRow || sampleRow.querySelector("td[colspan]")) {
+          clearWidths();
+          return;
+        }
+        const bodyCells = sampleRow.querySelectorAll("td");
+        bodyCells.forEach((td, i) => {
+          const w = td.getBoundingClientRect().width;
+          if (w > 0 && headCells[i]) {
+            const px = `${Math.round(w)}px`;
+            headCells[i].style.width = px;
+            if (headCols[i]) {
+              headCols[i].style.width = px;
+            }
+            if (bodyCols[i]) {
+              bodyCols[i].style.width = px;
+            }
+          }
+        });
+      }
+
       function renderOrdersTable() {
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
@@ -5199,6 +5364,9 @@
                 </tr>`;
           })
           .join("");
+        requestAnimationFrame(() => {
+          syncOrdersTableColumnWidths();
+        });
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -6834,7 +7002,18 @@
         );
         window.addEventListener("resize", () => {
           positionOpenOrdersFilterPopovers();
+          syncOrdersTableColumnWidths();
         });
+        const ordersTableBodyScrollEl = document.getElementById("orders-table-body-scroll");
+        if (ordersTableBodyScrollEl) {
+          ordersTableBodyScrollEl.addEventListener(
+            "scroll",
+            () => {
+              positionOpenOrdersFilterPopovers();
+            },
+            { passive: true },
+          );
+        }
       }
 
       if (ordersTableBody) {
@@ -6860,14 +7039,17 @@
           }
           hideOrdersImportSkippedFloatingTip();
         });
+        const ordersTableBodyScroll = document.getElementById("orders-table-body-scroll");
         const ordersTableWrap = ordersWorkspace
           ? ordersWorkspace.querySelector(".orders-table-wrap")
           : null;
-        if (ordersTableWrap) {
-          ordersTableWrap.addEventListener("scroll", hideOrdersImportSkippedFloatingTip, {
-            passive: true,
-          });
-        }
+        [ordersTableWrap, ordersTableBodyScroll].forEach((el) => {
+          if (el) {
+            el.addEventListener("scroll", hideOrdersImportSkippedFloatingTip, {
+              passive: true,
+            });
+          }
+        });
       }
 
       window.addEventListener(

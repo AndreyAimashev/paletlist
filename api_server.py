@@ -1950,6 +1950,40 @@ _EXCEL_ORDER_COL_PRODUCT = "I"
 _EXCEL_ORDER_COL_QTY = "J"
 _EXCEL_ORDER_COL_UNIT = "K"
 _EXCEL_ORDER_COL_SHIP = "M"
+_EXCEL_ORDER_COL_DELIVERY = "L"
+
+_EXCEL_DELIVERY_RE_SAMOVYVOZ = re.compile(
+    r"(?<![\w])самовывоз(?![\w])",
+    re.IGNORECASE | re.UNICODE,
+)
+_EXCEL_DELIVERY_RE_DELOVYE = re.compile(
+    r"(?<![\w])деловые\s+линии(?![\w])",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _excel_delivery_extra_info_from_texts(texts: list) -> str:
+    """Доп. информация заказа по комментариям из столбца L (целые слова/фразы)."""
+    parts = []
+    for raw in texts or []:
+        t = _normalize_str(str(raw or ""))
+        if t:
+            parts.append(t)
+    combined = " ".join(parts)
+    if not combined.strip():
+        return "Обычный"
+    if _EXCEL_DELIVERY_RE_SAMOVYVOZ.search(combined):
+        return "Самовывоз"
+    if _EXCEL_DELIVERY_RE_DELOVYE.search(combined):
+        return "Деловые Линии"
+    return "Обычный"
+
+
+def _excel_row_delivery_text(ws, row: int) -> str:
+    raw = _excel_cell(ws, _EXCEL_ORDER_COL_DELIVERY, row)
+    if raw is None or str(raw).strip() == "":
+        return ""
+    return _normalize_str(str(raw))
 
 
 def _excel_cell(ws, col: str, row: int):
@@ -2064,14 +2098,24 @@ def parse_orders_from_excel_worksheet(ws):
         elif not ship:
             errors.append(f"Заказ «{client}» (строка {start}): не указана дата отгрузки (колонка M).")
         else:
+            delivery_texts = current.get("_delivery_texts") or []
             orders.append(
                 {
                     "client": client,
                     "ship_date": ship,
                     "items": items,
+                    "extra_info": _excel_delivery_extra_info_from_texts(delivery_texts),
                 }
             )
         current = None
+
+    def _append_delivery_text_to_current(row: int) -> None:
+        nonlocal current
+        if current is None:
+            return
+        t = _excel_row_delivery_text(ws, row)
+        if t:
+            current.setdefault("_delivery_texts", []).append(t)
 
     max_row = int(ws.max_row or 0)
     for row in range(2, max_row + 1):
@@ -2099,10 +2143,14 @@ def parse_orders_from_excel_worksheet(ws):
                 "client": client_s,
                 "ship_date": last_ship_iso,
                 "items": [],
+                "_delivery_texts": [],
                 "_start_row": row,
             }
+            _append_delivery_text_to_current(row)
         elif current is not None and last_ship_iso and not current.get("ship_date"):
             current["ship_date"] = last_ship_iso
+        else:
+            _append_delivery_text_to_current(row)
 
         product_s = (
             _strip_trailing_name_suffix(_normalize_str(product_raw))
@@ -2217,8 +2265,9 @@ def import_orders_from_excel_bytes(data: bytes):
                     continue
                 names_summary = ""
                 baseline = 0
+                delivery_extra = _normalize_str(order.get("extra_info", "")) or "Обычный"
                 extra_info = _encode_import_skip_extra_info(
-                    skipped_count, baseline, "", skipped_names
+                    skipped_count, baseline, delivery_extra, skipped_names
                 )
                 cur.execute(
                     """
@@ -2258,8 +2307,9 @@ def import_orders_from_excel_bytes(data: bytes):
             client_n = pack["client"]
             names_summary = _format_order_names_summary(normalized)
             baseline = len(normalized)
+            delivery_extra = _normalize_str(order.get("extra_info", "")) or "Обычный"
             extra_info = _encode_import_skip_extra_info(
-                skipped_count, baseline, "", skipped_names
+                skipped_count, baseline, delivery_extra, skipped_names
             )
             cur.execute(
                 """

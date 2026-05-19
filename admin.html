@@ -2415,6 +2415,10 @@
               role="dialog"
               aria-label="Фильтр по клиенту"
             >
+              <div class="orders-filter-extra-toolbar">
+                <button type="button" id="orders-filter-client-all">Все</button>
+                <button type="button" id="orders-filter-client-none">Снять</button>
+              </div>
               <div id="orders-filter-client-options" class="orders-filter-extra-checkboxes"></div>
             </div>
             <div
@@ -4221,9 +4225,12 @@
       let ordersSortKey = null;
       let ordersSortDir = "asc";
       let ordersFilterShip = "";
-      let ordersFilterClient = "";
       let ordersFilterPct = "";
       let ordersFilterInputTimer = null;
+      /** @type {Set<string> | null} */
+      let ordersFilterClientsSelected = null;
+      /** @type {Set<string> | null} */
+      let ordersClientFilterValuesSnapshot = null;
       /** @type {Set<string> | null} */
       let ordersFilterExtraInfoSelected = null;
       /** @type {Set<string> | null} */
@@ -4774,9 +4781,18 @@
         if (shipQ) {
           list = list.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
         }
-        const clientVal = ordersFilterClient.trim();
-        if (clientVal) {
-          list = list.filter((o) => String(o.client || "").trim() === clientVal);
+        const clientValues = collectOrdersClientFilterValues();
+        if (
+          ordersFilterClientsSelected &&
+          clientValues.length &&
+          ordersFilterClientsSelected.size < clientValues.length
+        ) {
+          list = list.filter((o) => {
+            const c = String(o.client || "").trim();
+            return c && ordersFilterClientsSelected.has(c);
+          });
+        } else if (ordersFilterClientsSelected && ordersFilterClientsSelected.size === 0) {
+          list = [];
         }
         if (ordersFilterPct === "100") {
           list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) >= 100);
@@ -4846,54 +4862,90 @@
         return [...set].sort((a, b) => a.localeCompare(b, "ru", { sensitivity: "base" }));
       }
 
-      function updateOrdersClientFilterToggle() {
-        const toggle = document.getElementById("orders-filter-client-toggle");
-        if (toggle) {
-          toggle.classList.toggle("is-active", String(ordersFilterClient || "").trim() !== "");
+      function pruneOrdersClientFilterSelection(values) {
+        if (ordersFilterClientsSelected === null) {
+          return;
+        }
+        const valueSet = new Set(values);
+        for (const v of [...ordersFilterClientsSelected]) {
+          if (!valueSet.has(v)) {
+            ordersFilterClientsSelected.delete(v);
+          }
         }
       }
 
-      function syncOrdersClientFilterUi() {
+      function mergeOrdersClientFilterOnLoad(values) {
+        const valueSet = new Set(values);
+        if (ordersFilterClientsSelected === null) {
+          ordersFilterClientsSelected = new Set(values);
+          ordersClientFilterValuesSnapshot = valueSet;
+          return;
+        }
+        pruneOrdersClientFilterSelection(values);
+        const prev = ordersClientFilterValuesSnapshot || new Set();
+        for (const v of values) {
+          if (!prev.has(v)) {
+            ordersFilterClientsSelected.add(v);
+          }
+        }
+        ordersClientFilterValuesSnapshot = valueSet;
+      }
+
+      function isOrdersClientFilterNarrowed() {
+        const all = collectOrdersClientFilterValues();
+        if (!ordersFilterClientsSelected) {
+          return false;
+        }
+        if (all.length === 0) {
+          return false;
+        }
+        return ordersFilterClientsSelected.size < all.length;
+      }
+
+      function updateOrdersClientFilterToggle() {
+        const toggle = document.getElementById("orders-filter-client-toggle");
+        if (toggle) {
+          toggle.classList.toggle("is-active", isOrdersClientFilterNarrowed());
+        }
+      }
+
+      function rebuildOrdersClientFilterCheckboxes() {
         const box = document.getElementById("orders-filter-client-options");
         if (!box) {
           return;
         }
-        const prev = String(ordersFilterClient || "").trim();
-        const names = collectOrdersClientFilterValues();
+        const values = collectOrdersClientFilterValues();
+        pruneOrdersClientFilterSelection(values);
         box.innerHTML = "";
-        if (!names.length) {
+        if (!values.length) {
           box.innerHTML = '<p class="muted" style="margin:0;font-size:12px;">Нет клиентов</p>';
-          ordersFilterClient = "";
-          updateOrdersClientFilterToggle();
           return;
         }
-        const appendRadio = (value, label, checked) => {
+        const selected = ordersFilterClientsSelected || new Set();
+        values.forEach((label) => {
+          const id = `orders-filter-client-cb-${label.replace(/[^\w\u0400-\u04FF-]+/g, "_")}`;
           const wrap = document.createElement("label");
-          const radio = document.createElement("input");
-          radio.type = "radio";
-          radio.name = "orders-filter-client";
-          radio.value = value;
-          radio.checked = checked;
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.id = id;
+          cb.value = label;
+          cb.checked = selected.has(label);
+          cb.dataset.ordersClientFilter = label;
           const span = document.createElement("span");
           span.textContent = label;
-          wrap.appendChild(radio);
+          wrap.appendChild(cb);
           wrap.appendChild(span);
           box.appendChild(wrap);
-        };
-        appendRadio("", "Все клиенты", !prev || !names.includes(prev));
-        names.forEach((c) => {
-          appendRadio(c, c, prev === c);
         });
-        if (prev && names.includes(prev)) {
-          ordersFilterClient = prev;
-        } else {
-          ordersFilterClient = "";
-        }
         updateOrdersClientFilterToggle();
         const pop = document.getElementById("orders-filter-client-popover");
         if (pop && !pop.hidden) {
           requestAnimationFrame(() => positionOrdersClientFilterPopover());
         }
+      }
+
+      function syncOrdersClientFilterUi() {
+        rebuildOrdersClientFilterCheckboxes();
       }
 
       function syncOrdersClientFilterSelect() {
@@ -5423,6 +5475,7 @@
           );
           cachedOrdersListRows = enriched;
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
+          mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
           renderOrdersTable();
         } catch (error) {
           cachedOrdersListRows = [];
@@ -6370,6 +6423,8 @@
         });
         const clientToggle = document.getElementById("orders-filter-client-toggle");
         const clientPopover = document.getElementById("orders-filter-client-popover");
+        const clientAllBtn = document.getElementById("orders-filter-client-all");
+        const clientNoneBtn = document.getElementById("orders-filter-client-none");
         const clientOptions = document.getElementById("orders-filter-client-options");
         if (clientToggle && clientPopover) {
           clientToggle.addEventListener("click", (ev) => {
@@ -6378,21 +6433,45 @@
             if (willOpen) {
               closeOrdersExtraInfoFilterPopover();
               closeOrdersPctFilterPopover();
+              syncOrdersClientFilterUi();
             }
             setOrdersClientFilterOpen(willOpen);
+          });
+        }
+        if (clientAllBtn) {
+          clientAllBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterClientsSelected = new Set(collectOrdersClientFilterValues());
+            syncOrdersClientFilterUi();
+            renderOrdersTable();
+          });
+        }
+        if (clientNoneBtn) {
+          clientNoneBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterClientsSelected = new Set();
+            syncOrdersClientFilterUi();
+            renderOrdersTable();
           });
         }
         if (clientOptions) {
           clientOptions.addEventListener("change", (ev) => {
             ev.stopPropagation();
-            const radio = ev.target;
-            if (!radio || radio.type !== "radio" || radio.name !== "orders-filter-client") {
+            const cb = ev.target;
+            if (!cb || cb.type !== "checkbox" || !cb.dataset.ordersClientFilter) {
               return;
             }
-            ordersFilterClient = String(radio.value || "");
+            if (!ordersFilterClientsSelected) {
+              ordersFilterClientsSelected = new Set(collectOrdersClientFilterValues());
+            }
+            const label = cb.dataset.ordersClientFilter;
+            if (cb.checked) {
+              ordersFilterClientsSelected.add(label);
+            } else {
+              ordersFilterClientsSelected.delete(label);
+            }
             updateOrdersClientFilterToggle();
             renderOrdersTable();
-            closeOrdersClientFilterPopover();
           });
         }
         updateOrdersClientFilterToggle();

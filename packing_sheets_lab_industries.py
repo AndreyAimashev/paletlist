@@ -112,6 +112,8 @@ _LAB_ROW4_MIN_RIGHT_W_MM = 36.0
 _LAB_ROW5_LABEL = "Номер заказа:"
 _LAB_ROW6_LABEL = "Общее количество заказа:"
 _LAB_ROW7_LABEL = "Номер паллеты:"
+_LAB_ROW7_VALUE_FONT_PT = _LAB_TEXT_FONT_PT * 2.0
+_LAB_ROW7_VALUE_H_MM = _LAB_TEXT_H_MM * 2.0
 _LAB_ROW8_MANUFACTURER_TEXT = (
     "Изготовитель: (K) Общество с ограниченной ответственностью «ЛАБ Индастриз», "
     "107045, Россия, г. Москва, Колокольников пер., д.11. "
@@ -589,7 +591,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             row7_text = str(row.get("row7_text") or "").strip()
             if not row7_text:
                 row7_text = _format_lab_row7_pallet_seq(idx, n)
-            row7_h = pad + h_txt + pad
+            row7_h = pad + _LAB_ROW7_VALUE_H_MM + pad
             row7_left_w = row4_left_w
             row7_right_w = row4_right_w
             x_row7_right = x_row4_right
@@ -765,12 +767,18 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
 
             row7_label_inner_w = row7_left_w - 2 * pad
             row7_value_inner_w = row7_right_w - 2 * pad
+            row7_label_y = y_row7 + pad + (_LAB_ROW7_VALUE_H_MM - h_txt) / 2.0
             pdf.set_font("PLCalibri", "B", fs)
-            pdf.set_xy(x0 + pad, y_row7 + pad)
+            pdf.set_xy(x0 + pad, row7_label_y)
             pdf.cell(row7_label_inner_w, h_txt, _LAB_ROW7_LABEL, align="L")
-            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_font("PLCalibri", "B", _LAB_ROW7_VALUE_FONT_PT)
             pdf.set_xy(x_row7_right + pad, y_row7 + pad)
-            pdf.cell(row7_value_inner_w, h_txt, row7_text, align="C")
+            pdf.cell(
+                row7_value_inner_w,
+                _LAB_ROW7_VALUE_H_MM,
+                row7_text,
+                align="C",
+            )
 
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x0 + pad, y_row8 + pad)

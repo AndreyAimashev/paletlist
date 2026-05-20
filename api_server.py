@@ -2695,6 +2695,8 @@ def update_order_with_items(order_id: int, body: dict):
 def _order_item_row_to_dict(ir):
     """Строка JOIN order_items + products → dict как в fetch_order_detail."""
     pid = ir["product_id"]
+    keys = ir.keys() if hasattr(ir, "keys") else ()
+    vol = float(ir["volume_ml"] or 0) if "volume_ml" in keys else 0.0
     return {
         "product_id": int(pid) if pid is not None else None,
         "article": ir["article"] or "",
@@ -2707,7 +2709,7 @@ def _order_item_row_to_dict(ir):
         "row_layout": max(0, int(ir["row_layout"] or 0)),
         "max_rows": max(0, int(ir["max_rows"] or 0)),
         "box_weight": float(ir["box_weight"] or 0),
-        "volume_ml": float(ir["volume_ml"] or 0),
+        "volume_ml": vol,
     }
 
 
@@ -2795,7 +2797,8 @@ def fetch_orders():
                        p.pieces_per_set AS pieces_per_set,
                        p.row_layout AS row_layout,
                        p.max_rows AS max_rows,
-                       p.box_weight AS box_weight
+                       p.box_weight AS box_weight,
+                       p.volume_ml AS volume_ml
                 FROM order_items oi
                 LEFT JOIN products p ON p.id = oi.product_id
                 WHERE oi.order_id IN ({placeholders})

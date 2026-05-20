@@ -325,12 +325,13 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             label_art = "АРТИКУЛ:"
             pdf.set_font("PLCalibri", "B", fs)
             line_w = w_label + _LAB_TAB_MM + w_article
+            # По центру левой рамки (горизонталь и вертикаль), одна строка: «АРТИКУЛ:» + артикул.
             x_line = x0 + (left_w - line_w) / 2.0
-            y_art = y0 + pad
+            y_art = y0 + (row1_h - h_txt) / 2.0
             pdf.set_xy(x_line, y_art)
-            pdf.cell(w_label, h_txt, label_art)
+            pdf.cell(w_label, h_txt, label_art, align="L")
             pdf.set_xy(x_line + w_label + _LAB_TAB_MM, y_art)
-            pdf.cell(w_article, h_txt, art_show)
+            pdf.cell(w_article, h_txt, art_show, align="L")
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0

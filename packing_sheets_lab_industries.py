@@ -608,16 +608,10 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 pdf, row9_text, row9_inner_w, h_txt, bold=False
             )
             row9_h = pad + row9_text_h + pad
-            row10_batch = str(row.get("row10_batch_text") or "").strip()
-            if not row10_batch:
-                row10_batch = _format_lab_row10_batch(
-                    str(row.get("batch_number") or "")
-                )
-            row10_expiry = str(row.get("row10_expiry_text") or "").strip()
-            if not row10_expiry:
-                row10_expiry = _format_lab_row10_expiry(
-                    str(row.get("lab_expiry_date") or "")
-                )
+            row10_batch = _format_lab_row10_batch(str(row.get("batch_number") or ""))
+            row10_expiry = _format_lab_row10_expiry(
+                str(row.get("lab_expiry_date") or "")
+            )
             row10_h = pad + h_txt + pad
             row10_left_w = row4_left_w
             row10_right_w = row4_right_w

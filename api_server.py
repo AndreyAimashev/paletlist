@@ -2402,6 +2402,29 @@ def _merge_import_items_payload(items: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
+def _format_excel_import_skipped_message(
+    client: str, skipped_count: int, skipped_names: list[str]
+) -> str:
+    """Текст предупреждения при импорте: сколько строк и какие наименования не нашлись."""
+    client_s = _normalize_str(client) or "?"
+    if skipped_count == 1:
+        word = "строка"
+    elif 2 <= skipped_count <= 4:
+        word = "строки"
+    else:
+        word = "строк"
+    msg = (
+        f"Заказ «{client_s}»: пропущено {skipped_count} {word} "
+        f"(нет совпадения в номенклатуре)."
+    )
+    preview = [_normalize_str(n) for n in (skipped_names or []) if _normalize_str(n)]
+    if preview:
+        shown = preview[:5]
+        tail = f" и ещё {len(preview) - len(shown)}" if len(preview) > len(shown) else ""
+        msg += " " + "; ".join(shown) + tail
+    return msg
+
+
 def _resolve_product_id_for_excel_import(
     cur, name: str, name_lookup: dict[str, int] | None = None
 ):
@@ -2507,9 +2530,10 @@ def import_orders_from_excel_bytes(data: bytes):
                 created_ids.append(oid)
                 if skipped_count > 0:
                     import_errors.append(
-                        f"Заказ «{client_n}»: создан без позиций, пропущено {skipped_count} "
-                        f"{'строка' if skipped_count == 1 else 'строки' if 2 <= skipped_count <= 4 else 'строк'} "
-                        f"(нет точного совпадения в номенклатуре)."
+                        _format_excel_import_skipped_message(
+                            client_n, skipped_count, skipped_names
+                        )
+                        + " Заказ создан без позиций."
                     )
                 continue
             body = {
@@ -2557,9 +2581,9 @@ def import_orders_from_excel_bytes(data: bytes):
             created_ids.append(oid)
             if skipped_count > 0:
                 import_errors.append(
-                    f"Заказ «{order['client']}»: пропущено {skipped_count} "
-                    f"{'строка' if skipped_count == 1 else 'строки' if 2 <= skipped_count <= 4 else 'строк'} "
-                    f"(нет точного совпадения в номенклатуре)."
+                    _format_excel_import_skipped_message(
+                        order["client"], skipped_count, skipped_names
+                    )
                 )
         if created_ids:
             con.commit()

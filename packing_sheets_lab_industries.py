@@ -111,6 +111,7 @@ _LAB_ROW4_KOR_SUFFIX = " кор."
 _LAB_ROW4_MIN_RIGHT_W_MM = 36.0
 _LAB_ROW5_LABEL = "Номер заказа:"
 _LAB_ROW6_LABEL = "Общее количество заказа:"
+_LAB_ROW7_LABEL = "Номер паллеты:"
 
 
 def _boxes_on_pallet(
@@ -133,6 +134,13 @@ def _boxes_on_pallet(
             continue
         total += _allocation_to_boxes(items[li], _slot_to_alloc(ns))
     return total
+
+
+def _format_lab_row7_pallet_seq(pallet_index: int, pallet_total: int) -> str:
+    """Например: 1 из 10."""
+    total = max(1, int(pallet_total))
+    num = max(1, min(int(pallet_index), total))
+    return f"{num} из {total}"
 
 
 def _format_lab_row6_total_order(qty: float | None) -> str:
@@ -216,6 +224,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
     out: list[dict[str, Any]] = []
+    pallet_total = len(pallets)
     for idx, pal in enumerate(pallets, start=1):
         pnum = str(pal.get("palletNumber") or "").strip()
         if not pnum:
@@ -248,6 +257,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "buyer_order": buyer_order,
                 "total_order_quantity": total_order_qty,
                 "row6_text": _format_lab_row6_total_order(total_order_qty),
+                "row7_text": _format_lab_row7_pallet_seq(idx, pallet_total),
             }
         )
     return out
@@ -337,7 +347,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–6 (артикул … номер заказа / общее количество заказа)."""
+    """PDF: строки 1–7 (артикул … общее количество / номер паллеты N из M)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -446,6 +456,13 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             row6_left_w = row4_left_w
             row6_right_w = row4_right_w
             x_row6_right = x_row4_right
+            row7_text = str(row.get("row7_text") or "").strip()
+            if not row7_text:
+                row7_text = _format_lab_row7_pallet_seq(idx, n)
+            row7_h = pad + h_txt + pad
+            row7_left_w = row4_left_w
+            row7_right_w = row4_right_w
+            x_row7_right = x_row4_right
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
@@ -453,6 +470,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             y_row4 = y_row3 + row3_h
             y_row5 = y_row4 + row4_h
             y_row6 = y_row5 + row5_h
+            y_row7 = y_row6 + row6_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -467,6 +485,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x_row5_right, y_row5, row5_right_w, row5_h)
             pdf.rect(x0, y_row6, row6_left_w, row6_h)
             pdf.rect(x_row6_right, y_row6, row6_right_w, row6_h)
+            pdf.rect(x0, y_row7, row7_left_w, row7_h)
+            pdf.rect(x_row7_right, y_row7, row7_right_w, row7_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -551,6 +571,15 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x_row6_right + pad, y_row6 + pad)
             pdf.cell(row6_value_inner_w, h_txt, row6_text, align="C")
+
+            row7_label_inner_w = row7_left_w - 2 * pad
+            row7_value_inner_w = row7_right_w - 2 * pad
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0 + pad, y_row7 + pad)
+            pdf.cell(row7_label_inner_w, h_txt, _LAB_ROW7_LABEL, align="L")
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x_row7_right + pad, y_row7 + pad)
+            pdf.cell(row7_value_inner_w, h_txt, row7_text, align="C")
 
         out = pdf.output()
         return (bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")), None, None

@@ -3772,7 +3772,9 @@
                 buyer_order: assembleOrderSnapshot.buyer_order,
               }
             : null);
-        return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
+        const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
+        const palletTotal = sortedPallets.length;
+        return sortedPallets.map((pal, idx) => {
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
           let name = "";
@@ -3841,6 +3843,7 @@
               items[lineIdx].total_order_quantity !== ""
                 ? formatLabRow6Text(items[lineIdx].total_order_quantity)
                 : formatLabRow6Text(null),
+            row7_text: `${idx + 1} из ${palletTotal}`,
           };
         });
       }

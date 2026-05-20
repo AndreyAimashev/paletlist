@@ -3470,21 +3470,31 @@
         return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
+          let name = "";
           for (const s of slots) {
             const ns = normalizeSlot(s);
             if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
               continue;
             }
             const it = items[Number(ns.lineIndex)];
-            if (it && !article) {
-              article = String(it.article || "").trim();
+            if (it) {
+              if (!article) {
+                article = String(it.article || "").trim();
+              }
+              if (!name) {
+                name = String(it.name || "").trim();
+              }
             }
           }
           let pallet_number = String(pal.palletNumber ?? "").trim();
           if (!pallet_number) {
             pallet_number = String(idx + 1);
           }
-          return { article: article || "—", pallet_number };
+          return {
+            article: article || "—",
+            name: name || "—",
+            pallet_number,
+          };
         });
       }
 

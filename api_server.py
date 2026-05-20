@@ -1820,7 +1820,8 @@ def _format_ship_date_storage(value: str) -> str:
 def _format_order_names_summary(items):
     unit_ru = {"box": "коробок", "set": "наборов", "piece": "шт"}
     parts = []
-    for _pid, article, name, qty, unit in items:
+    for row in items:
+        _pid, article, name, qty, unit = row[0], row[1], row[2], row[3], row[4]
         label = (name or article or "—").strip() or "—"
         u = unit_ru.get(unit, "шт")
         q = int(qty) if qty == int(qty) else qty

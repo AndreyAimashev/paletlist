@@ -1642,17 +1642,11 @@
         display: block;
       }
 
-      .order-items-lab-total {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
-        gap: 8px;
-        align-items: center;
-        margin-bottom: 10px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      .order-items-lab-total-field-wrap {
+        margin-top: 8px;
       }
 
-      .order-items-lab-total[hidden] {
+      .order-items-lab-total-field-wrap[hidden] {
         display: none !important;
       }
 
@@ -1671,7 +1665,7 @@
       .new-order-total-quantity {
         box-sizing: border-box;
         width: 100%;
-        max-width: 220px;
+        max-width: none;
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 8px;
         padding: 10px 8px;
@@ -2538,17 +2532,8 @@
           grid-column: auto;
         }
 
-        .new-order-dialog .order-items-lab-total {
-          grid-template-columns: 1fr;
-          gap: 4px;
-        }
-
-        .new-order-dialog .order-items-lab-total-field {
-          max-width: none;
-        }
-
-        .new-order-dialog .new-order-total-quantity {
-          max-width: none;
+        .new-order-dialog .order-items-lab-total-field-wrap {
+          margin-top: 10px;
         }
 
         .new-order-dialog .order-item-metric-cell .order-item-field-caption {
@@ -3150,23 +3135,22 @@
             </div>
             <span></span>
           </div>
-          <div id="new-order-lab-total-row" class="order-items-lab-total" hidden>
-            <div class="order-items-lab-total-field">
-              <label class="order-items-lab-total-label" for="new-order-total-quantity"
-                >Общее количество заказа</label
-              >
-              <input
-                id="new-order-total-quantity"
-                class="new-order-total-quantity"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="Введите количество"
-              />
+          <div id="new-order-lab-total-parking" hidden aria-hidden="true">
+            <div id="new-order-lab-total-row" class="order-items-lab-total-field-wrap" hidden>
+              <div class="order-items-lab-total-field">
+                <label class="order-items-lab-total-label" for="new-order-total-quantity"
+                  >Общее количество заказа</label
+                >
+                <input
+                  id="new-order-total-quantity"
+                  class="new-order-total-quantity"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="Введите количество"
+                />
+              </div>
             </div>
-            <span></span>
-            <span></span>
-            <span></span>
           </div>
           <div id="new-order-items"></div>
           <button id="new-order-add-item" class="menu-button" type="button">+ Добавить позицию</button>
@@ -3314,6 +3298,7 @@
       const newOrderLabBuyerMode = document.getElementById("new-order-lab-buyer-mode");
       const newOrderLabBuyerSingle = document.getElementById("new-order-lab-buyer-single");
       const newOrderBuyerOrder = document.getElementById("new-order-buyer-order");
+      const newOrderLabTotalParking = document.getElementById("new-order-lab-total-parking");
       const newOrderLabTotalRow = document.getElementById("new-order-lab-total-row");
       const newOrderTotalQuantity = document.getElementById("new-order-total-quantity");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
@@ -3585,6 +3570,46 @@
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
+      function parkNewOrderLabTotalField() {
+        if (!newOrderLabTotalRow || !newOrderLabTotalParking) {
+          return;
+        }
+        newOrderLabTotalRow.hidden = true;
+        if (newOrderLabTotalRow.parentElement !== newOrderLabTotalParking) {
+          newOrderLabTotalParking.appendChild(newOrderLabTotalRow);
+        }
+      }
+
+      function placeNewOrderLabTotalUnderFirstSearch() {
+        if (!newOrderLabTotalRow) {
+          return;
+        }
+        const lab = isLabIndustriesClient(newOrderClient?.value || "");
+        if (!lab) {
+          parkNewOrderLabTotalField();
+          return;
+        }
+        const firstRow = newOrderItems.querySelector(".order-item-row");
+        if (!firstRow) {
+          parkNewOrderLabTotalField();
+          return;
+        }
+        const ac = firstRow.querySelector(".order-item-autocomplete");
+        const search = firstRow.querySelector(".order-item-search");
+        if (!ac || !search) {
+          parkNewOrderLabTotalField();
+          return;
+        }
+        newOrderLabTotalRow.hidden = false;
+        const labels = ac.querySelector(".order-item-labels");
+        const insertBefore = labels || search.nextSibling;
+        if (insertBefore) {
+          ac.insertBefore(newOrderLabTotalRow, insertBefore);
+        } else {
+          ac.appendChild(newOrderLabTotalRow);
+        }
+      }
+
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
         if (newOrderLabBuyerMode) {
@@ -3597,13 +3622,8 @@
           newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
             w.hidden = true;
           });
-          if (newOrderLabTotalRow) {
-            newOrderLabTotalRow.hidden = true;
-          }
+          parkNewOrderLabTotalField();
           return;
-        }
-        if (newOrderLabTotalRow) {
-          newOrderLabTotalRow.hidden = false;
         }
         const multiple = getLabBuyerOrderMode() === "multiple";
         if (newOrderLabBuyerSingle) {
@@ -3622,6 +3642,7 @@
             inp.required = multiple;
           }
         });
+        placeNewOrderLabTotalUnderFirstSearch();
       }
 
       function isAssembleUnirusMode() {
@@ -7530,6 +7551,7 @@
 
         removeBtn.addEventListener("click", () => {
           row.remove();
+          placeNewOrderLabTotalUnderFirstSearch();
         });
       }
 
@@ -7700,6 +7722,7 @@
       function closeNewOrderModal() {
         newOrderOverlay.hidden = true;
         clearNewOrderError();
+        parkNewOrderLabTotalField();
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         editingOrderId = null;

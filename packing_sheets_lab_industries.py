@@ -119,6 +119,10 @@ _LAB_ROW8_MANUFACTURER_TEXT = (
     "г. Москва, вн.тер.г. муниципальный округ Пресненский, ул. Тестовская, д.10, "
     "помещ.1/16."
 )
+_LAB_ROW9_PRODUCTION_ADDRESS_TEXT = (
+    "Адрес производства: 140032, Россия, Московская область, г.о. Люберцы, "
+    "р.п. Малаховка, ул. Шоссейная, д. 40, ООО «М.К. Асептика»"
+)
 
 
 def _boxes_on_pallet(
@@ -354,7 +358,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–8 (артикул … номер паллеты / блок изготовителя)."""
+    """PDF: строки 1–9 (артикул … изготовитель / адрес производства)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -476,6 +480,15 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 pdf, row8_text, row8_inner_w, h_txt, bold=False
             )
             row8_h = pad + row8_text_h + pad
+            row9_text = (
+                str(row.get("row9_text") or "").strip()
+                or _LAB_ROW9_PRODUCTION_ADDRESS_TEXT
+            )
+            row9_inner_w = content_w - 2 * pad
+            row9_text_h = _lab_measure_wrapped_height_mm(
+                pdf, row9_text, row9_inner_w, h_txt, bold=False
+            )
+            row9_h = pad + row9_text_h + pad
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
@@ -485,6 +498,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             y_row6 = y_row5 + row5_h
             y_row7 = y_row6 + row6_h
             y_row8 = y_row7 + row7_h
+            y_row9 = y_row8 + row8_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -502,6 +516,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x0, y_row7, row7_left_w, row7_h)
             pdf.rect(x_row7_right, y_row7, row7_right_w, row7_h)
             pdf.rect(x0, y_row8, content_w, row8_h)
+            pdf.rect(x0, y_row9, content_w, row9_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -609,6 +624,20 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 )
             else:
                 pdf.multi_cell(row8_inner_w, h_txt, row8_text, border=0, align="L")
+
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x0 + pad, y_row9 + pad)
+            if wm is not None:
+                pdf.multi_cell(
+                    row9_inner_w,
+                    h_txt,
+                    row9_text,
+                    border=0,
+                    align="L",
+                    wrapmode=wm,
+                )
+            else:
+                pdf.multi_cell(row9_inner_w, h_txt, row9_text, border=0, align="L")
 
         out = pdf.output()
         return (bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")), None, None

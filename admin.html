@@ -3732,6 +3732,15 @@
         return `${String(b).replace(".", ",")} кор.`;
       }
 
+      function formatLabRow6Text(totalOrderQty) {
+        const n = Number(totalOrderQty);
+        if (!Number.isFinite(n) || n < 0) {
+          return "—";
+        }
+        const nS = Math.abs(n - Math.round(n)) < 1e-6 ? String(Math.round(n)) : String(n).replace(".", ",");
+        return `${nS} шт`;
+      }
+
       function resolveLabBuyerOrderForPallet(lineIdx, orderItems, labBuyerCtx) {
         const ctx = labBuyerCtx || {};
         const mode = ctx.buyer_order_mode === "multiple" ? "multiple" : "single";
@@ -3825,6 +3834,13 @@
               items[lineIdx].total_order_quantity !== ""
                 ? Number(items[lineIdx].total_order_quantity)
                 : null,
+            row6_text:
+              lineIdx !== null &&
+              items[lineIdx] &&
+              items[lineIdx].total_order_quantity != null &&
+              items[lineIdx].total_order_quantity !== ""
+                ? formatLabRow6Text(items[lineIdx].total_order_quantity)
+                : formatLabRow6Text(null),
           };
         });
       }

@@ -608,9 +608,34 @@
       }
 
       .assemble-pallet-number-field {
-        flex: 1;
-        min-width: 180px;
-        max-width: 280px;
+        flex: 0 0 auto;
+        display: inline-grid;
+        grid-template-columns: minmax(0, max-content);
+        width: max-content;
+        max-width: 100%;
+        padding: 8px 10px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 200, 160, 0.38);
+        background: rgba(0, 200, 160, 0.08);
+        box-shadow: 0 0 0 1px rgba(0, 200, 160, 0.06);
+      }
+
+      .assemble-pallet-number-field label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent-teal);
+        letter-spacing: 0.02em;
+        margin-bottom: 6px;
+        white-space: nowrap;
+      }
+
+      .assemble-pallet-number-field input {
+        width: 100%;
+        min-width: 0;
+        font-weight: 600;
+        text-align: center;
+        padding-left: 6px;
+        padding-right: 6px;
       }
 
       .assemble-order-line-select {
@@ -2194,7 +2219,8 @@
         }
 
         .assemble-pallet-number-field {
-          max-width: none;
+          width: 100%;
+          max-width: 100%;
         }
 
         .assemble-inputs-grid {
@@ -6905,7 +6931,7 @@
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">
                 <label for="pn-${pIdx}">Номер паллета</label>
-                <input id="pn-${pIdx}" type="text" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="Укажите номер" value="${numVal}" />
+                <input id="pn-${pIdx}" type="text" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
               </div>
               ${removeBtn}
             </div>

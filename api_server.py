@@ -1425,6 +1425,10 @@ def _migrate_products(cur):
         cur.execute(
             "ALTER TABLE products ADD COLUMN box_weight REAL NOT NULL DEFAULT 0"
         )
+    if "volume_ml" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN volume_ml REAL NOT NULL DEFAULT 0"
+        )
     if "pieces_per_set" not in cols:
         cur.execute(
             "ALTER TABLE products ADD COLUMN pieces_per_set INTEGER NOT NULL DEFAULT 1"
@@ -1557,7 +1561,8 @@ def init_db():
               pieces_per_set INTEGER NOT NULL DEFAULT 1,
               row_layout INTEGER NOT NULL DEFAULT 0,
               max_rows INTEGER NOT NULL DEFAULT 0,
-              box_weight REAL NOT NULL DEFAULT 0
+              box_weight REAL NOT NULL DEFAULT 0,
+              volume_ml REAL NOT NULL DEFAULT 0
             )
             """
         )
@@ -1586,6 +1591,7 @@ def init_db():
                             int(item.get("row_layout") or 0),
                             int(item.get("max_rows") or 0),
                             float(item.get("box_weight") or 0),
+                            float(item.get("volume_ml") or 0),
                         )
                     )
                 except (TypeError, ValueError):
@@ -1595,8 +1601,8 @@ def init_db():
                     """
                     INSERT INTO products (
                       id, article, name,
-                      pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -2803,7 +2809,7 @@ def fetch_nomenclature():
         rows = cur.execute(
             """
             SELECT id, article, name,
-                   pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
+                   pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml
             FROM products ORDER BY id
             """
         ).fetchall()
@@ -2828,6 +2834,7 @@ def fetch_nomenclature():
                     "row_layout": int(row["row_layout"] or 0),
                     "max_rows": int(row["max_rows"] or 0),
                     "box_weight": float(row["box_weight"] or 0),
+                    "volume_ml": float(row["volume_ml"] or 0),
                 }
             )
         for clean_name, rid in updates:
@@ -2850,6 +2857,7 @@ def update_nomenclature_row(
     row_layout: int = 0,
     max_rows: int = 0,
     box_weight: float = 0,
+    volume_ml: float = 0,
 ):
     norm = _normalize_packaging(pieces_in_box, sets_in_box)
     if isinstance(norm, dict):
@@ -2862,7 +2870,7 @@ def update_nomenclature_row(
             """
             UPDATE products SET
               article = ?, name = ?,
-              pieces_in_box = ?, sets_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?
+              pieces_in_box = ?, sets_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?, volume_ml = ?
             WHERE id = ?
             """,
             (
@@ -2874,6 +2882,7 @@ def update_nomenclature_row(
                 int(row_layout),
                 int(max_rows),
                 float(box_weight),
+                max(0.0, float(volume_ml)),
                 row_id,
             ),
         )
@@ -2884,7 +2893,7 @@ def update_nomenclature_row(
 
 
 def soft_delete_row(row_id: int):
-    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0) is True
+    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0, 0, 0) is True
 
 
 def _normalize_str(value: str) -> str:
@@ -2941,6 +2950,7 @@ def insert_nomenclature_row(
     row_layout: int,
     max_rows: int,
     box_weight: float,
+    volume_ml: float = 0,
 ):
     article_n = _normalize_str(article)
     name_n = _strip_trailing_name_suffix(_normalize_str(name))
@@ -2959,8 +2969,8 @@ def insert_nomenclature_row(
             """
             INSERT INTO products (
               id, article, name,
-              pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(next_id),
@@ -2972,6 +2982,7 @@ def insert_nomenclature_row(
                 int(row_layout),
                 int(max_rows),
                 float(box_weight),
+                max(0.0, float(volume_ml)),
             ),
         )
         con.commit()
@@ -3384,6 +3395,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 _int_body("row_layout"),
                 _int_body("max_rows"),
                 _float_body("box_weight"),
+                max(0.0, _float_body("volume_ml")),
             )
         except sqlite3.Error as exc:
             self._send_json(
@@ -3465,6 +3477,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             _int_body("row_layout"),
             _int_body("max_rows"),
             _float_body("box_weight"),
+            max(0.0, _float_body("volume_ml")),
         )
         if isinstance(ok, dict) and ok.get("error") == "validation":
             self._send_json(400, ok)

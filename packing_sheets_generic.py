@@ -17,6 +17,11 @@ def _is_arnest_unirus_client(client: str) -> bool:
     return n == "арнест юнирусь"
 
 
+def _is_lab_industries_client(client: str) -> bool:
+    n = str(client or "").strip().replace("  ", " ").lower()
+    return n == "лаб индастриз"
+
+
 def _ship_date_ru(ship_date: str) -> str:
     s = str(ship_date or "").strip()
     m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
@@ -334,6 +339,8 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     """Полный HTML: альбомная страница на паллету (строки 1–5: шапка + таблица номенклатуры)."""
     if _is_arnest_unirus_client(str(detail.get("client") or "")):
         return None, "arnest_client"
+    if _is_lab_industries_client(str(detail.get("client") or "")):
+        return None, "lab_client"
     st = detail.get("assemble_state")
     if not isinstance(st, dict):
         return None, "no_assembly"
@@ -435,6 +442,7 @@ def generic_packing_error_message(code: str) -> str:
         return "Не удалось сформировать PDF: " + code.partition(":")[2].strip()
     return {
         "arnest_client": "Для клиента «Арнест Юнирусь» используйте PDF со штрих-кодами.",
+        "lab_client": "Для клиента «ЛАБ Индастриз» используйте отдельные паллетные листы (GS1-128).",
         "no_assembly": "Нет данных сборки (assemble_state). Сохраните сборку в разделе «Сборка заказа».",
         "no_pallets": "Нет паллет в сборке.",
         "no_pdf_engine": (

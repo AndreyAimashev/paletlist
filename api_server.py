@@ -26,12 +26,16 @@ except ImportError:
 
 try:
     from barcode import Code128
+    from barcode.codex import Gs1_128
     from barcode.writer import ImageWriter
 
     HAVE_CODE128_BARCODE = True
+    HAVE_GS1_128_BARCODE = True
 except ImportError:
     HAVE_CODE128_BARCODE = False
+    HAVE_GS1_128_BARCODE = False
     Code128 = None  # type: ignore
+    Gs1_128 = None  # type: ignore
     ImageWriter = None  # type: ignore
 
 try:
@@ -196,6 +200,10 @@ def _is_arnest_unirus_pallet_sheets_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-pdf"
 
 
+def _is_lab_industries_pallet_sheets_pdf_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/lab-industries-pallet-sheets-pdf"
+
+
 def _is_arnest_unirus_pallet_sheets_xlsx_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-xlsx"
 
@@ -256,6 +264,25 @@ def render_code128_barcode_png(barcode_data: str, *, write_text: bool = True) ->
     out = buf.getvalue()
     if not out or _png_ihdr_pixel_size(out) is None:
         raise RuntimeError("Пустой или некорректный PNG штрих-кода")
+    return out
+
+
+def render_gs1_128_barcode_png(barcode_data: str, *, write_text: bool = True) -> bytes:
+    """GS1-128 (UCC/EAN-128) в PNG; при write_text=False подпись рисуется в PDF отдельно."""
+    if not HAVE_GS1_128_BARCODE or Gs1_128 is None or ImageWriter is None:
+        raise RuntimeError(
+            "Не установлен python-barcode[images] с поддержкой GS1-128 "
+            '(pip install "python-barcode[images]")'
+        )
+    payload = str(barcode_data)
+    if not payload.strip():
+        raise ValueError("Пустые данные для штрих-кода GS1-128")
+    writer = ImageWriter(format="PNG", dpi=300)
+    buf = io.BytesIO()
+    Gs1_128(payload, writer=writer).write(buf, options={"write_text": write_text})
+    out = buf.getvalue()
+    if not out or _png_ihdr_pixel_size(out) is None:
+        raise RuntimeError("Пустой или некорректный PNG штрих-кода GS1-128")
     return out
 
 
@@ -3054,6 +3081,50 @@ class ApiHandler(BaseHTTPRequestHandler):
             return data, None
         return None, {"error": "validation", "message": "Файл не передан."}
 
+    def _respond_lab_industries_pallet_sheets_pdf(self, body: dict):
+        """POST JSON: { \"pallets\": [{ \"article\", \"pallet_number\" }, ...] } — ЛАБ Индастриз."""
+        try:
+            from packing_sheets_lab_industries import (  # noqa: PLC0415
+                build_lab_industries_pallet_sheets_pdf_bytes,
+                lab_pallet_pdf_error_message,
+            )
+        except ImportError:
+            self._send_json(
+                503,
+                {"error": "module", "message": "Модуль паллетных листов ЛАБ недоступен."},
+            )
+            return
+        pallets_raw = body.get("pallets")
+        if not isinstance(pallets_raw, list):
+            self._send_json(
+                400,
+                {
+                    "error": "validation_pallets",
+                    "message": lab_pallet_pdf_error_message("validation_pallets"),
+                },
+            )
+            return
+        blob, err, err_detail = build_lab_industries_pallet_sheets_pdf_bytes(pallets_raw)
+        if err:
+            status_map = {
+                "validation_pallets": 400,
+                "no_fpdf": 503,
+                "no_barcode": 503,
+                "no_font": 503,
+                "pdf_build": 500,
+                "barcode_fetch": 500,
+            }
+            status = status_map.get(err, 500)
+            msg = err_detail or lab_pallet_pdf_error_message(err)
+            self._send_json(status, {"error": err, "message": msg})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(blob)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(blob)
+
     def _respond_arnest_unirus_pallet_sheets_pdf(self, body: dict):
         """POST JSON: { \"pallets\": [...] } с полями article, batch_number, manufacturing_date_raw, expiry_date_raw
         (даты — 6 цифр ДДММГГ), опционально pallet_number для штрих-кода строки 14 (1500000+суффикс),
@@ -3204,6 +3275,46 @@ class ApiHandler(BaseHTTPRequestHandler):
             if detail is None:
                 self._send_json(404, {"error": "Not found"})
                 return
+            try:
+                from packing_sheets_lab_industries import (  # noqa: PLC0415
+                    build_lab_industries_pallet_sheets_pdf_from_order,
+                    is_lab_industries_client,
+                    lab_pallet_pdf_error_message,
+                )
+            except ImportError:
+                build_lab_industries_pallet_sheets_pdf_from_order = None  # type: ignore
+                is_lab_industries_client = lambda _c: False  # type: ignore
+                lab_pallet_pdf_error_message = lambda c: str(c)  # type: ignore
+            if (
+                build_lab_industries_pallet_sheets_pdf_from_order is not None
+                and is_lab_industries_client(str(detail.get("client") or ""))
+            ):
+                pdf_blob, err, err_detail = (
+                    build_lab_industries_pallet_sheets_pdf_from_order(detail)
+                )
+                if err:
+                    status_map = {
+                        "lab_client": 400,
+                        "no_assembly": 400,
+                        "no_pallets": 400,
+                        "validation_pallets": 400,
+                        "no_fpdf": 503,
+                        "no_barcode": 503,
+                        "no_font": 503,
+                        "pdf_build": 500,
+                        "barcode_fetch": 500,
+                    }
+                    status = status_map.get(err, 500)
+                    msg = err_detail or lab_pallet_pdf_error_message(err)
+                    self._send_json(status, {"error": err, "message": msg})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(pdf_blob)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(pdf_blob)
+                return
             if build_generic_packing_sheets_pdf_bytes is None:
                 self._send_json(
                     503,
@@ -3212,10 +3323,18 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             pdf_blob, err = build_generic_packing_sheets_pdf_bytes(detail)
             if err:
-                known = {"arnest_client", "no_assembly", "no_pallets", "no_pdf_engine", "pdf_empty"}
+                known = {
+                    "arnest_client",
+                    "lab_client",
+                    "no_assembly",
+                    "no_pallets",
+                    "no_pdf_engine",
+                    "pdf_empty",
+                }
                 if err in known:
                     status_map = {
                         "arnest_client": 400,
+                        "lab_client": 400,
                         "no_assembly": 400,
                         "no_pallets": 400,
                         "no_pdf_engine": 503,
@@ -3307,6 +3426,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             self._respond_arnest_unirus_pallet_sheets_pdf(body)
+            return
+        if _is_lab_industries_pallet_sheets_pdf_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            self._respond_lab_industries_pallet_sheets_pdf(body)
             return
         if _is_orders_batches_export_pdf_path(path):
             try:

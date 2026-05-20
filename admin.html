@@ -2971,6 +2971,7 @@
               />
               <datalist id="new-order-client-presets">
                 <option value="Арнест Юнирусь"></option>
+                <option value="ЛАБ Индастриз"></option>
               </datalist>
             </div>
           </div>
@@ -3211,7 +3212,7 @@
       const PALLET_SHEETS_SEARCH_ATTEMPTS_MIN = 3;
       const PALLET_SHEETS_SEARCH_ATTEMPTS_ASSEMBLED = 7;
       let palletSheetsPdfjsWorkerReady = false;
-      /** «arnest» — PDF со штрих-кодами; «generic» — PDF по HTML-шаблону для остальных клиентов. */
+      /** «arnest» / «lab» — PDF со штрих-кодами; «generic» — PDF по HTML-шаблону для остальных клиентов. */
       let palletSheetsDownloadKind = null;
       /** Последний заказ, загруженный на экране «Паллетные листы» (для скачивания без localStorage). */
       let palletSheetsCachedOrder = null;
@@ -3267,6 +3268,25 @@
           await page.render({ canvasContext: ctx, viewport }).promise;
           palletSheetsPdfPages.appendChild(canvas);
         }
+      }
+
+      async function fetchLabIndustriesPalletSheetsPdfBlob(payload) {
+        const res = await fetch("/api/lab-industries-pallet-sheets-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.message || j.error || "";
+          } catch (e2) {
+            /* ignore */
+          }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return res.blob();
       }
 
       async function fetchArnestPalletSheetsPdfBlob(payload) {
@@ -3327,6 +3347,11 @@
       function isArnestUnirusClient(client) {
         const n = String(client || "").trim().replace(/\s+/g, " ").toLowerCase();
         return n === "арнест юнирусь";
+      }
+
+      function isLabIndustriesClient(client) {
+        const n = String(client || "").trim().replace(/\s+/g, " ").toLowerCase();
+        return n === "лаб индастриз";
       }
 
       function isAssembleUnirusMode() {
@@ -3435,6 +3460,32 @@
         assemblePalletsRoot
           .querySelectorAll("[data-field='unirusMfgDate'], [data-field='unirusExpiryDate']")
           .forEach((node) => applyUnirusDateInputValidation(node));
+      }
+
+      function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets) {
+        if (!Array.isArray(draftPallets) || !draftPallets.length) {
+          return [];
+        }
+        const items = Array.isArray(orderItems) ? orderItems : [];
+        return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
+          const slots = Array.isArray(pal.slots) ? pal.slots : [];
+          let article = "";
+          for (const s of slots) {
+            const ns = normalizeSlot(s);
+            if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+              continue;
+            }
+            const it = items[Number(ns.lineIndex)];
+            if (it && !article) {
+              article = String(it.article || "").trim();
+            }
+          }
+          let pallet_number = String(pal.palletNumber ?? "").trim();
+          if (!pallet_number) {
+            pallet_number = String(idx + 1);
+          }
+          return { article: article || "—", pallet_number };
+        });
       }
 
       function buildArnestPalletPdfPayloadFromDraft(orderItems, draftPallets) {
@@ -3695,7 +3746,7 @@
         palletSheetsOrderMeta.textContent = `Заказ №${order.id} · ${order.client || "—"} · отгрузка: ${order.ship_date || "—"} · листов (паллет): ${palletCount}`;
 
         if (palletCount === 0) {
-          if (!isArnestUnirusClient(order.client)) {
+          if (!isArnestUnirusClient(order.client) && !isLabIndustriesClient(order.client)) {
             setPalletSheetsSearchStatus(true, "Проверка паллетных листов на сервере…");
             try {
               const blob = await fetchOrderPackingSheetsPdfBlob(oid);
@@ -3756,10 +3807,63 @@
           return;
         }
 
+        if (isLabIndustriesClient(order.client)) {
+          palletSheetsDownloadKind = "lab";
+          if (palletSheetsDownloadBtn) {
+            palletSheetsDownloadBtn.hidden = false;
+            palletSheetsDownloadBtn.textContent = "Скачать PDF паллетных листов";
+          }
+          if (palletSheetsDownloadXlsxBtn) {
+            palletSheetsDownloadXlsxBtn.hidden = true;
+          }
+          try {
+            setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
+            const palletsPayload = buildLabPalletPdfPayloadFromDraft(
+              order.items || [],
+              assemblePallets,
+            );
+            const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
+              pallets: palletsPayload,
+            });
+            if (token !== palletSheetsLoadToken) {
+              return;
+            }
+            await renderPalletSheetsPdfPreviewFromBlob(blob, token, palletSheetsWorkspace);
+            if (token !== palletSheetsLoadToken) {
+              return;
+            }
+            if (palletSheetsPdfPreviewWrap) {
+              palletSheetsPdfPreviewWrap.hidden = false;
+            }
+          } catch (e) {
+            if (token !== palletSheetsLoadToken) {
+              return;
+            }
+            if (palletSheetsPdfPages) {
+              palletSheetsPdfPages.innerHTML = "";
+            }
+            if (palletSheetsPdfPreviewWrap) {
+              palletSheetsPdfPreviewWrap.hidden = true;
+            }
+            palletSheetsError.hidden = false;
+            palletSheetsError.textContent =
+              "Не удалось сформировать PDF для предпросмотра: " +
+              (e && e.message ? String(e.message) : "ошибка сервера.");
+          } finally {
+            if (token === palletSheetsLoadToken) {
+              setPalletSheetsSearchStatus(false, "");
+            }
+          }
+          return;
+        }
+
         if (!isArnestUnirusClient(order.client)) {
           palletSheetsDownloadKind = "generic";
           if (palletSheetsDownloadBtn) {
             palletSheetsDownloadBtn.hidden = false;
+          }
+          if (palletSheetsDownloadXlsxBtn) {
+            palletSheetsDownloadXlsxBtn.hidden = true;
           }
           try {
             setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
@@ -4094,8 +4198,13 @@
           let blob;
           try {
             const orderItems = order.items || [];
-            const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
-            blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
+            if (palletSheetsDownloadKind === "lab") {
+              const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets);
+              blob = await fetchLabIndustriesPalletSheetsPdfBlob({ pallets: palletsPayload });
+            } else {
+              const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
+              blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
+            }
           } catch (e) {
             window.alert(
               "Не удалось сформировать PDF: " + (e && e.message ? String(e.message) : "ошибка сервера."),

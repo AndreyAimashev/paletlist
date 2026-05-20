@@ -1642,11 +1642,11 @@
         display: block;
       }
 
-      .order-items-lab-total-field-wrap {
+      .order-item-lab-total-wrap {
         margin-top: 8px;
       }
 
-      .order-items-lab-total-field-wrap[hidden] {
+      .order-item-lab-total-wrap[hidden] {
         display: none !important;
       }
 
@@ -1662,7 +1662,7 @@
         min-width: 0;
       }
 
-      .new-order-total-quantity {
+      .order-item-total-quantity {
         box-sizing: border-box;
         width: 100%;
         max-width: none;
@@ -2532,7 +2532,7 @@
           grid-column: auto;
         }
 
-        .new-order-dialog .order-items-lab-total-field-wrap {
+        .new-order-dialog .order-item-lab-total-wrap {
           margin-top: 10px;
         }
 
@@ -2542,6 +2542,7 @@
 
         .new-order-dialog .order-item-qty,
         .new-order-dialog .order-item-unit,
+        .new-order-dialog .order-item-total-quantity,
         .new-order-dialog .order-item-buyer-order {
           width: 100%;
           max-width: none;
@@ -3135,23 +3136,6 @@
             </div>
             <span></span>
           </div>
-          <div id="new-order-lab-total-parking" hidden aria-hidden="true">
-            <div id="new-order-lab-total-row" class="order-items-lab-total-field-wrap" hidden>
-              <div class="order-items-lab-total-field">
-                <label class="order-items-lab-total-label" for="new-order-total-quantity"
-                  >Общее количество заказа</label
-                >
-                <input
-                  id="new-order-total-quantity"
-                  class="new-order-total-quantity"
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="Введите количество"
-                />
-              </div>
-            </div>
-          </div>
           <div id="new-order-items"></div>
           <button id="new-order-add-item" class="menu-button" type="button">+ Добавить позицию</button>
           <div class="modal-actions">
@@ -3171,6 +3155,19 @@
             placeholder="Артикул или наименование…"
             autocomplete="off"
           />
+          <div class="order-item-lab-total-wrap" hidden>
+            <div class="order-items-lab-total-field">
+              <span class="order-item-field-caption">Общее количество заказа</span>
+              <input
+                type="number"
+                class="order-item-total-quantity"
+                min="0"
+                step="any"
+                placeholder="Введите количество"
+                aria-label="Общее количество заказа"
+              />
+            </div>
+          </div>
           <div class="order-item-labels" hidden>
             <span class="order-item-label-line">Артикул: <span class="order-item-label-article"></span></span>
           </div>
@@ -3298,9 +3295,6 @@
       const newOrderLabBuyerMode = document.getElementById("new-order-lab-buyer-mode");
       const newOrderLabBuyerSingle = document.getElementById("new-order-lab-buyer-single");
       const newOrderBuyerOrder = document.getElementById("new-order-buyer-order");
-      const newOrderLabTotalParking = document.getElementById("new-order-lab-total-parking");
-      const newOrderLabTotalRow = document.getElementById("new-order-lab-total-row");
-      const newOrderTotalQuantity = document.getElementById("new-order-total-quantity");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
@@ -3570,46 +3564,6 @@
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
-      function parkNewOrderLabTotalField() {
-        if (!newOrderLabTotalRow || !newOrderLabTotalParking) {
-          return;
-        }
-        newOrderLabTotalRow.hidden = true;
-        if (newOrderLabTotalRow.parentElement !== newOrderLabTotalParking) {
-          newOrderLabTotalParking.appendChild(newOrderLabTotalRow);
-        }
-      }
-
-      function placeNewOrderLabTotalUnderFirstSearch() {
-        if (!newOrderLabTotalRow) {
-          return;
-        }
-        const lab = isLabIndustriesClient(newOrderClient?.value || "");
-        if (!lab) {
-          parkNewOrderLabTotalField();
-          return;
-        }
-        const firstRow = newOrderItems.querySelector(".order-item-row");
-        if (!firstRow) {
-          parkNewOrderLabTotalField();
-          return;
-        }
-        const ac = firstRow.querySelector(".order-item-autocomplete");
-        const search = firstRow.querySelector(".order-item-search");
-        if (!ac || !search) {
-          parkNewOrderLabTotalField();
-          return;
-        }
-        newOrderLabTotalRow.hidden = false;
-        const labels = ac.querySelector(".order-item-labels");
-        const insertBefore = labels || search.nextSibling;
-        if (insertBefore) {
-          ac.insertBefore(newOrderLabTotalRow, insertBefore);
-        } else {
-          ac.appendChild(newOrderLabTotalRow);
-        }
-      }
-
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
         if (newOrderLabBuyerMode) {
@@ -3622,7 +3576,9 @@
           newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
             w.hidden = true;
           });
-          parkNewOrderLabTotalField();
+          newOrderItems.querySelectorAll(".order-item-lab-total-wrap").forEach((w) => {
+            w.hidden = true;
+          });
           return;
         }
         const multiple = getLabBuyerOrderMode() === "multiple";
@@ -3641,8 +3597,11 @@
           if (inp) {
             inp.required = multiple;
           }
+          const totalWrap = row.querySelector(".order-item-lab-total-wrap");
+          if (totalWrap) {
+            totalWrap.hidden = false;
+          }
         });
-        placeNewOrderLabTotalUnderFirstSearch();
       }
 
       function isAssembleUnirusMode() {
@@ -3805,7 +3764,6 @@
             ? {
                 buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
                 buyer_order: assembleOrderSnapshot.buyer_order,
-                total_order_quantity: assembleOrderSnapshot.total_order_quantity,
               }
             : null);
         return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
@@ -3864,8 +3822,11 @@
             row4_text: formatLabRow4Text(boxesOnPallet),
             buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
             total_order_quantity:
-              ctx && ctx.total_order_quantity != null && ctx.total_order_quantity !== ""
-                ? Number(ctx.total_order_quantity)
+              lineIdx !== null &&
+              items[lineIdx] &&
+              items[lineIdx].total_order_quantity != null &&
+              items[lineIdx].total_order_quantity !== ""
+                ? Number(items[lineIdx].total_order_quantity)
                 : null,
           };
         });
@@ -4207,7 +4168,6 @@
               {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
-                total_order_quantity: order.total_order_quantity,
               },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
@@ -4590,7 +4550,6 @@
               const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
-                total_order_quantity: order.total_order_quantity,
               });
               blob = await fetchLabIndustriesPalletSheetsPdfBlob({ pallets: palletsPayload });
             } else {
@@ -7551,7 +7510,6 @@
 
         removeBtn.addEventListener("click", () => {
           row.remove();
-          placeNewOrderLabTotalUnderFirstSearch();
         });
       }
 
@@ -7628,6 +7586,12 @@
         if (it.pieces_per_set != null) {
           row.dataset.piecesPerSet = String(it.pieces_per_set);
         }
+        const totalEl = row.querySelector(".order-item-total-quantity");
+        if (totalEl) {
+          const tq = it.total_order_quantity;
+          totalEl.value =
+            tq != null && tq !== "" && Number.isFinite(Number(tq)) ? String(tq) : "";
+        }
         syncOrderItemRowLabels(row);
       }
 
@@ -7670,11 +7634,6 @@
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = String(data.buyer_order || "").trim();
         }
-        if (newOrderTotalQuantity) {
-          const tq = data.total_order_quantity;
-          newOrderTotalQuantity.value =
-            tq != null && tq !== "" && Number.isFinite(Number(tq)) ? String(tq) : "";
-        }
         const items = Array.isArray(data.items)
           ? data.items
           : Array.isArray(data.order_items)
@@ -7709,9 +7668,6 @@
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = "";
         }
-        if (newOrderTotalQuantity) {
-          newOrderTotalQuantity.value = "";
-        }
         syncNewOrderLabBuyerUi();
         const today = new Date();
         newOrderShipDate.value = today.toISOString().slice(0, 10);
@@ -7722,7 +7678,6 @@
       function closeNewOrderModal() {
         newOrderOverlay.hidden = true;
         clearNewOrderError();
-        parkNewOrderLabTotalField();
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         editingOrderId = null;
@@ -7785,6 +7740,13 @@
             const boEl = r.querySelector(".order-item-buyer-order");
             rowPayload.buyer_order = boEl ? String(boEl.value || "").trim() : "";
           }
+          if (isLabIndustriesClient(client)) {
+            const tqEl = r.querySelector(".order-item-total-quantity");
+            const tqRaw = tqEl ? String(tqEl.value || "").trim() : "";
+            if (tqRaw !== "") {
+              rowPayload.total_order_quantity = tqRaw;
+            }
+          }
           return rowPayload;
         });
         if (isLabIndustriesClient(client) && labMultiple) {
@@ -7804,12 +7766,6 @@
               return;
             }
             orderPayload.buyer_order = bo;
-          }
-          const tqRaw = newOrderTotalQuantity
-            ? String(newOrderTotalQuantity.value || "").trim()
-            : "";
-          if (tqRaw !== "") {
-            orderPayload.total_order_quantity = tqRaw;
           }
         }
         const isEdit = editingOrderId != null;

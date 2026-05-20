@@ -1721,6 +1721,10 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE order_items ADD COLUMN buyer_order TEXT NOT NULL DEFAULT ''"
         )
+    if "total_order_quantity" not in item_cols:
+        cur.execute(
+            "ALTER TABLE order_items ADD COLUMN total_order_quantity REAL"
+        )
 
 
 _MAX_ASSEMBLE_STATE_JSON_BYTES = 2 * 1024 * 1024
@@ -1935,19 +1939,19 @@ def _is_lab_industries_client(client: str) -> bool:
     return _normalize_str(client).lower() == "лаб индастриз"
 
 
-def _parse_total_order_quantity(body: dict, lab_client: bool) -> float | None | dict:
-    """Общее количество заказа (ЛАБ): ввод пользователя, только для паллетного листа."""
+def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | None | dict:
+    """Общее количество заказа по позиции (ЛАБ), для паллетного листа."""
     if not lab_client:
         return None
-    raw = body.get("total_order_quantity")
-    if raw is None or str(raw).strip() == "":
+    val_raw = raw.get("total_order_quantity")
+    if val_raw is None or str(val_raw).strip() == "":
         return None
     try:
-        val = float(str(raw).replace(",", "."))
+        val = float(str(val_raw).replace(",", "."))
     except (TypeError, ValueError):
         return {
             "error": "validation",
-            "message": "Укажите корректное общее количество заказа.",
+            "message": "Укажите корректное общее количество заказа по позиции.",
         }
     if val < 0:
         return {
@@ -1960,7 +1964,7 @@ def _parse_total_order_quantity(body: dict, lab_client: bool) -> float | None | 
 def _resolve_normalized_product_ids(normalized, cur):
     """Подставляет product_id и канонические article/name из БД, если id не был передан."""
     out = []
-    for pid, article, name, qty, unit, buyer_order in normalized:
+    for pid, article, name, qty, unit, buyer_order, line_total_qty in normalized:
         if pid is None:
             rid = _try_resolve_product_id(cur, article, name)
             if rid is None:
@@ -1985,7 +1989,7 @@ def _resolve_normalized_product_ids(normalized, cur):
                 "error": "validation",
                 "message": "Для позиции не указано наименование.",
             }
-        out.append((pid, article, name, qty, unit, buyer_order))
+        out.append((pid, article, name, qty, unit, buyer_order, line_total_qty))
     return out, None
 
 
@@ -2064,15 +2068,15 @@ def _normalize_order_items_body(body: dict):
                 }
         elif lab_client:
             line_buyer = ""
-        normalized.append((pid, article, name, qty, unit, line_buyer))
+        line_total_qty = _parse_item_total_order_quantity(raw, lab_client)
+        if isinstance(line_total_qty, dict):
+            return line_total_qty
+        normalized.append((pid, article, name, qty, unit, line_buyer, line_total_qty))
     if not normalized:
         return {
             "error": "validation",
             "message": "Нет корректных позиций в заказе.",
         }
-    total_order_quantity = _parse_total_order_quantity(body, lab_client)
-    if isinstance(total_order_quantity, dict):
-        return total_order_quantity
     return {
         "ok": True,
         "ship": ship,
@@ -2080,7 +2084,6 @@ def _normalize_order_items_body(body: dict):
         "normalized": normalized,
         "buyer_order_mode": buyer_order_mode,
         "buyer_order": order_buyer_order,
-        "total_order_quantity": total_order_quantity,
     }
 
 
@@ -2093,7 +2096,6 @@ def insert_order_with_items(body: dict):
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
-    total_order_quantity = pack.get("total_order_quantity")
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -2106,29 +2108,23 @@ def insert_order_with_items(body: dict):
             """
             INSERT INTO orders (
               ship_date, client, assembled_percent, names, extra_info,
-              buyer_order_mode, buyer_order, total_order_quantity
+              buyer_order_mode, buyer_order
             )
-            VALUES (?, ?, 0, ?, '', ?, ?, ?)
+            VALUES (?, ?, 0, ?, '', ?, ?)
             """,
-            (
-                ship,
-                client_n,
-                names_summary,
-                buyer_order_mode,
-                order_buyer_order,
-                total_order_quantity,
-            ),
+            (ship, client_n, names_summary, buyer_order_mode, order_buyer_order),
         )
         oid = cur.lastrowid
-        for pid, article, name, qty, unit, line_buyer in normalized:
+        for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
             cur.execute(
                 """
                 INSERT INTO order_items (
-                  order_id, product_id, article, name, quantity, unit, buyer_order
+                  order_id, product_id, article, name, quantity, unit, buyer_order,
+                  total_order_quantity
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (oid, pid, article, name, qty, unit, line_buyer),
+                (oid, pid, article, name, qty, unit, line_buyer, line_total_qty),
             )
         con.commit()
         con.close()
@@ -2691,15 +2687,16 @@ def import_orders_from_excel_bytes(data: bytes):
                 (ship, client_n, names_summary, extra_info),
             )
             oid = int(cur.lastrowid)
-            for pid, article, name, qty, unit, line_buyer in normalized:
+            for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
                 cur.execute(
                     """
                     INSERT INTO order_items (
-                      order_id, product_id, article, name, quantity, unit, buyer_order
+                      order_id, product_id, article, name, quantity, unit, buyer_order,
+                      total_order_quantity
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (oid, pid, article, name, qty, unit, line_buyer),
+                    (oid, pid, article, name, qty, unit, line_buyer, line_total_qty),
                 )
             created_ids.append(oid)
             if skipped_count > 0:
@@ -2736,7 +2733,6 @@ def update_order_with_items(order_id: int, body: dict):
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
-    total_order_quantity = pack.get("total_order_quantity")
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -2767,8 +2763,7 @@ def update_order_with_items(order_id: int, body: dict):
         cur.execute(
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
-              extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
-              total_order_quantity = ?
+              extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?
             WHERE id = ?
             """,
             (
@@ -2780,20 +2775,20 @@ def update_order_with_items(order_id: int, body: dict):
                 xasm,
                 buyer_order_mode,
                 order_buyer_order,
-                total_order_quantity,
                 order_id,
             ),
         )
         cur.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
-        for pid, article, name, qty, unit, line_buyer in normalized:
+        for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
             cur.execute(
                 """
                 INSERT INTO order_items (
-                  order_id, product_id, article, name, quantity, unit, buyer_order
+                  order_id, product_id, article, name, quantity, unit, buyer_order,
+                  total_order_quantity
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (order_id, pid, article, name, qty, unit, line_buyer),
+                (order_id, pid, article, name, qty, unit, line_buyer, line_total_qty),
             )
         con.commit()
         con.close()
@@ -2814,6 +2809,10 @@ def _order_item_row_to_dict(ir):
         "buyer_order": (ir["buyer_order"] or "").strip()
         if "buyer_order" in keys
         else "",
+        "total_order_quantity": float(ir["total_order_quantity"])
+        if ir["total_order_quantity"] is not None
+        and "total_order_quantity" in keys
+        else None,
         "pieces_in_box": max(0, int(ir["pieces_in_box"] or 0)),
         "sets_in_box": max(1, int(ir["sets_in_box"] or 1)),
         "pieces_per_set": max(1, int(ir["pieces_per_set"] or 1)),
@@ -2842,6 +2841,7 @@ def fetch_order_detail(order_id: int):
             """
             SELECT oi.product_id AS product_id, oi.article AS article, oi.name AS name,
                    oi.quantity AS quantity, oi.unit AS unit, oi.buyer_order AS buyer_order,
+                   oi.total_order_quantity AS total_order_quantity,
                    p.pieces_in_box AS pieces_in_box,
                    p.sets_in_box AS sets_in_box,
                    p.pieces_per_set AS pieces_per_set,

@@ -19,7 +19,7 @@ _LAB_TEXT_H_MM = 7.0
 _LAB_TAB_MM = 12.5
 _LAB_BARCODE_W_MM = 72.0
 _LAB_BARCODE_HEIGHT_SCALE = 0.55
-_LAB_ROW1_PALLET_BARCODE_HEIGHT_SCALE = _LAB_BARCODE_HEIGHT_SCALE * 1.5
+_LAB_ROW1_PALLET_BARCODE_HEIGHT_SCALE = _LAB_BARCODE_HEIGHT_SCALE * 2.25
 _LAB_BARCODE_CAPTION_GAP_MM = 1.5
 _LAB_BARCODE_CAPTION_LINE_H_MM = 6.0
 _LAB_MIN_RIGHT_W_MM = 95.0
@@ -552,7 +552,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 _LAB_BARCODE_W_MM,
                 max(36.0, right_inner - w_pl - _LAB_TAB_MM),
             )
-            bc_h = bc_w * (ph / pw) * _LAB_BARCODE_HEIGHT_SCALE
+            bc_h = bc_w * (ph / pw) * _LAB_ROW1_PALLET_BARCODE_HEIGHT_SCALE
             cap_fs = _arnest_barcode_caption_font_pt(pdf, gs1_hri, bc_w)
             cap_h = _LAB_BARCODE_CAPTION_GAP_MM + _LAB_BARCODE_CAPTION_LINE_H_MM
             bc_row_h = max(h_txt, bc_h)

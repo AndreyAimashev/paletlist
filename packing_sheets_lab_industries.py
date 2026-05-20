@@ -400,8 +400,9 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             x_row4_right = x0 + row4_left_w
             buyer_order = str(row.get("buyer_order") or "").strip() or "—"
             row5_h = pad + h_txt + pad
-            row5_half_w = content_w / 2.0
-            x_row5_right = x0 + row5_half_w
+            row5_left_w = row4_left_w
+            row5_right_w = row4_right_w
+            x_row5_right = x_row4_right
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
@@ -418,8 +419,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x0, y_row3, content_w, row3_h)
             pdf.rect(x0, y_row4, row4_left_w, row4_h)
             pdf.rect(x_row4_right, y_row4, row4_right_w, row4_h)
-            pdf.rect(x0, y_row5, row5_half_w, row5_h)
-            pdf.rect(x_row5_right, y_row5, row5_half_w, row5_h)
+            pdf.rect(x0, y_row5, row5_left_w, row5_h)
+            pdf.rect(x_row5_right, y_row5, row5_right_w, row5_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -487,8 +488,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.set_xy(x_row4_right + pad, y_row4 + pad)
             pdf.cell(row4_value_inner_w, h_txt, row4_text, align="C")
 
-            row5_label_inner_w = row5_half_w - 2 * pad
-            row5_value_inner_w = row5_half_w - 2 * pad
+            row5_label_inner_w = row5_left_w - 2 * pad
+            row5_value_inner_w = row5_right_w - 2 * pad
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x0 + pad, y_row5 + pad)
             pdf.cell(row5_label_inner_w, h_txt, _LAB_ROW5_LABEL, align="L")

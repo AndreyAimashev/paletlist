@@ -322,20 +322,18 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x0, y_row2, content_w, row2_h)
             pdf.rect(x0, y_row3, content_w, row3_h)
 
-            label_art = "АРТИКУЛ:"
-            pdf.set_font("PLCalibri", "B", fs)
-            line_w = w_label + _LAB_TAB_MM + w_article
-            # По центру левой рамки (горизонталь и вертикаль), одна строка: «АРТИКУЛ:» + артикул.
-            x_line = x0 + (left_w - line_w) / 2.0
-            y_art = y0 + (row1_h - h_txt) / 2.0
-            pdf.set_xy(x_line, y_art)
-            pdf.cell(w_label, h_txt, label_art, align="L")
-            pdf.set_xy(x_line + w_label + _LAB_TAB_MM, y_art)
-            pdf.cell(w_article, h_txt, art_show, align="L")
-
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
             bc_y = block_top + (bc_row_h - bc_h) / 2.0
+
+            label_art = "АРТИКУЛ:"
+            pdf.set_font("PLCalibri", "B", fs)
+            w_art_label = pdf.get_string_width(label_art)
+            x_line = x0 + pad
+            pdf.set_xy(x_line, label_y)
+            pdf.cell(w_art_label, h_txt, label_art, align="L")
+            pdf.set_xy(x_line + w_art_label + _LAB_TAB_MM, label_y)
+            pdf.cell(w_article, h_txt, art_show, align="L")
             x_label = x_right + pad
             x_bc = x_label + w_pl + _LAB_TAB_MM
             max_bc_x = x0 + content_w - pad - bc_w

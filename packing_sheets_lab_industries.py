@@ -123,6 +123,82 @@ _LAB_ROW9_PRODUCTION_ADDRESS_TEXT = (
     "Адрес производства: 140032, Россия, Московская область, г.о. Люберцы, "
     "р.п. Малаховка, ул. Шоссейная, д. 40, ООО «М.К. Асептика»"
 )
+_LAB_ROW10_BATCH_LABEL = "Номер партии:"
+_LAB_ROW10_EXPIRY_LABEL = "Годен до:"
+
+
+def _lab_assemble_fields_from_pallet(pal: dict[str, Any]) -> tuple[str, str]:
+    """Партия и «Годен до» из первого слота паллеты с заполненными полями."""
+    batch_raw = ""
+    expiry_raw = ""
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        bn = str(slot.get("batchNumber") or "").strip()
+        le = str(slot.get("labExpiryDate") or "").strip()
+        if bn and not batch_raw:
+            batch_raw = bn
+        if le and not expiry_raw:
+            expiry_raw = le
+    return batch_raw, expiry_raw
+
+
+def _format_lab_row10_batch(raw: str) -> str:
+    """ТA127361601 → ТA 127361601; первая партия, если несколько через запятую."""
+    part = str(raw or "").split(",")[0].strip()
+    if not part:
+        return "—"
+    if re.search(r"\s", part):
+        return part
+    m = re.match(r"^([^\d\s/]+)(\d[\d\s]*)$", part, re.UNICODE)
+    if m:
+        return f"{m.group(1).rstrip()} {m.group(2).lstrip()}"
+    return part
+
+
+def _format_lab_row10_expiry(raw: str) -> str:
+    """0428 или 04/2028 → 04/2028."""
+    s = str(raw or "").strip()
+    if not s:
+        return "—"
+    if "/" in s:
+        parts = [p.strip() for p in s.split("/", 1)]
+        if len(parts) == 2:
+            mm_d = re.sub(r"\D", "", parts[0])
+            yy_d = re.sub(r"\D", "", parts[1])
+            if len(mm_d) >= 1 and yy_d:
+                mm = mm_d[:2].zfill(2)
+                yy = yy_d if len(yy_d) == 4 else ("20" + yy_d.zfill(2)) if len(yy_d) <= 2 else yy_d
+                if len(yy) == 4:
+                    return f"{mm}/{yy}"
+    digits = re.sub(r"\D", "", s)
+    if len(digits) >= 4:
+        mm = digits[:2].zfill(2)
+        rest = digits[2:]
+        yy = rest if len(rest) == 4 else ("20" + rest.zfill(2)) if len(rest) <= 2 else rest[:4]
+        if len(yy) == 4:
+            return f"{mm}/{yy}"
+    return s
+
+
+def _lab_draw_bold_label_tab_value(
+    pdf: Any,
+    x: float,
+    y: float,
+    inner_w: float,
+    label: str,
+    value: str,
+    h_txt: float,
+    fs: float,
+    tab_mm: float,
+) -> None:
+    pdf.set_font("PLCalibri", "B", fs)
+    w_label = pdf.get_string_width(label)
+    pdf.set_xy(x, y)
+    pdf.cell(w_label, h_txt, label, align="L")
+    rest_w = max(1.0, inner_w - w_label - tab_mm)
+    pdf.set_xy(x + w_label + tab_mm, y)
+    pdf.cell(rest_w, h_txt, value or "—", align="L")
 
 
 def _boxes_on_pallet(
@@ -255,6 +331,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     total_order_qty = float(raw_tq)
                 except (TypeError, ValueError):
                     total_order_qty = None
+        batch_raw, expiry_raw = _lab_assemble_fields_from_pallet(pal)
         out.append(
             {
                 "article": article,
@@ -269,6 +346,10 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "total_order_quantity": total_order_qty,
                 "row6_text": _format_lab_row6_total_order(total_order_qty),
                 "row7_text": _format_lab_row7_pallet_seq(idx, pallet_total),
+                "batch_number": batch_raw,
+                "lab_expiry_date": expiry_raw,
+                "row10_batch_text": _format_lab_row10_batch(batch_raw),
+                "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
             }
         )
     return out
@@ -358,7 +439,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–9 (артикул … изготовитель / адрес производства)."""
+    """PDF: строки 1–10 (артикул … адрес производства / партия и годен до)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -489,6 +570,20 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 pdf, row9_text, row9_inner_w, h_txt, bold=False
             )
             row9_h = pad + row9_text_h + pad
+            row10_batch = str(row.get("row10_batch_text") or "").strip()
+            if not row10_batch:
+                row10_batch = _format_lab_row10_batch(
+                    str(row.get("batch_number") or "")
+                )
+            row10_expiry = str(row.get("row10_expiry_text") or "").strip()
+            if not row10_expiry:
+                row10_expiry = _format_lab_row10_expiry(
+                    str(row.get("lab_expiry_date") or "")
+                )
+            row10_h = pad + h_txt + pad
+            row10_left_w = row4_left_w
+            row10_right_w = row4_right_w
+            x_row10_right = x_row4_right
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
@@ -499,6 +594,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             y_row7 = y_row6 + row6_h
             y_row8 = y_row7 + row7_h
             y_row9 = y_row8 + row8_h
+            y_row10 = y_row9 + row9_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -517,6 +613,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x_row7_right, y_row7, row7_right_w, row7_h)
             pdf.rect(x0, y_row8, content_w, row8_h)
             pdf.rect(x0, y_row9, content_w, row9_h)
+            pdf.rect(x0, y_row10, row10_left_w, row10_h)
+            pdf.rect(x_row10_right, y_row10, row10_right_w, row10_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -638,6 +736,32 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 )
             else:
                 pdf.multi_cell(row9_inner_w, h_txt, row9_text, border=0, align="L")
+
+            row10_left_inner = row10_left_w - 2 * pad
+            row10_right_inner = row10_right_w - 2 * pad
+            y_row10_text = y_row10 + pad
+            _lab_draw_bold_label_tab_value(
+                pdf,
+                x0 + pad,
+                y_row10_text,
+                row10_left_inner,
+                _LAB_ROW10_BATCH_LABEL,
+                row10_batch,
+                h_txt,
+                fs,
+                _LAB_TAB_MM,
+            )
+            _lab_draw_bold_label_tab_value(
+                pdf,
+                x_row10_right + pad,
+                y_row10_text,
+                row10_right_inner,
+                _LAB_ROW10_EXPIRY_LABEL,
+                row10_expiry,
+                h_txt,
+                fs,
+                _LAB_TAB_MM,
+            )
 
         out = pdf.output()
         return (bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")), None, None

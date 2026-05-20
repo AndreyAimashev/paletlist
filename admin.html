@@ -3745,6 +3745,72 @@
         return `${nS} шт`;
       }
 
+      function formatLabRow10Batch(raw) {
+        const part = String(raw ?? "")
+          .split(",")[0]
+          .trim();
+        if (!part) {
+          return "—";
+        }
+        if (/\s/.test(part)) {
+          return part;
+        }
+        const m = part.match(/^([^\d\s/]+)(\d[\d\s]*)$/u);
+        if (m) {
+          return `${m[1].trimEnd()} ${m[2].trimStart()}`;
+        }
+        return part;
+      }
+
+      function formatLabRow10Expiry(raw) {
+        const s = String(raw ?? "").trim();
+        if (!s) {
+          return "—";
+        }
+        if (s.includes("/")) {
+          const parts = s.split("/", 2).map((p) => p.trim());
+          const mmD = (parts[0] || "").replace(/\D/g, "");
+          const yyD = (parts[1] || "").replace(/\D/g, "");
+          if (mmD && yyD) {
+            const mm = mmD.slice(0, 2).padStart(2, "0");
+            let yy = yyD;
+            if (yy.length === 2) {
+              yy = `20${yy.padStart(2, "0")}`;
+            }
+            if (yy.length === 4) {
+              return `${mm}/${yy}`;
+            }
+          }
+        }
+        const digits = s.replace(/\D/g, "");
+        if (digits.length >= 4) {
+          const mm = digits.slice(0, 2).padStart(2, "0");
+          let rest = digits.slice(2);
+          let yy = rest.length === 4 ? rest : rest.length <= 2 ? `20${rest.padStart(2, "0")}` : rest.slice(0, 4);
+          if (yy.length === 4) {
+            return `${mm}/${yy}`;
+          }
+        }
+        return s;
+      }
+
+      function labAssembleFieldsFromPallet(pal) {
+        let batchRaw = "";
+        let expiryRaw = "";
+        const slots = Array.isArray(pal?.slots) ? pal.slots : [];
+        for (const s of slots) {
+          const bn = String(s?.batchNumber ?? "").trim();
+          const le = String(s?.labExpiryDate ?? "").trim();
+          if (bn && !batchRaw) {
+            batchRaw = bn;
+          }
+          if (le && !expiryRaw) {
+            expiryRaw = le;
+          }
+        }
+        return { batchRaw, expiryRaw };
+      }
+
       function resolveLabBuyerOrderForPallet(lineIdx, orderItems, labBuyerCtx) {
         const ctx = labBuyerCtx || {};
         const mode = ctx.buyer_order_mode === "multiple" ? "multiple" : "single";
@@ -3823,6 +3889,7 @@
             }
           }
           const boxesOnPallet = computeArnestPalletBoxesQty(pal, items);
+          const { batchRaw, expiryRaw } = labAssembleFieldsFromPallet(pal);
           return {
             article: article || "—",
             name: name || "—",
@@ -3848,6 +3915,10 @@
                 ? formatLabRow6Text(items[lineIdx].total_order_quantity)
                 : formatLabRow6Text(null),
             row7_text: `${idx + 1} из ${palletTotal}`,
+            batch_number: batchRaw,
+            lab_expiry_date: expiryRaw,
+            row10_batch_text: formatLabRow10Batch(batchRaw),
+            row10_expiry_text: formatLabRow10Expiry(expiryRaw),
           };
         });
       }

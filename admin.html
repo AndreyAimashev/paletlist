@@ -3678,21 +3678,39 @@
         return `${nS} шт`;
       }
 
-      function formatLabRow10Batch(raw) {
-        const part = String(raw ?? "")
-          .split(",")[0]
-          .trim();
-        if (!part) {
+      const LAB_MAX_BATCHES_PER_PALLET_SLOT = 2;
+
+      function formatLabSingleBatchDisplay(part) {
+        const p = String(part ?? "").trim();
+        if (!p) {
           return "—";
         }
-        if (/\s/.test(part)) {
-          return part;
+        if (/\s/.test(p)) {
+          return p;
         }
-        const m = part.match(/^([^\d\s/]+)(\d[\d\s]*)$/u);
+        const m = p.match(/^([^\d\s/]+)(\d[\d\s]*)$/u);
         if (m) {
           return `${m[1].trimEnd()} ${m[2].trimStart()}`;
         }
-        return part;
+        return p;
+      }
+
+      function formatLabRow10BatchLines(raw) {
+        const parts = parseBatchNumbers(raw).slice(0, LAB_MAX_BATCHES_PER_PALLET_SLOT);
+        if (!parts.length) {
+          return ["—"];
+        }
+        return parts.map((p) => formatLabSingleBatchDisplay(p));
+      }
+
+      function formatLabRow10Batch(raw) {
+        return formatLabRow10BatchLines(raw).join("\n");
+      }
+
+      function normalizeLabBatchNumberField(raw) {
+        return formatBatchNumbers(
+          parseBatchNumbers(raw).slice(0, LAB_MAX_BATCHES_PER_PALLET_SLOT),
+        );
       }
 
       function formatLabRow10Expiry(raw) {
@@ -3984,7 +4002,19 @@
         if (!input || input.dataset.field !== "batchNumber") {
           return;
         }
-        const norm = normalizeBatchNumberField(input.value);
+        const allParts = parseBatchNumbers(input.value);
+        const lab = isAssembleLabMode();
+        if (lab && allParts.length > LAB_MAX_BATCHES_PER_PALLET_SLOT) {
+          input.setCustomValidity(
+            "Для ЛАБ Индастриз на одной позиции паллеты — не более 2 партий через запятую.",
+          );
+          input.reportValidity();
+        } else {
+          input.setCustomValidity("");
+        }
+        const norm = lab
+          ? normalizeLabBatchNumberField(input.value)
+          : normalizeBatchNumberField(input.value);
         if (input.value !== norm) {
           input.value = norm;
         }
@@ -6730,13 +6760,20 @@
         const selectHtml = renderSlotSourceOptions(items, pIdx, sIdx, slot);
         const removeSlotBtn = `<div class="assemble-line-slot-footer"><button type="button" class="assemble-btn assemble-btn--remove-slot" data-remove-slot data-pallet="${pIdx}" data-slot="${sIdx}">Убрать эту позицию</button></div>`;
         const showBatch = showAssembleBatchFieldInSlots();
-        const batchVal = escapeXml(normalizeBatchNumberField(slot.batchNumber ?? ""));
+        const batchNorm = isAssembleLabMode()
+          ? normalizeLabBatchNumberField(slot.batchNumber ?? "")
+          : normalizeBatchNumberField(slot.batchNumber ?? "");
+        const batchVal = escapeXml(batchNorm);
         const batchPlaceholder = isAssembleUnirusMode()
           ? "Укажите партию"
-          : "Партии через запятую";
+          : isAssembleLabMode()
+            ? "До 2 партий через запятую"
+            : "Партии через запятую";
         const batchTitle = isAssembleUnirusMode()
           ? ""
-          : ' title="Несколько партий: через запятую, пробелы после запятой не учитываются"';
+          : isAssembleLabMode()
+            ? ' title="Не более 2 партий через запятую, пробелы после запятой не учитываются"'
+            : ' title="Несколько партий: через запятую, пробелы после запятой не учитываются"';
         const umVal = escapeXml(String(slot.unirusMfgDate ?? ""));
         const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
         const unirusEx = unirusTodayDDMMYYExample();
@@ -6927,10 +6964,15 @@
                 slot.batchNumber = bn.value;
               } else {
                 applyBatchNumberInputNormalization(bn);
-                slot.batchNumber = normalizeBatchNumberField(bn.value);
+                slot.batchNumber = isAssembleLabMode()
+                  ? normalizeLabBatchNumberField(bn.value)
+                  : normalizeBatchNumberField(bn.value);
               }
             } else if (pal.slots && pal.slots[sIdx]) {
-              slot.batchNumber = normalizeBatchNumberField(pal.slots[sIdx].batchNumber ?? "");
+              const prev = pal.slots[sIdx].batchNumber ?? "";
+              slot.batchNumber = isAssembleLabMode()
+                ? normalizeLabBatchNumberField(prev)
+                : normalizeBatchNumberField(prev);
             }
             const um = row.querySelector("[data-field='unirusMfgDate']");
             if (um) {
@@ -6962,11 +7004,23 @@
           return;
         }
         if (t.matches("[data-assemble-input]")) {
-          if (t.dataset.field === "batchNumber" && ev.type === "blur") {
-            applyBatchNumberInputNormalization(t);
-            syncAssembleStateFromDom();
-            saveAssembleDraft();
-            return;
+          if (t.dataset.field === "batchNumber") {
+            if (isAssembleLabMode()) {
+              const n = parseBatchNumbers(t.value).length;
+              if (n > LAB_MAX_BATCHES_PER_PALLET_SLOT) {
+                t.setCustomValidity(
+                  "Для ЛАБ Индастриз на одной позиции паллеты — не более 2 партий через запятую.",
+                );
+              } else {
+                t.setCustomValidity("");
+              }
+            }
+            if (ev.type === "blur") {
+              applyBatchNumberInputNormalization(t);
+              syncAssembleStateFromDom();
+              saveAssembleDraft();
+              return;
+            }
           }
           if (
             isAssembleUnirusMode() &&

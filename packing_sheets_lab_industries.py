@@ -146,9 +146,16 @@ def _lab_assemble_fields_from_pallet(pal: dict[str, Any]) -> tuple[str, str]:
     return batch_raw, expiry_raw
 
 
-def _format_lab_row10_batch(raw: str) -> str:
-    """ТA127361601 → ТA 127361601; первая партия, если несколько через запятую."""
-    part = str(raw or "").split(",")[0].strip()
+_LAB_MAX_BATCHES_PER_SLOT = 2
+
+
+def _lab_batch_parts(raw: str, max_parts: int = _LAB_MAX_BATCHES_PER_SLOT) -> list[str]:
+    return [p.strip() for p in str(raw or "").split(",") if p.strip()][:max_parts]
+
+
+def _format_lab_single_batch_display(part: str) -> str:
+    """ТA127361601 → ТA 127361601."""
+    part = str(part or "").strip()
     if not part:
         return "—"
     if re.search(r"\s", part):
@@ -157,6 +164,41 @@ def _format_lab_row10_batch(raw: str) -> str:
     if m:
         return f"{m.group(1).rstrip()} {m.group(2).lstrip()}"
     return part
+
+
+def _format_lab_row10_batch_lines(raw: str) -> list[str]:
+    """До двух партий — каждая строка для столбика в рамке строки 10."""
+    parts = _lab_batch_parts(raw, _LAB_MAX_BATCHES_PER_SLOT)
+    if not parts:
+        return ["—"]
+    return [_format_lab_single_batch_display(p) for p in parts]
+
+
+def _format_lab_row10_batch(raw: str) -> str:
+    return "\n".join(_format_lab_row10_batch_lines(raw))
+
+
+def _lab_draw_row10_batch_block(
+    pdf: Any,
+    x: float,
+    y: float,
+    inner_w: float,
+    batch_lines: list[str],
+    h_txt: float,
+    fs: float,
+    tab_mm: float,
+) -> None:
+    pdf.set_font("PLCalibri", "B", fs)
+    w_label = pdf.get_string_width(_LAB_ROW10_BATCH_LABEL)
+    value_x = x + w_label + tab_mm
+    value_w = max(1.0, inner_w - w_label - tab_mm)
+    block_h = max(h_txt, len(batch_lines) * h_txt)
+    label_y = y + (block_h - h_txt) / 2.0
+    pdf.set_xy(x, y)
+    pdf.cell(w_label, h_txt, _LAB_ROW10_BATCH_LABEL, align="L")
+    for i, line in enumerate(batch_lines):
+        pdf.set_xy(value_x, y + i * h_txt)
+        pdf.cell(value_w, h_txt, line, align="L")
 
 
 def _format_lab_row10_expiry(raw: str) -> str:
@@ -184,8 +226,9 @@ def _format_lab_row10_expiry(raw: str) -> str:
 
 
 def _format_lab_batch_for_barcode(raw: str) -> str:
-    """ТA127361601 → A127361601 (последняя буква префикса + цифры)."""
-    part = str(raw or "").split(",")[0].strip()
+    """ТA127361601 → A127361601 (последняя буква префикса + цифры); первая партия."""
+    parts = _lab_batch_parts(raw, 1)
+    part = parts[0] if parts else ""
     if not part:
         return ""
     compact = re.sub(r"\s+", "", part)
@@ -607,11 +650,14 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 pdf, row9_text, row9_inner_w, h_txt, bold=False
             )
             row9_h = pad + row9_text_h + pad
-            row10_batch = _format_lab_row10_batch(str(row.get("batch_number") or ""))
+            row10_batch_lines = _format_lab_row10_batch_lines(
+                str(row.get("batch_number") or "")
+            )
             row10_expiry = _format_lab_row10_expiry(
                 str(row.get("lab_expiry_date") or "")
             )
-            row10_h = pad + h_txt + pad
+            row10_batch_block_h = max(h_txt, len(row10_batch_lines) * h_txt)
+            row10_h = pad + row10_batch_block_h + pad
             row10_left_w = row4_left_w
             row10_right_w = row4_right_w
             x_row10_right = x_row4_right
@@ -807,22 +853,22 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
 
             row10_left_inner = row10_left_w - 2 * pad
             row10_right_inner = row10_right_w - 2 * pad
-            y_row10_text = y_row10 + pad
-            _lab_draw_bold_label_tab_value(
+            y_row10_inner = y_row10 + pad
+            _lab_draw_row10_batch_block(
                 pdf,
                 x0 + pad,
-                y_row10_text,
+                y_row10_inner,
                 row10_left_inner,
-                _LAB_ROW10_BATCH_LABEL,
-                row10_batch,
+                row10_batch_lines,
                 h_txt,
                 fs,
                 _LAB_TAB_MM,
             )
+            row10_expiry_y = y_row10 + pad + (row10_batch_block_h - h_txt) / 2.0
             _lab_draw_bold_label_tab_value(
                 pdf,
                 x_row10_right + pad,
-                y_row10_text,
+                row10_expiry_y,
                 row10_right_inner,
                 _LAB_ROW10_EXPIRY_LABEL,
                 row10_expiry,

@@ -2810,8 +2810,7 @@ def _order_item_row_to_dict(ir):
         if "buyer_order" in keys
         else "",
         "total_order_quantity": float(ir["total_order_quantity"])
-        if ir["total_order_quantity"] is not None
-        and "total_order_quantity" in keys
+        if "total_order_quantity" in keys and ir["total_order_quantity"] is not None
         else None,
         "pieces_in_box": max(0, int(ir["pieces_in_box"] or 0)),
         "sets_in_box": max(1, int(ir["sets_in_box"] or 1)),

@@ -95,6 +95,16 @@ def _normalize_nomenclature_search_text(value: str) -> str:
     return t
 
 
+def _normalize_product_name_for_import_match(value: str) -> str:
+    """Ключ для сопоставления наименования из Excel с products.name (без нечёткого подбора)."""
+    t = unicodedata.normalize("NFKC", str(value or "")).replace("\u00a0", " ")
+    t = _strip_trailing_name_suffix(t)
+    t = re.sub(r"№", "No", t, flags=re.IGNORECASE)
+    t = re.sub(r"([0-9A-Za-zА-Яа-яЁё])(\()", r"\1 \2", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t.casefold()
+
+
 def _nomenclature_matches_query(item: dict, query: str) -> bool:
     qn = _normalize_nomenclature_search_text(query)
     if not qn:
@@ -1829,8 +1839,18 @@ def _synthetic_items_from_order_names(names: str):
     return out
 
 
-def _try_resolve_product_id(cur, article: str, name: str):
-    """Точное совпадение наименования или артикула с номенклатурой."""
+def _build_product_name_import_lookup(cur) -> dict[str, int]:
+    """Нормализованное наименование → id (первое при дубликатах ключей)."""
+    lookup: dict[str, int] = {}
+    for row in cur.execute("SELECT id, name FROM products"):
+        key = _normalize_product_name_for_import_match(row["name"] or "")
+        if key and key not in lookup:
+            lookup[key] = int(row["id"])
+    return lookup
+
+
+def _try_resolve_product_id(cur, article: str, name: str, name_lookup: dict[str, int] | None = None):
+    """Совпадение наименования или артикула с номенклатурой (точное и нормализованное имя)."""
     name_n = _normalize_str(name)
     art_n = _normalize_str(article)
     if name_n:
@@ -1840,6 +1860,16 @@ def _try_resolve_product_id(cur, article: str, name: str):
         ).fetchone()
         if row:
             return int(row["id"])
+        norm_key = _normalize_product_name_for_import_match(name)
+        if norm_key:
+            if name_lookup is not None:
+                pid = name_lookup.get(norm_key)
+                if pid is not None:
+                    return pid
+            else:
+                for prow in cur.execute("SELECT id, name FROM products"):
+                    if _normalize_product_name_for_import_match(prow["name"] or "") == norm_key:
+                        return int(prow["id"])
     if art_n:
         row = cur.execute(
             "SELECT id FROM products WHERE article = ? LIMIT 1",
@@ -2372,12 +2402,14 @@ def _merge_import_items_payload(items: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
-def _resolve_product_id_for_excel_import(cur, name: str):
-    """Только точное совпадение наименования с номенклатурой (без нечёткого подбора)."""
+def _resolve_product_id_for_excel_import(
+    cur, name: str, name_lookup: dict[str, int] | None = None
+):
+    """Совпадение наименования с номенклатурой (точное + нормализация как в поиске, без нечёткого подбора)."""
     name_n = _strip_trailing_name_suffix(_normalize_str(name))
     if not name_n:
         return None, "", ""
-    rid = _try_resolve_product_id(cur, "", name_n)
+    rid = _try_resolve_product_id(cur, "", name_n, name_lookup=name_lookup)
     if rid is None:
         return None, "", name_n
     row = cur.execute(
@@ -2427,13 +2459,14 @@ def import_orders_from_excel_bytes(data: bytes):
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
+        name_lookup = _build_product_name_import_lookup(cur)
         for order in parsed_orders:
             items_payload = []
             skipped_count = 0
             skipped_names: list[str] = []
             for it in order["items"]:
                 pid, article, pname = _resolve_product_id_for_excel_import(
-                    cur, it["name"]
+                    cur, it["name"], name_lookup=name_lookup
                 )
                 if pid is None:
                     skipped_count += 1

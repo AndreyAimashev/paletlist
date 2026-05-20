@@ -1626,34 +1626,71 @@
 
       .order-items-head {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(140px, auto) 32px;
+        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
         gap: 8px;
-        align-items: center;
+        align-items: end;
         margin-bottom: 6px;
         font-size: 11px;
         color: var(--text-muted);
       }
 
+      .order-items-head-metrics {
+        display: contents;
+      }
+
+      .order-items-head-metric {
+        display: block;
+      }
+
+      .order-items-lab-total {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      .order-items-lab-total[hidden] {
+        display: none !important;
+      }
+
+      .order-items-lab-total-label {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .order-items-lab-total-value {
+        font-size: 13px;
+        color: var(--text-main);
+      }
+
+      .new-order-dialog .order-item-metric-cell .order-item-field-caption {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin: 0;
+      }
+
+      .order-item-metric-cell {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+
       .order-item-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(140px, auto) 32px;
+        grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
         gap: 8px;
         align-items: start;
         margin-bottom: 12px;
       }
 
-      .order-item-metrics {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        min-width: 0;
-      }
-
-      .order-item-metrics-primary {
-        display: grid;
-        grid-template-columns: 96px 130px;
-        gap: 8px;
-        align-items: center;
+      .order-item-remove {
+        grid-column: 4;
+        grid-row: 1;
       }
 
       .order-item-buyer-wrap[hidden] {
@@ -1664,6 +1701,7 @@
         display: grid;
         grid-template-columns: 1fr;
         gap: 4px;
+        grid-column: 2 / 4;
       }
 
       .order-item-buyer-order {
@@ -2473,12 +2511,30 @@
           padding: 12px;
         }
 
-        .new-order-dialog .order-item-metrics {
-          width: 100%;
+        .new-order-dialog .order-item-row {
+          grid-template-columns: 1fr;
         }
 
-        .new-order-dialog .order-item-metrics-primary {
-          grid-template-columns: 1fr 1fr;
+        .new-order-dialog .order-item-remove {
+          grid-column: auto;
+          grid-row: auto;
+        }
+
+        .new-order-dialog .order-item-buyer-wrap:not([hidden]) {
+          grid-column: auto;
+        }
+
+        .new-order-dialog .order-items-lab-total {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+
+        .new-order-dialog .order-items-lab-total-value {
+          grid-column: 1;
+        }
+
+        .new-order-dialog .order-item-metric-cell .order-item-field-caption {
+          display: block;
         }
 
         .new-order-dialog .order-item-qty,
@@ -3070,7 +3126,16 @@
           <p class="muted new-order-items-label">Позиции заказа</p>
           <div class="order-items-head" id="new-order-items-head">
             <span>Наименование</span>
-            <span id="new-order-metrics-head">Количество / единица</span>
+            <div class="order-items-head-metrics" aria-hidden="true">
+              <span class="order-items-head-metric">Количество</span>
+              <span class="order-items-head-metric">Единица</span>
+            </div>
+            <span></span>
+          </div>
+          <div id="new-order-lab-total-row" class="order-items-lab-total" hidden>
+            <span class="order-items-lab-total-label">Общее количество заказа</span>
+            <output id="new-order-lab-total-value" class="order-items-lab-total-value">0</output>
+            <span></span>
             <span></span>
           </div>
           <div id="new-order-items"></div>
@@ -3098,36 +3163,36 @@
           <input type="hidden" class="order-item-product-id" value="" />
           <ul class="order-item-suggestions" hidden></ul>
         </div>
-        <div class="order-item-metrics">
-          <div class="order-item-metrics-primary">
-            <span class="order-item-field-caption">Количество</span>
-            <input
-              type="number"
-              class="order-item-qty"
-              min="0"
-              step="any"
-              value="1"
-              aria-label="Количество"
-            />
-            <span class="order-item-field-caption">Единица</span>
-            <select class="order-item-unit" aria-label="Единица учёта">
-              <option value="box">Коробки</option>
-              <option value="set">Наборы</option>
-              <option value="piece" selected>Штуки</option>
-            </select>
-          </div>
-          <div class="order-item-buyer-wrap" hidden>
-            <span class="order-item-field-caption">Заказ покупателя</span>
-            <input
-              type="text"
-              class="order-item-buyer-order"
-              autocomplete="off"
-              placeholder="Номер заказа покупателя"
-              aria-label="Заказ покупателя"
-            />
-          </div>
+        <div class="order-item-metric-cell">
+          <span class="order-item-field-caption">Количество</span>
+          <input
+            type="number"
+            class="order-item-qty"
+            min="0"
+            step="any"
+            value="1"
+            aria-label="Количество"
+          />
+        </div>
+        <div class="order-item-metric-cell">
+          <span class="order-item-field-caption">Единица</span>
+          <select class="order-item-unit" aria-label="Единица учёта">
+            <option value="box">Коробки</option>
+            <option value="set">Наборы</option>
+            <option value="piece" selected>Штуки</option>
+          </select>
         </div>
         <button type="button" class="icon-btn order-item-remove" title="Удалить строку">✕</button>
+        <div class="order-item-buyer-wrap" hidden>
+          <span class="order-item-field-caption">Заказ покупателя</span>
+          <input
+            type="text"
+            class="order-item-buyer-order"
+            autocomplete="off"
+            placeholder="Номер заказа покупателя"
+            aria-label="Заказ покупателя"
+          />
+        </div>
       </div>
     </template>
 
@@ -3219,7 +3284,8 @@
       const newOrderLabBuyerMode = document.getElementById("new-order-lab-buyer-mode");
       const newOrderLabBuyerSingle = document.getElementById("new-order-lab-buyer-single");
       const newOrderBuyerOrder = document.getElementById("new-order-buyer-order");
-      const newOrderMetricsHead = document.getElementById("new-order-metrics-head");
+      const newOrderLabTotalRow = document.getElementById("new-order-lab-total-row");
+      const newOrderLabTotalValue = document.getElementById("new-order-lab-total-value");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
@@ -3489,6 +3555,47 @@
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
+      function newOrderRowToLineItem(row) {
+        const qty = parseFloat(String(row.querySelector(".order-item-qty")?.value || "").replace(",", "."));
+        const unit = row.querySelector(".order-item-unit")?.value || "piece";
+        const pid = row.querySelector(".order-item-product-id")?.value;
+        let pib = Number(row.dataset.piecesInBox) || 0;
+        let pps = Number(row.dataset.piecesPerSet) || 1;
+        if (pid && nomenclatureItems.length) {
+          const nom = nomenclatureItems.find((n) => String(n.id) === String(pid));
+          if (nom) {
+            pib = Math.max(0, Number(nom.pieces_in_box) || 0);
+            pps = Math.max(1, Number(nom.pieces_per_set) || 1);
+          }
+        }
+        return {
+          quantity: Number.isFinite(qty) ? qty : 0,
+          unit,
+          pieces_in_box: pib,
+          pieces_per_set: pps,
+        };
+      }
+
+      function formatNewOrderLabTotalPieces(total) {
+        const n = Math.max(0, Math.round(Number(total) || 0));
+        return `${n.toLocaleString("ru-RU")} шт`;
+      }
+
+      function updateNewOrderLabTotalQty() {
+        const lab = isLabIndustriesClient(newOrderClient?.value || "");
+        if (newOrderLabTotalRow) {
+          newOrderLabTotalRow.hidden = !lab;
+        }
+        if (!lab || !newOrderLabTotalValue) {
+          return;
+        }
+        let total = 0;
+        newOrderItems.querySelectorAll(".order-item-row").forEach((row) => {
+          total += orderLineMaxPieces(newOrderRowToLineItem(row));
+        });
+        newOrderLabTotalValue.textContent = formatNewOrderLabTotalPieces(total);
+      }
+
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
         if (newOrderLabBuyerMode) {
@@ -3501,9 +3608,7 @@
           newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
             w.hidden = true;
           });
-          if (newOrderMetricsHead) {
-            newOrderMetricsHead.textContent = "Количество / единица";
-          }
+          updateNewOrderLabTotalQty();
           return;
         }
         const multiple = getLabBuyerOrderMode() === "multiple";
@@ -3523,11 +3628,7 @@
             inp.required = multiple;
           }
         });
-        if (newOrderMetricsHead) {
-          newOrderMetricsHead.textContent = multiple
-            ? "Количество / единица / заказ покупателя"
-            : "Количество / единица";
-        }
+        updateNewOrderLabTotalQty();
       }
 
       function isAssembleUnirusMode() {
@@ -7375,12 +7476,26 @@
         const ul = row.querySelector(".order-item-suggestions");
         const hid = row.querySelector(".order-item-product-id");
         const removeBtn = row.querySelector(".order-item-remove");
+        const qtyEl = row.querySelector(".order-item-qty");
+        const unitEl = row.querySelector(".order-item-unit");
+
+        const onRowQtyChange = () => updateNewOrderLabTotalQty();
+        if (qtyEl) {
+          qtyEl.addEventListener("input", onRowQtyChange);
+          qtyEl.addEventListener("change", onRowQtyChange);
+        }
+        if (unitEl) {
+          unitEl.addEventListener("change", onRowQtyChange);
+        }
 
         input.addEventListener("input", () => {
           hid.value = "";
           delete row.dataset.article;
           delete row.dataset.name;
+          delete row.dataset.piecesInBox;
+          delete row.dataset.piecesPerSet;
           syncOrderItemRowLabels(row);
+          updateNewOrderLabTotalQty();
           row._orderSuggest = null;
           const q = input.value.trim();
           const prev = orderSearchDebounce.get(input);
@@ -7416,14 +7531,18 @@
           hid.value = String(item.id);
           row.dataset.article = item.article || "";
           row.dataset.name = item.name || "";
+          row.dataset.piecesInBox = String(item.pieces_in_box ?? 0);
+          row.dataset.piecesPerSet = String(item.pieces_per_set ?? 1);
           input.value = formatOrderItemSearchInput(item.article, item.name);
           ul.hidden = true;
           ul.innerHTML = "";
           syncOrderItemRowLabels(row);
+          updateNewOrderLabTotalQty();
         });
 
         removeBtn.addEventListener("click", () => {
           row.remove();
+          updateNewOrderLabTotalQty();
         });
       }
 
@@ -7493,6 +7612,12 @@
         const buyerEl = row.querySelector(".order-item-buyer-order");
         if (buyerEl) {
           buyerEl.value = String(it.buyer_order || "").trim();
+        }
+        if (it.pieces_in_box != null) {
+          row.dataset.piecesInBox = String(it.pieces_in_box);
+        }
+        if (it.pieces_per_set != null) {
+          row.dataset.piecesPerSet = String(it.pieces_per_set);
         }
         syncOrderItemRowLabels(row);
       }

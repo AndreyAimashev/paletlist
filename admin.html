@@ -3661,11 +3661,37 @@
         return `${String(b).replace(".", ",")} кор.`;
       }
 
-      function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets) {
+      function resolveLabBuyerOrderForPallet(lineIdx, orderItems, labBuyerCtx) {
+        const ctx = labBuyerCtx || {};
+        const mode = ctx.buyer_order_mode === "multiple" ? "multiple" : "single";
+        if (
+          mode === "multiple" &&
+          lineIdx !== null &&
+          lineIdx !== undefined &&
+          orderItems[lineIdx]
+        ) {
+          const bo = String(orderItems[lineIdx].buyer_order || "").trim();
+          if (bo) {
+            return bo;
+          }
+        }
+        const orderBo = String(ctx.buyer_order || "").trim();
+        return orderBo || "—";
+      }
+
+      function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets, labBuyerCtx) {
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
         }
         const items = Array.isArray(orderItems) ? orderItems : [];
+        const ctx =
+          labBuyerCtx ||
+          (assembleOrderSnapshot && isLabIndustriesClient(assembleOrderSnapshot.client)
+            ? {
+                buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
+                buyer_order: assembleOrderSnapshot.buyer_order,
+              }
+            : null);
         return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
@@ -3720,6 +3746,7 @@
             row3_text: formatLabRow3Text(totalPieces, volumeMl),
             boxes_on_pallet: boxesOnPallet,
             row4_text: formatLabRow4Text(boxesOnPallet),
+            buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
           };
         });
       }
@@ -4057,6 +4084,10 @@
             const palletsPayload = buildLabPalletPdfPayloadFromDraft(
               order.items || [],
               assemblePallets,
+              {
+                buyer_order_mode: order.buyer_order_mode,
+                buyer_order: order.buyer_order,
+              },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
               pallets: palletsPayload,
@@ -4435,7 +4466,10 @@
           try {
             const orderItems = order.items || [];
             if (palletSheetsDownloadKind === "lab") {
-              const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets);
+              const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
+                buyer_order_mode: order.buyer_order_mode,
+                buyer_order: order.buyer_order,
+              });
               blob = await fetchLabIndustriesPalletSheetsPdfBlob({ pallets: palletsPayload });
             } else {
               const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);

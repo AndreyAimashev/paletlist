@@ -109,6 +109,7 @@ def _pieces_by_line_index(
 _LAB_ROW4_LABEL = "Количество упаковок на поддоне, шт"
 _LAB_ROW4_KOR_SUFFIX = " кор."
 _LAB_ROW4_MIN_RIGHT_W_MM = 36.0
+_LAB_ROW5_LABEL = "Номер заказа:"
 
 
 def _boxes_on_pallet(
@@ -146,6 +147,22 @@ def _format_lab_row4_boxes(boxes: float) -> str:
     return f"{n_s}{_LAB_ROW4_KOR_SUFFIX}"
 
 
+def _buyer_order_for_pallet(
+    line_idx: int | None,
+    items: list[dict[str, Any]],
+    order_buyer_order: str,
+    buyer_order_mode: str,
+) -> str:
+    """Номер заказа покупателя: общий или по строке заказа (режим multiple)."""
+    mode = str(buyer_order_mode or "single").strip().lower()
+    if mode == "multiple" and line_idx is not None and 0 <= line_idx < len(items):
+        bo = str(items[line_idx].get("buyer_order") or "").strip()
+        if bo:
+            return bo
+    order_bo = str(order_buyer_order or "").strip()
+    return order_bo if order_bo else "—"
+
+
 def _format_lab_row3_text(total_pieces: float, volume_ml: float) -> str:
     """Например: 2394 х 200мл."""
     pcs = max(0, int(round(total_pieces)))
@@ -176,6 +193,8 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
         [p for p in pallets_raw if isinstance(p, dict)]
     )
     totals = _pieces_by_line_index(items, pallets)
+    order_bo = str(detail.get("buyer_order") or "").strip()
+    buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
     out: list[dict[str, Any]] = []
     for idx, pal in enumerate(pallets, start=1):
         pnum = str(pal.get("palletNumber") or "").strip()
@@ -187,6 +206,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
         vol = 0.0
         if line_idx is not None and 0 <= line_idx < len(items):
             vol = float(items[line_idx].get("volume_ml") or 0)
+        buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
         out.append(
             {
                 "article": article,
@@ -197,6 +217,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "row3_text": _format_lab_row3_text(total_pcs, vol),
                 "boxes_on_pallet": boxes_on_pal,
                 "row4_text": _format_lab_row4_boxes(boxes_on_pal),
+                "buyer_order": buyer_order,
             }
         )
     return out
@@ -286,7 +307,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–4 (артикул / паллета / наименование / объём / коробки на поддоне)."""
+    """PDF: строки 1–5 (артикул / паллета / наименование / объём / коробки / номер заказа)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -377,11 +398,16 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 pdf, content_w, pad, fs, row4_text
             )
             x_row4_right = x0 + row4_left_w
+            buyer_order = str(row.get("buyer_order") or "").strip() or "—"
+            row5_h = pad + h_txt + pad
+            row5_half_w = content_w / 2.0
+            x_row5_right = x0 + row5_half_w
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
             y_row3 = y_row2 + row2_h
             y_row4 = y_row3 + row3_h
+            y_row5 = y_row4 + row4_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -392,6 +418,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x0, y_row3, content_w, row3_h)
             pdf.rect(x0, y_row4, row4_left_w, row4_h)
             pdf.rect(x_row4_right, y_row4, row4_right_w, row4_h)
+            pdf.rect(x0, y_row5, row5_half_w, row5_h)
+            pdf.rect(x_row5_right, y_row5, row5_half_w, row5_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -458,6 +486,15 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.cell(row4_label_inner_w, h_txt, _LAB_ROW4_LABEL, align="L")
             pdf.set_xy(x_row4_right + pad, y_row4 + pad)
             pdf.cell(row4_value_inner_w, h_txt, row4_text, align="C")
+
+            row5_label_inner_w = row5_half_w - 2 * pad
+            row5_value_inner_w = row5_half_w - 2 * pad
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0 + pad, y_row5 + pad)
+            pdf.cell(row5_label_inner_w, h_txt, _LAB_ROW5_LABEL, align="L")
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x_row5_right + pad, y_row5 + pad)
+            pdf.cell(row5_value_inner_w, h_txt, buyer_order, align="C")
 
         out = pdf.output()
         return (bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")), None, None

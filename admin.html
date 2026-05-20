@@ -3605,6 +3605,10 @@
         return !!(assembleOrderSnapshot && isArnestUnirusClient(assembleOrderSnapshot.client));
       }
 
+      function isAssembleLabMode() {
+        return !!(assembleOrderSnapshot && isLabIndustriesClient(assembleOrderSnapshot.client));
+      }
+
       function palletHasSelectedOrderLine(pal, itemCount) {
         const slots = Array.isArray(pal.slots) ? pal.slots : [];
         return slots.some((slot) => {
@@ -5851,6 +5855,7 @@
           batchNumber: normalizeBatchNumberField(s.batchNumber ?? ""),
           unirusMfgDate: String(s.unirusMfgDate ?? "").trim(),
           unirusExpiryDate: String(s.unirusExpiryDate ?? "").trim(),
+          labExpiryDate: String(s.labExpiryDate ?? "").trim(),
           mode: s.mode === "rows" ? "rows" : "direct",
           directUnit: s.directUnit === "piece" ? "piece" : "box",
           directQty: s.directQty ?? b.directQty,
@@ -6712,6 +6717,14 @@
               <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="${batchPlaceholder}" autocomplete="off" value="${batchVal}"${batchTitle} />
             </div>`
           : "";
+        const labExpiryVal = escapeXml(String(slot.labExpiryDate ?? ""));
+        const labExpiryHtml =
+          isAssembleLabMode() && showBatch
+            ? `<div class="assemble-field" style="max-width:100%">
+              <label for="ale-${pIdx}-${sIdx}">Годен до:</label>
+              <input id="ale-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="labExpiryDate" autocomplete="off" value="${labExpiryVal}" />
+            </div>`
+            : "";
         const unirusDatesHtml = isAssembleUnirusMode()
           ? `<div class="assemble-inputs-grid" style="margin-top:0.35rem">
               <div class="assemble-field">
@@ -6734,6 +6747,7 @@
                 <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
               </div>
               ${batchFieldHtml}
+              ${labExpiryHtml}
               ${unirusDatesHtml}
             </div>
             ${removeSlotBtn}
@@ -6760,6 +6774,7 @@
               <select class="assemble-order-line-select" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="slotSource">${selectHtml}</select>
             </div>
             ${batchFieldHtml}
+            ${labExpiryHtml}
             ${unirusDatesHtml}
           </div>
           <p class="assemble-line-meta">${escapeXml(packHint)}</p>
@@ -6898,6 +6913,12 @@
               slot.unirusExpiryDate = ue.value;
             } else if (pal.slots && pal.slots[sIdx]) {
               slot.unirusExpiryDate = String(pal.slots[sIdx].unirusExpiryDate ?? "").trim();
+            }
+            const le = row.querySelector("[data-field='labExpiryDate']");
+            if (le) {
+              slot.labExpiryDate = le.value;
+            } else if (pal.slots && pal.slots[sIdx]) {
+              slot.labExpiryDate = String(pal.slots[sIdx].labExpiryDate ?? "").trim();
             }
             newSlots.push(normalizeSlot(slot));
           });

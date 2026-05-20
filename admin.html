@@ -6751,8 +6751,8 @@
         const labExpiryHtml =
           isAssembleLabMode() && showBatch
             ? `<div class="assemble-field" style="max-width:100%">
-              <label for="ale-${pIdx}-${sIdx}">Годен до:</label>
-              <input id="ale-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="8" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="labExpiryDate" placeholder="Напр. 030428" title="6 цифр ДДММГГ (день, месяц, год)" autocomplete="off" value="${labExpiryVal}" />
+              <label for="ale-${pIdx}-${sIdx}">Годен до: (200526)</label>
+              <input id="ale-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="8" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="labExpiryDate" placeholder="200526" title="6 цифр ДДММГГ, напр. 200526" autocomplete="off" value="${labExpiryVal}" />
             </div>`
             : "";
         const unirusDatesHtml = isAssembleUnirusMode()

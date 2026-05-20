@@ -1765,24 +1765,6 @@
         min-width: 0;
       }
 
-      .order-item-labels {
-        margin-top: 6px;
-        font-size: 11px;
-        line-height: 1.45;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        color: var(--text-muted);
-      }
-
-      .order-item-labels[hidden] {
-        display: none !important;
-      }
-
-      .order-item-label-line {
-        overflow-wrap: anywhere;
-      }
-
       .order-item-search {
         box-sizing: border-box;
         width: 100%;
@@ -3185,9 +3167,6 @@
                 aria-label="Общее количество заказа (от менеджера)"
               />
             </div>
-          </div>
-          <div class="order-item-labels" hidden>
-            <span class="order-item-label-line">Артикул: <span class="order-item-label-article"></span></span>
           </div>
           <input type="hidden" class="order-item-product-id" value="" />
           <ul class="order-item-suggestions" hidden></ul>
@@ -7482,7 +7461,6 @@
           delete row.dataset.name;
           delete row.dataset.piecesInBox;
           delete row.dataset.piecesPerSet;
-          syncOrderItemRowLabels(row);
           row._orderSuggest = null;
           const q = input.value.trim();
           const prev = orderSearchDebounce.get(input);
@@ -7523,7 +7501,6 @@
           input.value = formatOrderItemSearchInput(item.article, item.name);
           ul.hidden = true;
           ul.innerHTML = "";
-          syncOrderItemRowLabels(row);
         });
 
         removeBtn.addEventListener("click", () => {
@@ -7551,19 +7528,6 @@
           return art;
         }
         return "";
-      }
-
-      function syncOrderItemRowLabels(row) {
-        const wrap = row.querySelector(".order-item-labels");
-        if (!wrap) {
-          return;
-        }
-        const art = String(row.dataset.article || "").trim();
-        const artEl = wrap.querySelector(".order-item-label-article");
-        if (artEl) {
-          artEl.textContent = art || "—";
-        }
-        wrap.hidden = !art;
       }
 
       function orderShipDateStorageToInput(ship) {
@@ -7610,7 +7574,6 @@
           totalEl.value =
             tq != null && tq !== "" && Number.isFinite(Number(tq)) ? String(tq) : "";
         }
-        syncOrderItemRowLabels(row);
       }
 
       async function openEditOrderModal(orderId) {

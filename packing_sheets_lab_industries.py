@@ -195,6 +195,12 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     totals = _pieces_by_line_index(items, pallets)
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
+    total_order_qty = detail.get("total_order_quantity")
+    if total_order_qty is not None:
+        try:
+            total_order_qty = float(total_order_qty)
+        except (TypeError, ValueError):
+            total_order_qty = None
     out: list[dict[str, Any]] = []
     for idx, pal in enumerate(pallets, start=1):
         pnum = str(pal.get("palletNumber") or "").strip()
@@ -218,6 +224,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "boxes_on_pallet": boxes_on_pal,
                 "row4_text": _format_lab_row4_boxes(boxes_on_pal),
                 "buyer_order": buyer_order,
+                "total_order_quantity": total_order_qty,
             }
         )
     return out

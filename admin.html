@@ -1661,9 +1661,23 @@
         color: var(--text-muted);
       }
 
-      .order-items-lab-total-value {
-        font-size: 13px;
+      .order-items-lab-total-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .new-order-total-quantity {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 220px;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px 8px;
+        background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
+        font-size: 13px;
       }
 
       .new-order-dialog .order-item-metric-cell .order-item-field-caption {
@@ -2529,8 +2543,12 @@
           gap: 4px;
         }
 
-        .new-order-dialog .order-items-lab-total-value {
-          grid-column: 1;
+        .new-order-dialog .order-items-lab-total-field {
+          max-width: none;
+        }
+
+        .new-order-dialog .new-order-total-quantity {
+          max-width: none;
         }
 
         .new-order-dialog .order-item-metric-cell .order-item-field-caption {
@@ -3133,8 +3151,20 @@
             <span></span>
           </div>
           <div id="new-order-lab-total-row" class="order-items-lab-total" hidden>
-            <span class="order-items-lab-total-label">Общее количество заказа</span>
-            <output id="new-order-lab-total-value" class="order-items-lab-total-value">0</output>
+            <div class="order-items-lab-total-field">
+              <label class="order-items-lab-total-label" for="new-order-total-quantity"
+                >Общее количество заказа</label
+              >
+              <input
+                id="new-order-total-quantity"
+                class="new-order-total-quantity"
+                type="number"
+                min="0"
+                step="any"
+                placeholder="Введите количество"
+              />
+            </div>
+            <span></span>
             <span></span>
             <span></span>
           </div>
@@ -3285,7 +3315,7 @@
       const newOrderLabBuyerSingle = document.getElementById("new-order-lab-buyer-single");
       const newOrderBuyerOrder = document.getElementById("new-order-buyer-order");
       const newOrderLabTotalRow = document.getElementById("new-order-lab-total-row");
-      const newOrderLabTotalValue = document.getElementById("new-order-lab-total-value");
+      const newOrderTotalQuantity = document.getElementById("new-order-total-quantity");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
@@ -3555,47 +3585,6 @@
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
-      function newOrderRowToLineItem(row) {
-        const qty = parseFloat(String(row.querySelector(".order-item-qty")?.value || "").replace(",", "."));
-        const unit = row.querySelector(".order-item-unit")?.value || "piece";
-        const pid = row.querySelector(".order-item-product-id")?.value;
-        let pib = Number(row.dataset.piecesInBox) || 0;
-        let pps = Number(row.dataset.piecesPerSet) || 1;
-        if (pid && nomenclatureItems.length) {
-          const nom = nomenclatureItems.find((n) => String(n.id) === String(pid));
-          if (nom) {
-            pib = Math.max(0, Number(nom.pieces_in_box) || 0);
-            pps = Math.max(1, Number(nom.pieces_per_set) || 1);
-          }
-        }
-        return {
-          quantity: Number.isFinite(qty) ? qty : 0,
-          unit,
-          pieces_in_box: pib,
-          pieces_per_set: pps,
-        };
-      }
-
-      function formatNewOrderLabTotalPieces(total) {
-        const n = Math.max(0, Math.round(Number(total) || 0));
-        return `${n.toLocaleString("ru-RU")} шт`;
-      }
-
-      function updateNewOrderLabTotalQty() {
-        const lab = isLabIndustriesClient(newOrderClient?.value || "");
-        if (newOrderLabTotalRow) {
-          newOrderLabTotalRow.hidden = !lab;
-        }
-        if (!lab || !newOrderLabTotalValue) {
-          return;
-        }
-        let total = 0;
-        newOrderItems.querySelectorAll(".order-item-row").forEach((row) => {
-          total += orderLineMaxPieces(newOrderRowToLineItem(row));
-        });
-        newOrderLabTotalValue.textContent = formatNewOrderLabTotalPieces(total);
-      }
-
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
         if (newOrderLabBuyerMode) {
@@ -3608,8 +3597,13 @@
           newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
             w.hidden = true;
           });
-          updateNewOrderLabTotalQty();
+          if (newOrderLabTotalRow) {
+            newOrderLabTotalRow.hidden = true;
+          }
           return;
+        }
+        if (newOrderLabTotalRow) {
+          newOrderLabTotalRow.hidden = false;
         }
         const multiple = getLabBuyerOrderMode() === "multiple";
         if (newOrderLabBuyerSingle) {
@@ -3628,7 +3622,6 @@
             inp.required = multiple;
           }
         });
-        updateNewOrderLabTotalQty();
       }
 
       function isAssembleUnirusMode() {
@@ -3791,6 +3784,7 @@
             ? {
                 buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
                 buyer_order: assembleOrderSnapshot.buyer_order,
+                total_order_quantity: assembleOrderSnapshot.total_order_quantity,
               }
             : null);
         return sortAssemblePalletsByNumber(draftPallets).map((pal, idx) => {
@@ -3848,6 +3842,10 @@
             boxes_on_pallet: boxesOnPallet,
             row4_text: formatLabRow4Text(boxesOnPallet),
             buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
+            total_order_quantity:
+              ctx && ctx.total_order_quantity != null && ctx.total_order_quantity !== ""
+                ? Number(ctx.total_order_quantity)
+                : null,
           };
         });
       }
@@ -4188,6 +4186,7 @@
               {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
+                total_order_quantity: order.total_order_quantity,
               },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
@@ -4570,6 +4569,7 @@
               const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
+                total_order_quantity: order.total_order_quantity,
               });
               blob = await fetchLabIndustriesPalletSheetsPdfBlob({ pallets: palletsPayload });
             } else {
@@ -7089,6 +7089,7 @@
           client: data.client,
           buyer_order_mode: data.buyer_order_mode || "",
           buyer_order: data.buyer_order || "",
+          total_order_quantity: data.total_order_quantity,
           items,
         };
         const localDraft = loadAssembleDraft(orderId, items.length);
@@ -7476,17 +7477,6 @@
         const ul = row.querySelector(".order-item-suggestions");
         const hid = row.querySelector(".order-item-product-id");
         const removeBtn = row.querySelector(".order-item-remove");
-        const qtyEl = row.querySelector(".order-item-qty");
-        const unitEl = row.querySelector(".order-item-unit");
-
-        const onRowQtyChange = () => updateNewOrderLabTotalQty();
-        if (qtyEl) {
-          qtyEl.addEventListener("input", onRowQtyChange);
-          qtyEl.addEventListener("change", onRowQtyChange);
-        }
-        if (unitEl) {
-          unitEl.addEventListener("change", onRowQtyChange);
-        }
 
         input.addEventListener("input", () => {
           hid.value = "";
@@ -7495,7 +7485,6 @@
           delete row.dataset.piecesInBox;
           delete row.dataset.piecesPerSet;
           syncOrderItemRowLabels(row);
-          updateNewOrderLabTotalQty();
           row._orderSuggest = null;
           const q = input.value.trim();
           const prev = orderSearchDebounce.get(input);
@@ -7537,12 +7526,10 @@
           ul.hidden = true;
           ul.innerHTML = "";
           syncOrderItemRowLabels(row);
-          updateNewOrderLabTotalQty();
         });
 
         removeBtn.addEventListener("click", () => {
           row.remove();
-          updateNewOrderLabTotalQty();
         });
       }
 
@@ -7661,6 +7648,11 @@
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = String(data.buyer_order || "").trim();
         }
+        if (newOrderTotalQuantity) {
+          const tq = data.total_order_quantity;
+          newOrderTotalQuantity.value =
+            tq != null && tq !== "" && Number.isFinite(Number(tq)) ? String(tq) : "";
+        }
         const items = Array.isArray(data.items)
           ? data.items
           : Array.isArray(data.order_items)
@@ -7694,6 +7686,9 @@
         }
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = "";
+        }
+        if (newOrderTotalQuantity) {
+          newOrderTotalQuantity.value = "";
         }
         syncNewOrderLabBuyerUi();
         const today = new Date();
@@ -7786,6 +7781,12 @@
               return;
             }
             orderPayload.buyer_order = bo;
+          }
+          const tqRaw = newOrderTotalQuantity
+            ? String(newOrderTotalQuantity.value || "").trim()
+            : "";
+          if (tqRaw !== "") {
+            orderPayload.total_order_quantity = tqRaw;
           }
         }
         const isEdit = editingOrderId != null;

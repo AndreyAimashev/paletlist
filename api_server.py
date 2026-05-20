@@ -3555,6 +3555,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
                 return
+            except Exception as exc:
+                self._send_json(
+                    500,
+                    {
+                        "error": "server",
+                        "message": f"Ошибка сохранения заказа: {exc}",
+                    },
+                )
+                return
             err = result.get("error")
             if err == "validation":
                 self._send_json(400, result)
@@ -3635,6 +3644,15 @@ class ApiHandler(BaseHTTPRequestHandler):
                 result = update_order_with_items(oid, body)
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            except Exception as exc:
+                self._send_json(
+                    500,
+                    {
+                        "error": "server",
+                        "message": f"Ошибка сохранения заказа: {exc}",
+                    },
+                )
                 return
             err = result.get("error")
             if err == "validation":

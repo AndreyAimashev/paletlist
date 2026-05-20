@@ -3474,6 +3474,17 @@
         return `${pcs} х ${volS}мл`;
       }
 
+      function formatLabRow4Text(boxes) {
+        const b = Number(boxes);
+        if (!Number.isFinite(b) || b <= 0) {
+          return "0 кор.";
+        }
+        if (Math.abs(b - Math.round(b)) < 1e-6) {
+          return `${Math.round(b)} кор.`;
+        }
+        return `${String(b).replace(".", ",")} кор.`;
+      }
+
       function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets) {
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
@@ -3523,6 +3534,7 @@
               volumeMl = nom ? Number(nom.volume_ml) : 0;
             }
           }
+          const boxesOnPallet = computeArnestPalletBoxesQty(pal, items);
           return {
             article: article || "—",
             name: name || "—",
@@ -3530,6 +3542,8 @@
             total_pieces: totalPieces,
             volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
             row3_text: formatLabRow3Text(totalPieces, volumeMl),
+            boxes_on_pallet: boxesOnPallet,
+            row4_text: formatLabRow4Text(boxesOnPallet),
           };
         });
       }

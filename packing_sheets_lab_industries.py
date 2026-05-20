@@ -106,6 +106,45 @@ def _pieces_by_line_index(
     return totals
 
 
+_LAB_ROW4_LABEL = "Количество упаковок на поддоне, шт"
+_LAB_ROW4_KOR_SUFFIX = " кор."
+
+
+def _boxes_on_pallet(
+    pal: dict[str, Any], items: list[dict[str, Any]]
+) -> float:
+    """Сумма коробок по слотам на одной паллете."""
+    from packing_sheets_generic import (
+        _allocation_to_boxes,
+        _normalize_slot,
+        _slot_to_alloc,
+    )
+
+    total = 0.0
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        ns = _normalize_slot(slot)
+        li = ns["lineIndex"]
+        if li is None or li < 0 or li >= len(items):
+            continue
+        total += _allocation_to_boxes(items[li], _slot_to_alloc(ns))
+    return total
+
+
+def _format_lab_row4_boxes(boxes: float) -> str:
+    """Например: 399 кор."""
+    if boxes <= 0:
+        n_s = "0"
+    elif abs(boxes - round(boxes)) < 1e-6:
+        n_s = str(int(round(boxes)))
+    else:
+        from packing_sheets_generic import _fmt_ru_num  # noqa: PLC0415
+
+        n_s = _fmt_ru_num(boxes, max_decimals=3)
+    return f"{n_s}{_LAB_ROW4_KOR_SUFFIX}"
+
+
 def _format_lab_row3_text(total_pieces: float, volume_ml: float) -> str:
     """Например: 2394 х 200мл."""
     pcs = max(0, int(round(total_pieces)))
@@ -143,6 +182,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
             pnum = str(idx)
         line_idx, article, name = _first_line_on_pallet(pal, items)
         total_pcs = totals.get(line_idx, 0.0) if line_idx is not None else 0.0
+        boxes_on_pal = _boxes_on_pallet(pal, items)
         vol = 0.0
         if line_idx is not None and 0 <= line_idx < len(items):
             vol = float(items[line_idx].get("volume_ml") or 0)
@@ -154,6 +194,8 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "total_pieces": total_pcs,
                 "volume_ml": vol,
                 "row3_text": _format_lab_row3_text(total_pcs, vol),
+                "boxes_on_pallet": boxes_on_pal,
+                "row4_text": _format_lab_row4_boxes(boxes_on_pal),
             }
         )
     return out
@@ -227,7 +269,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–3 (артикул / паллета GS1-128 / наименование / кол-во и объём)."""
+    """PDF: строки 1–4 (артикул / паллета / наименование / объём / коробки на поддоне)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -267,6 +309,10 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 total_pcs = float(row.get("total_pieces") or 0)
                 vol = float(row.get("volume_ml") or 0)
                 row3_text = _format_lab_row3_text(total_pcs, vol)
+            row4_text = str(row.get("row4_text") or "").strip()
+            if not row4_text:
+                boxes_on_pal = float(row.get("boxes_on_pallet") or 0)
+                row4_text = _format_lab_row4_boxes(boxes_on_pal)
             pallet_number = str(row.get("pallet_number") or "").strip()
             gs1_data, gs1_hri = build_lab_pallet_sscc_gs1(pallet_number, idx)
             try:
@@ -309,10 +355,14 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             )
             row2_h = pad + row2_text_h + pad
             row3_h = pad + h_txt + pad
+            row4_h = pad + h_txt + pad
+            row4_half_w = content_w / 2.0
+            x_row4_right = x0 + row4_half_w
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
             y_row3 = y_row2 + row2_h
+            y_row4 = y_row3 + row3_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -321,6 +371,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x_right, y0, right_w, row1_h)
             pdf.rect(x0, y_row2, content_w, row2_h)
             pdf.rect(x0, y_row3, content_w, row3_h)
+            pdf.rect(x0, y_row4, row4_half_w, row4_h)
+            pdf.rect(x_row4_right, y_row4, row4_half_w, row4_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -379,6 +431,14 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.set_font("PLCalibri", "B", fs)
             pdf.set_xy(x0 + pad, y_row3 + pad)
             pdf.cell(row2_inner_w, h_txt, row3_text, align="C")
+
+            row4_inner_w = row4_half_w - 2 * pad
+            pdf.set_font("PLCalibri", "B", fs)
+            pdf.set_xy(x0 + pad, y_row4 + pad)
+            pdf.cell(row4_inner_w, h_txt, _LAB_ROW4_LABEL, align="L")
+            pdf.set_font("PLCalibri", "", fs)
+            pdf.set_xy(x_row4_right + pad, y_row4 + pad)
+            pdf.cell(row4_inner_w, h_txt, row4_text, align="C")
 
         out = pdf.output()
         return (bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")), None, None

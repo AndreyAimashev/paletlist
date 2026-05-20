@@ -1674,11 +1674,26 @@
         font-size: 13px;
       }
 
-      .new-order-dialog .order-item-metric-cell .order-item-field-caption {
-        display: block;
+      /* Подписи в строке — только на узком экране; на десктопе заголовки в .order-items-head */
+      .new-order-dialog .order-item-field-caption {
+        display: none;
         font-size: 11px;
         color: var(--text-muted);
         margin: 0;
+      }
+
+      .new-order-dialog .order-item-autocomplete {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .new-order-dialog .order-item-search,
+      .new-order-dialog .order-item-qty,
+      .new-order-dialog .order-item-unit {
+        min-height: 40px;
+        padding: 10px 8px;
+        line-height: 1.25;
       }
 
       .order-item-metric-cell {
@@ -1688,12 +1703,25 @@
         min-width: 0;
       }
 
+      .new-order-dialog .order-item-row {
+        align-items: start;
+      }
+
       .order-item-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 96px 130px 32px;
         gap: 8px;
         align-items: start;
         margin-bottom: 12px;
+      }
+
+      .new-order-dialog .order-item-remove {
+        align-self: start;
+        margin-top: 0;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .order-item-remove {
@@ -2483,15 +2511,6 @@
         .new-order-dialog .order-item-field-caption {
           display: block;
           font-size: 12px;
-          color: var(--text-muted);
-        }
-
-        .new-order-dialog .order-item-autocomplete::before {
-          content: "Наименование";
-          display: block;
-          margin-bottom: 6px;
-          font-size: 12px;
-          color: var(--text-muted);
         }
 
         .new-order-dialog .order-item-row {
@@ -2514,11 +2533,6 @@
           width: 100%;
         }
 
-        .new-order-dialog .order-item-search {
-          font-size: 15px;
-          padding: 12px;
-        }
-
         .new-order-dialog .order-item-row {
           grid-template-columns: 1fr;
         }
@@ -2536,18 +2550,16 @@
           margin-top: 10px;
         }
 
-        .new-order-dialog .order-item-metric-cell .order-item-field-caption {
-          display: block;
-        }
-
         .new-order-dialog .order-item-qty,
         .new-order-dialog .order-item-unit,
+        .new-order-dialog .order-item-search,
         .new-order-dialog .order-item-total-quantity,
         .new-order-dialog .order-item-buyer-order {
           width: 100%;
           max-width: none;
           font-size: 15px;
           padding: 12px 10px;
+          min-height: 44px;
         }
 
         .new-order-dialog .order-item-remove {
@@ -3149,6 +3161,7 @@
     <template id="order-item-row-template">
       <div class="order-item-row">
         <div class="order-item-autocomplete">
+          <span class="order-item-field-caption">Наименование</span>
           <input
             type="text"
             class="order-item-search"

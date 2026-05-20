@@ -1604,23 +1604,7 @@
         margin: 16px 0 8px;
       }
 
-      .lab-buyer-order-mode {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 14px 20px;
-        margin-top: 6px;
-      }
-
-      .lab-buyer-order-mode label {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 13px;
-        cursor: pointer;
-      }
-
-      #new-order-lab-buyer-single[hidden],
-      #new-order-lab-buyer-mode[hidden] {
+      #new-order-lab-buyer-single[hidden] {
         display: none !important;
       }
 
@@ -3097,24 +3081,6 @@
                 <option value="ЛАБ Индастриз"></option>
               </datalist>
             </div>
-            <div id="new-order-lab-buyer-mode" class="arnest-field" hidden style="grid-column: 1 / -1">
-              <label>Режим заказа покупателя</label>
-              <div class="lab-buyer-order-mode" role="radiogroup" aria-label="Режим заказа покупателя">
-                <label
-                  ><input
-                    type="radio"
-                    name="lab-buyer-order-mode"
-                    value="single"
-                    checked
-                  />
-                  1 заказ покупателя</label
-                >
-                <label
-                  ><input type="radio" name="lab-buyer-order-mode" value="multiple" />
-                  Несколько заказов покупателя</label
-                >
-              </div>
-            </div>
             <div id="new-order-lab-buyer-single" class="arnest-field" hidden style="grid-column: 1 / -1">
               <label for="new-order-buyer-order">Заказ покупателя</label>
               <input
@@ -3289,7 +3255,6 @@
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
       const newOrderTitle = document.getElementById("new-order-title");
-      const newOrderLabBuyerMode = document.getElementById("new-order-lab-buyer-mode");
       const newOrderLabBuyerSingle = document.getElementById("new-order-lab-buyer-single");
       const newOrderBuyerOrder = document.getElementById("new-order-buyer-order");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
@@ -3535,41 +3500,21 @@
         return n === "лаб индастриз";
       }
 
-      function getLabBuyerOrderMode() {
-        const checked = document.querySelector(
-          'input[name="lab-buyer-order-mode"]:checked',
-        );
-        return checked && checked.value === "multiple" ? "multiple" : "single";
-      }
-
-      function isLabMultipleBuyerOrdersMode(client) {
-        return isLabIndustriesClient(client) && getLabBuyerOrderMode() === "multiple";
-      }
-
       function formatAssembleProductLabel(it, snapshot) {
         const art = String(it?.article || "").trim();
         const nam = String(it?.name || "").trim();
-        if (
-          snapshot &&
-          isLabIndustriesClient(snapshot.client) &&
-          snapshot.buyer_order_mode === "multiple"
-        ) {
-          const bo = String(it?.buyer_order || "").trim();
-          const parts = [art, nam, bo].filter(Boolean);
-          return parts.length ? parts.join("-") : "—";
-        }
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
-        if (newOrderLabBuyerMode) {
-          newOrderLabBuyerMode.hidden = !lab;
+        if (newOrderLabBuyerSingle) {
+          newOrderLabBuyerSingle.hidden = !lab;
+        }
+        if (newOrderBuyerOrder) {
+          newOrderBuyerOrder.required = lab;
         }
         if (!lab) {
-          if (newOrderLabBuyerSingle) {
-            newOrderLabBuyerSingle.hidden = true;
-          }
           newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
             w.hidden = true;
           });
@@ -3578,22 +3523,10 @@
           });
           return;
         }
-        const multiple = getLabBuyerOrderMode() === "multiple";
-        if (newOrderLabBuyerSingle) {
-          newOrderLabBuyerSingle.hidden = multiple;
-        }
-        if (newOrderBuyerOrder) {
-          newOrderBuyerOrder.required = !multiple;
-        }
+        newOrderItems.querySelectorAll(".order-item-buyer-wrap").forEach((w) => {
+          w.hidden = true;
+        });
         newOrderItems.querySelectorAll(".order-item-row").forEach((row) => {
-          const wrap = row.querySelector(".order-item-buyer-wrap");
-          const inp = row.querySelector(".order-item-buyer-order");
-          if (wrap) {
-            wrap.hidden = !multiple;
-          }
-          if (inp) {
-            inp.required = multiple;
-          }
           const totalWrap = row.querySelector(".order-item-lab-total-wrap");
           if (totalWrap) {
             totalWrap.hidden = false;
@@ -3850,20 +3783,7 @@
       }
 
       function resolveLabBuyerOrderForPallet(lineIdx, orderItems, labBuyerCtx) {
-        const ctx = labBuyerCtx || {};
-        const mode = ctx.buyer_order_mode === "multiple" ? "multiple" : "single";
-        if (
-          mode === "multiple" &&
-          lineIdx !== null &&
-          lineIdx !== undefined &&
-          orderItems[lineIdx]
-        ) {
-          const bo = String(orderItems[lineIdx].buyer_order || "").trim();
-          if (bo) {
-            return bo;
-          }
-        }
-        const orderBo = String(ctx.buyer_order || "").trim();
+        const orderBo = String((labBuyerCtx || {}).buyer_order || "").trim();
         return orderBo || "—";
       }
 
@@ -7758,10 +7678,6 @@
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
         newOrderClient.value = data.client || "";
-        const labMode = data.buyer_order_mode === "multiple" ? "multiple" : "single";
-        document.querySelectorAll('input[name="lab-buyer-order-mode"]').forEach((r) => {
-          r.checked = r.value === labMode;
-        });
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = String(data.buyer_order || "").trim();
         }
@@ -7790,12 +7706,6 @@
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         addOrderItemRow();
-        const singleModeRadio = document.querySelector(
-          'input[name="lab-buyer-order-mode"][value="single"]',
-        );
-        if (singleModeRadio) {
-          singleModeRadio.checked = true;
-        }
         if (newOrderBuyerOrder) {
           newOrderBuyerOrder.value = "";
         }
@@ -7836,9 +7746,6 @@
         newOrderClient.addEventListener("input", syncNewOrderLabBuyerUi);
         newOrderClient.addEventListener("change", syncNewOrderLabBuyerUi);
       }
-      document.querySelectorAll('input[name="lab-buyer-order-mode"]').forEach((radio) => {
-        radio.addEventListener("change", syncNewOrderLabBuyerUi);
-      });
 
       newOrderCancel.addEventListener("click", () => {
         closeNewOrderModal();
@@ -7858,7 +7765,6 @@
           showNewOrderError("Добавьте хотя бы одну позицию или восстановите удалённые строки.");
           return;
         }
-        const labMultiple = isLabMultipleBuyerOrdersMode(client);
         const items = rows.map((r) => {
           const rowPayload = {
             product_id: r.querySelector(".order-item-product-id").value,
@@ -7867,10 +7773,6 @@
             quantity: r.querySelector(".order-item-qty").value,
             unit: r.querySelector(".order-item-unit").value,
           };
-          if (labMultiple) {
-            const boEl = r.querySelector(".order-item-buyer-order");
-            rowPayload.buyer_order = boEl ? String(boEl.value || "").trim() : "";
-          }
           if (isLabIndustriesClient(client)) {
             const tqEl = r.querySelector(".order-item-total-quantity");
             const tqRaw = tqEl ? String(tqEl.value || "").trim() : "";
@@ -7880,24 +7782,15 @@
           }
           return rowPayload;
         });
-        if (isLabIndustriesClient(client) && labMultiple) {
-          const missingBo = items.some((it) => !String(it.buyer_order || "").trim());
-          if (missingBo) {
-            showNewOrderError("Укажите заказ покупателя по каждой позиции.");
-            return;
-          }
-        }
         const orderPayload = { ship_date: shipDate, client, items };
         if (isLabIndustriesClient(client)) {
-          orderPayload.buyer_order_mode = getLabBuyerOrderMode();
-          if (orderPayload.buyer_order_mode === "single") {
-            const bo = newOrderBuyerOrder ? String(newOrderBuyerOrder.value || "").trim() : "";
-            if (!bo) {
-              showNewOrderError("Укажите заказ покупателя.");
-              return;
-            }
-            orderPayload.buyer_order = bo;
+          orderPayload.buyer_order_mode = "single";
+          const bo = newOrderBuyerOrder ? String(newOrderBuyerOrder.value || "").trim() : "";
+          if (!bo) {
+            showNewOrderError("Укажите заказ покупателя.");
+            return;
           }
+          orderPayload.buyer_order = bo;
         }
         const isEdit = editingOrderId != null;
         const url = isEdit ? `/api/orders/${editingOrderId}` : "/api/orders";

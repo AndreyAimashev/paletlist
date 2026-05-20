@@ -305,12 +305,8 @@ def _buyer_order_for_pallet(
     order_buyer_order: str,
     buyer_order_mode: str,
 ) -> str:
-    """Номер заказа покупателя: общий или по строке заказа (режим multiple)."""
-    mode = str(buyer_order_mode or "single").strip().lower()
-    if mode == "multiple" and line_idx is not None and 0 <= line_idx < len(items):
-        bo = str(items[line_idx].get("buyer_order") or "").strip()
-        if bo:
-            return bo
+    """Номер заказа покупателя (один на весь заказ ЛАБ)."""
+    _ = line_idx, items, buyer_order_mode
     order_bo = str(order_buyer_order or "").strip()
     return order_bo if order_bo else "—"
 

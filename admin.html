@@ -944,7 +944,8 @@
 
       .orders-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         font-size: 13px;
         line-height: 1.4;
       }
@@ -957,11 +958,22 @@
         border-bottom: 1px solid rgba(0, 200, 160, 0.12);
       }
 
+      .orders-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .orders-table thead tr {
+        background: rgb(14, 20, 32);
+      }
+
       .orders-table th {
         position: sticky;
         top: 0;
-        z-index: 1;
-        background: rgba(14, 20, 32, 0.98);
+        z-index: 11;
+        background: rgb(14, 20, 32);
+        box-shadow: 0 1px 0 rgba(0, 200, 160, 0.18);
         color: var(--accent-teal);
         font-family: "Orbitron", sans-serif;
         font-size: 11px;
@@ -971,12 +983,16 @@
         vertical-align: top;
       }
 
-      .orders-table thead th.col-date {
-        white-space: normal;
+      .orders-table tbody td {
+        background: rgba(10, 14, 23, 0.72);
       }
 
       .orders-table tbody tr:hover td {
-        background: rgba(0, 200, 160, 0.06);
+        background: rgba(0, 200, 160, 0.1);
+      }
+
+      .orders-table thead th.col-date {
+        white-space: normal;
       }
 
       .orders-table td {
@@ -2095,25 +2111,6 @@
           font-size: 12px;
           border-collapse: separate;
           border-spacing: 0;
-        }
-
-        .orders-table thead {
-          position: sticky;
-          top: 0;
-          z-index: 4;
-        }
-
-        .orders-table thead th {
-          position: sticky;
-          top: 0;
-          z-index: 5;
-          background: rgb(14, 20, 32);
-          box-shadow: 0 1px 0 rgba(0, 200, 160, 0.18);
-        }
-
-        .orders-table tbody td {
-          position: relative;
-          z-index: 0;
         }
 
         .orders-table th,

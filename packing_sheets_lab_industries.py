@@ -157,28 +157,62 @@ def _format_lab_row10_batch(raw: str) -> str:
 
 
 def _format_lab_row10_expiry(raw: str) -> str:
-    """0428 или 04/2028 → 04/2028."""
+    """ДДММГГ (030428) → 04/2028; также 0428, 04/2028."""
     s = str(raw or "").strip()
     if not s:
         return "—"
+    digits = re.sub(r"\D", "", s)
+    if len(digits) >= 6:
+        d = digits[-6:]
+        return f"{d[2:4]}/20{d[4:6]}"
     if "/" in s:
         parts = [p.strip() for p in s.split("/", 1)]
         if len(parts) == 2:
             mm_d = re.sub(r"\D", "", parts[0])
             yy_d = re.sub(r"\D", "", parts[1])
-            if len(mm_d) >= 1 and yy_d:
+            if mm_d and yy_d:
                 mm = mm_d[:2].zfill(2)
                 yy = yy_d if len(yy_d) == 4 else ("20" + yy_d.zfill(2)) if len(yy_d) <= 2 else yy_d
                 if len(yy) == 4:
                     return f"{mm}/{yy}"
-    digits = re.sub(r"\D", "", s)
-    if len(digits) >= 4:
-        mm = digits[:2].zfill(2)
-        rest = digits[2:]
-        yy = rest if len(rest) == 4 else ("20" + rest.zfill(2)) if len(rest) <= 2 else rest[:4]
-        if len(yy) == 4:
-            return f"{mm}/{yy}"
+    if len(digits) == 4:
+        return f"{digits[:2]}/20{digits[2:]}"
     return s
+
+
+def _format_lab_batch_for_barcode(raw: str) -> str:
+    """ТA127361601 → A127361601 (последняя буква префикса + цифры)."""
+    part = str(raw or "").split(",")[0].strip()
+    if not part:
+        return ""
+    compact = re.sub(r"\s+", "", part)
+    m = re.match(r"^([^\d]+)(\d+)$", compact, re.UNICODE)
+    if m:
+        letters, digits = m.group(1), m.group(2)
+        if letters:
+            return letters[-1] + digits
+        return digits
+    return compact
+
+
+def build_lab_product_gs1_128(
+    article: str, batch_raw: str, expiry_raw: str
+) -> tuple[str | None, str | None, str | None]:
+    """GS1-128: (240)артикул(10)партия(15)YYMMDD; ошибка в третьем элементе."""
+    from api_server import _arnest_first_digit_run, _arnest_yymmdd_for_barcode
+
+    art_digits = _arnest_first_digit_run(str(article or "").strip())
+    if not art_digits:
+        return None, None, "в артикуле нет цифр"
+    batch_bc = _format_lab_batch_for_barcode(batch_raw)
+    if not batch_bc:
+        return None, None, "не указана партия"
+    exp_bc = _arnest_yymmdd_for_barcode(str(expiry_raw or "").strip())
+    if not exp_bc:
+        return None, None, "срок годности: укажите 6 цифр ДДММГГ (например 030428)"
+    gs1 = f"240{art_digits}\x1d10{batch_bc}\x1d15{exp_bc}"
+    hri = f"(240){art_digits}(10){batch_bc}(15){exp_bc}"
+    return gs1, hri, None
 
 
 def _lab_draw_bold_label_tab_value(
@@ -332,6 +366,9 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 except (TypeError, ValueError):
                     total_order_qty = None
         batch_raw, expiry_raw = _lab_assemble_fields_from_pallet(pal)
+        _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
+            article, batch_raw, expiry_raw
+        )
         out.append(
             {
                 "article": article,
@@ -350,6 +387,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "lab_expiry_date": expiry_raw,
                 "row10_batch_text": _format_lab_row10_batch(batch_raw),
                 "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
+                "row11_gs1_hri": gs1_hri or "",
             }
         )
     return out
@@ -439,7 +477,7 @@ def _lab_row1_left_width_mm(
 def build_lab_industries_pallet_sheets_pdf_bytes(
     pallets: list[dict[str, Any]],
 ) -> tuple[bytes | None, str | None, str | None]:
-    """PDF: строки 1–10 (артикул … адрес производства / партия и годен до)."""
+    """PDF: строки 1–11 (артикул … партия / годен до / GS1-128 товара)."""
     from api_server import (  # noqa: PLC0415
         FPDF,
         HAVE_FPDF,
@@ -584,6 +622,35 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             row10_left_w = row4_left_w
             row10_right_w = row4_right_w
             x_row10_right = x_row4_right
+            row11_gs1_data, row11_gs1_hri, row11_gs1_err = build_lab_product_gs1_128(
+                article,
+                str(row.get("batch_number") or ""),
+                str(row.get("lab_expiry_date") or ""),
+            )
+            if row11_gs1_err or not row11_gs1_data:
+                return (
+                    None,
+                    "barcode_fetch",
+                    f"Паллета {idx}: {row11_gs1_err or 'нет данных для штрих-кода'}",
+                )
+            row11_hri_show = str(row.get("row11_gs1_hri") or "").strip() or row11_gs1_hri
+            try:
+                png_row11 = render_gs1_128_barcode_png(row11_gs1_data, write_text=False)
+            except Exception as exc:
+                return (
+                    None,
+                    "barcode_fetch",
+                    f"Паллета {idx}: {exc}",
+                )
+            dims11 = _barcode_raster_pixel_size(png_row11)
+            if not dims11:
+                return None, "pdf_build", lab_pallet_pdf_error_message("pdf_build")
+            pw11, ph11 = dims11
+            row11_bc_w = content_w - 2 * pad
+            row11_bc_h = row11_bc_w * (ph11 / pw11) * _LAB_BARCODE_HEIGHT_SCALE
+            row11_cap_fs = _arnest_barcode_caption_font_pt(pdf, row11_hri_show, row11_bc_w)
+            row11_cap_h = _LAB_BARCODE_CAPTION_GAP_MM + _LAB_BARCODE_CAPTION_LINE_H_MM
+            row11_h = pad + row11_bc_h + row11_cap_h + pad
 
             y0 = _LAB_ROW1_TOP_MM
             y_row2 = y0 + row1_h
@@ -595,6 +662,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             y_row8 = y_row7 + row7_h
             y_row9 = y_row8 + row8_h
             y_row10 = y_row9 + row9_h
+            y_row11 = y_row10 + row10_h
 
             pdf.add_page()
             pdf.set_draw_color(0, 0, 0)
@@ -615,6 +683,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             pdf.rect(x0, y_row9, content_w, row9_h)
             pdf.rect(x0, y_row10, row10_left_w, row10_h)
             pdf.rect(x_row10_right, y_row10, row10_right_w, row10_h)
+            pdf.rect(x0, y_row11, content_w, row11_h)
 
             block_top = y0 + pad
             label_y = block_top + (bc_row_h - h_txt) / 2.0
@@ -761,6 +830,31 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 h_txt,
                 fs,
                 _LAB_TAB_MM,
+            )
+
+            row11_bc_x = x0 + pad
+            row11_bc_y = y_row11 + pad
+            pdf.image(
+                io.BytesIO(png_row11),
+                x=row11_bc_x,
+                y=row11_bc_y,
+                w=row11_bc_w,
+                h=row11_bc_h,
+                keep_aspect_ratio=False,
+            )
+            y_row11_cap = row11_bc_y + row11_bc_h + _LAB_BARCODE_CAPTION_GAP_MM
+            pdf.set_font("PLCalibri", "", row11_cap_fs)
+            row11_cap_draw = (
+                row11_hri_show
+                if pdf.get_string_width(row11_hri_show) <= row11_bc_w
+                else _arnest_clip_text_to_width_mm(pdf, row11_hri_show, row11_bc_w)
+            )
+            pdf.set_xy(row11_bc_x, y_row11_cap)
+            pdf.cell(
+                row11_bc_w,
+                _LAB_BARCODE_CAPTION_LINE_H_MM,
+                row11_cap_draw or row11_hri_show,
+                align="C",
             )
 
         out = pdf.output()

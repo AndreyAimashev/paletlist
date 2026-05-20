@@ -3767,6 +3767,11 @@
         if (!s) {
           return "—";
         }
+        const digits = s.replace(/\D/g, "");
+        if (digits.length >= 6) {
+          const d = digits.slice(-6);
+          return `${d.slice(2, 4)}/20${d.slice(4, 6)}`;
+        }
         if (s.includes("/")) {
           const parts = s.split("/", 2).map((p) => p.trim());
           const mmD = (parts[0] || "").replace(/\D/g, "");
@@ -3782,16 +3787,49 @@
             }
           }
         }
-        const digits = s.replace(/\D/g, "");
-        if (digits.length >= 4) {
-          const mm = digits.slice(0, 2).padStart(2, "0");
-          let rest = digits.slice(2);
-          let yy = rest.length === 4 ? rest : rest.length <= 2 ? `20${rest.padStart(2, "0")}` : rest.slice(0, 4);
-          if (yy.length === 4) {
-            return `${mm}/${yy}`;
-          }
+        if (digits.length === 4) {
+          return `${digits.slice(0, 2)}/20${digits.slice(2)}`;
         }
         return s;
+      }
+
+      function formatLabBatchForBarcode(raw) {
+        const part = String(raw ?? "")
+          .split(",")[0]
+          .trim();
+        if (!part) {
+          return "";
+        }
+        const compact = part.replace(/\s+/g, "");
+        const m = compact.match(/^([^\d]+)(\d+)$/u);
+        if (m) {
+          const letters = m[1];
+          const digits = m[2];
+          return letters ? letters.slice(-1) + digits : digits;
+        }
+        return compact;
+      }
+
+      function formatLabExpiryForBarcode(raw) {
+        const digits = String(raw ?? "").replace(/\D/g, "");
+        if (digits.length < 6) {
+          return "";
+        }
+        const d = digits.slice(-6);
+        return d.slice(4, 6) + d.slice(2, 4) + d.slice(0, 2);
+      }
+
+      function formatLabProductGs1Hri(article, batchRaw, expiryRaw) {
+        const art = String(article ?? "").match(/\d+/);
+        if (!art) {
+          return "";
+        }
+        const batchBc = formatLabBatchForBarcode(batchRaw);
+        const expBc = formatLabExpiryForBarcode(expiryRaw);
+        if (!batchBc || !expBc) {
+          return "";
+        }
+        return `(240)${art[0]}(10)${batchBc}(15)${expBc}`;
       }
 
       function labAssembleFieldsFromPallet(pal) {
@@ -3919,6 +3957,7 @@
             lab_expiry_date: expiryRaw,
             row10_batch_text: formatLabRow10Batch(batchRaw),
             row10_expiry_text: formatLabRow10Expiry(expiryRaw),
+            row11_gs1_hri: formatLabProductGs1Hri(article || "—", batchRaw, expiryRaw),
           };
         });
       }
@@ -6793,7 +6832,7 @@
           isAssembleLabMode() && showBatch
             ? `<div class="assemble-field" style="max-width:100%">
               <label for="ale-${pIdx}-${sIdx}">Годен до:</label>
-              <input id="ale-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="labExpiryDate" autocomplete="off" value="${labExpiryVal}" />
+              <input id="ale-${pIdx}-${sIdx}" type="text" inputmode="numeric" maxlength="8" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="labExpiryDate" placeholder="Напр. 030428" title="6 цифр ДДММГГ (день, месяц, год)" autocomplete="off" value="${labExpiryVal}" />
             </div>`
             : "";
         const unirusDatesHtml = isAssembleUnirusMode()

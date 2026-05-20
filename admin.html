@@ -3462,6 +3462,18 @@
           .forEach((node) => applyUnirusDateInputValidation(node));
       }
 
+      function formatLabRow3Text(totalPieces, volumeMl) {
+        const pcs = Math.max(0, Math.round(Number(totalPieces) || 0));
+        const vol = Number(volumeMl);
+        if (!Number.isFinite(vol) || vol <= 0) {
+          return String(pcs);
+        }
+        const volInt = Math.round(vol);
+        const volS =
+          Math.abs(vol - volInt) < 1e-6 ? String(volInt) : String(vol).replace(".", ",");
+        return `${pcs} х ${volS}мл`;
+      }
+
       function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets) {
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
@@ -3471,13 +3483,18 @@
           const slots = Array.isArray(pal.slots) ? pal.slots : [];
           let article = "";
           let name = "";
+          let lineIdx = null;
           for (const s of slots) {
             const ns = normalizeSlot(s);
             if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
               continue;
             }
-            const it = items[Number(ns.lineIndex)];
+            const li = Number(ns.lineIndex);
+            const it = items[li];
             if (it) {
+              if (lineIdx === null) {
+                lineIdx = li;
+              }
               if (!article) {
                 article = String(it.article || "").trim();
               }
@@ -3490,10 +3507,29 @@
           if (!pallet_number) {
             pallet_number = String(idx + 1);
           }
+          const totalPieces =
+            lineIdx !== null
+              ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
+              : 0;
+          let volumeMl = 0;
+          if (lineIdx !== null && items[lineIdx]) {
+            volumeMl = Number(items[lineIdx].volume_ml);
+            if (!Number.isFinite(volumeMl)) {
+              const nom = nomenclatureItems.find(
+                (n) =>
+                  (n.article || "").trim() === (items[lineIdx].article || "").trim() &&
+                  (n.article || "").trim() !== "",
+              );
+              volumeMl = nom ? Number(nom.volume_ml) : 0;
+            }
+          }
           return {
             article: article || "—",
             name: name || "—",
             pallet_number,
+            total_pieces: totalPieces,
+            volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
+            row3_text: formatLabRow3Text(totalPieces, volumeMl),
           };
         });
       }

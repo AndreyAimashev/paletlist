@@ -3723,6 +3723,10 @@
         return `${String(b).replace(".", ",")} кор.`;
       }
 
+      function formatLabRow7SingleSheet() {
+        return "1 из 1";
+      }
+
       function formatLabRow6Text(totalOrderQty) {
         const n = Number(totalOrderQty);
         if (!Number.isFinite(n) || n < 0) {
@@ -3907,7 +3911,7 @@
             pallet_number = String(idx + 1);
           }
           const productive = labProductiveSlotsOnPallet(pal, items);
-          const buildRow = (lineIdx, slot, sheetI, sheetTotal) => {
+          const buildRow = (lineIdx, slot) => {
             const it = items[lineIdx];
             const article = String(it?.article || "").trim() || "—";
             const name = String(it?.name || "").trim() || "—";
@@ -3957,7 +3961,7 @@
                   ? it.total_order_quantity
                   : null,
               ),
-              row7_text: `${sheetI} из ${sheetTotal}`,
+              row7_text: formatLabRow7SingleSheet(),
               batch_number: batchRaw,
               lab_expiry_date: expiryRaw,
               row10_batch_text: formatLabRow10Batch(batchRaw),
@@ -3977,12 +3981,11 @@
                 break;
               }
             }
-            rows.push(buildRow(lineIdx, null, 1, 1));
+            rows.push(buildRow(lineIdx, null));
             return;
           }
-          const sheetTotal = productive.length;
-          productive.forEach(({ slot, lineIdx }, sheetI) => {
-            rows.push(buildRow(lineIdx, slot, sheetI + 1, sheetTotal));
+          productive.forEach(({ slot, lineIdx }) => {
+            rows.push(buildRow(lineIdx, slot));
           });
         });
         return rows;

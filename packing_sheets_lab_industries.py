@@ -362,6 +362,11 @@ def _format_lab_row7_pallet_seq(pallet_index: int, pallet_total: int) -> str:
     return f"{num} из {total}"
 
 
+def _format_lab_row7_single_sheet() -> str:
+    """На каждом листе одной физической паллеты — «1 из 1» (в т.ч. при двух партиях)."""
+    return _format_lab_row7_pallet_seq(1, 1)
+
+
 def _format_lab_row6_total_order(qty: float | None) -> str:
     """Например: 20000 шт."""
     if qty is None:
@@ -497,8 +502,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 }
             )
             continue
-        sheet_total = len(productive)
-        for sheet_i, (slot, line_idx) in enumerate(productive, start=1):
+        for _sheet_i, (slot, line_idx) in enumerate(productive, start=1):
             it = items[line_idx]
             article = str(it.get("article") or "").strip() or "—"
             name = str(it.get("name") or "").strip() or "—"
@@ -533,7 +537,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     "buyer_order": buyer_order,
                     "total_order_quantity": total_order_qty,
                     "row6_text": _format_lab_row6_total_order(total_order_qty),
-                    "row7_text": _format_lab_row7_pallet_seq(sheet_i, sheet_total),
+                    "row7_text": _format_lab_row7_single_sheet(),
                     "batch_number": batch_raw,
                     "lab_expiry_date": expiry_raw,
                     "row10_batch_text": _format_lab_row10_batch(batch_raw),
@@ -740,7 +744,7 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             x_row6_right = x_row4_right
             row7_text = str(row.get("row7_text") or "").strip()
             if not row7_text:
-                row7_text = _format_lab_row7_pallet_seq(idx, n)
+                row7_text = _format_lab_row7_single_sheet()
             row7_h = pad + _LAB_ROW7_VALUE_H_MM + pad
             row7_left_w = row4_left_w
             row7_right_w = row4_right_w

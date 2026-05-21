@@ -1111,11 +1111,40 @@
         vertical-align: middle;
       }
 
+      .orders-th-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        justify-content: flex-start;
+      }
+
       .orders-th-inner {
         display: flex;
         align-items: center;
         gap: 6px;
         flex-wrap: nowrap;
+        min-height: 1.75rem;
+      }
+
+      .orders-th-controls {
+        display: flex;
+        align-items: center;
+        min-height: 2rem;
+        margin: 0;
+      }
+
+      .orders-th-controls--empty {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .orders-th-stack .orders-filter-input,
+      .orders-th-stack .orders-th-filter-btn,
+      .orders-th-stack .orders-pct-filter-btn,
+      .orders-th-stack .orders-client-filter-btn,
+      .orders-th-stack .orders-extra-info-filter-btn {
+        margin-top: 0;
       }
 
       .orders-th-title {
@@ -1151,7 +1180,7 @@
       .orders-filter-select {
         box-sizing: border-box;
         width: 100%;
-        margin-top: 6px;
+        margin-top: 0;
         padding: 5px 8px;
         font-size: 12px;
         border-radius: 6px;
@@ -1176,7 +1205,7 @@
       .orders-pct-filter-btn {
         display: block;
         width: 100%;
-        margin-top: 6px;
+        margin-top: 0;
         box-sizing: border-box;
       }
 
@@ -1211,7 +1240,7 @@
       .orders-client-filter-btn {
         display: block;
         width: 100%;
-        margin-top: 6px;
+        margin-top: 0;
         box-sizing: border-box;
       }
 
@@ -1224,6 +1253,11 @@
       .orders-table th.col-extra-info .orders-th-title--block {
         display: block;
         width: 100%;
+        line-height: 1.25;
+      }
+
+      .orders-table thead th {
+        vertical-align: top;
       }
 
       .orders-th-filter-btn {
@@ -1242,7 +1276,7 @@
       .orders-extra-info-filter-btn {
         display: block;
         width: 100%;
-        margin-top: 6px;
+        margin-top: 0;
         box-sizing: border-box;
       }
 
@@ -2351,10 +2385,22 @@
           max-width: 5.25rem;
         }
 
+        .orders-table thead th .orders-th-stack {
+          gap: 4px;
+        }
+
+        .orders-table thead th .orders-th-inner {
+          min-height: 1.5rem;
+        }
+
+        .orders-table thead th .orders-th-controls {
+          min-height: 2.25rem;
+        }
+
         .orders-table thead th.col-date .orders-filter-input {
           width: 5.75rem;
           max-width: 100%;
-          margin-top: 4px;
+          margin-top: 0;
           padding: 6px 6px;
           font-size: 18px;
         }
@@ -2448,7 +2494,7 @@
           width: 5.75rem;
           max-width: 100%;
           box-sizing: border-box;
-          margin-top: 4px;
+          margin-top: 0;
           padding: 4px 6px;
           font-size: 17px;
         }
@@ -2475,7 +2521,7 @@
         }
 
         .orders-pct-filter-btn {
-          margin-top: 4px;
+          margin-top: 0;
           padding: 4px 5px;
           font-size: 15px;
         }
@@ -2513,7 +2559,7 @@
         }
 
         .orders-extra-info-filter-btn {
-          margin-top: 4px;
+          margin-top: 0;
           padding: 4px 6px;
           font-size: 17px;
         }
@@ -2529,7 +2575,7 @@
           vertical-align: top;
         }
 
-        .orders-table thead th.col-qty {
+        .orders-table thead th.col-qty .orders-th-title {
           font-size: 17px;
         }
 
@@ -2738,63 +2784,88 @@
                 <thead>
                   <tr>
                     <th scope="col" class="col-date">
-                      <div class="orders-th-inner">
-                        <span class="orders-th-title">Дата отгрузки</span>
-                        <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
-                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
-                        </button>
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Дата отгрузки</span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                        </div>
                       </div>
-                      <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
                     </th>
                     <th scope="col" class="col-client">
-                      <div class="orders-th-inner">
-                        <span class="orders-th-title">Клиент</span>
-                        <button type="button" class="orders-th-sort" data-orders-sort="client" title="Сортировка по клиенту" aria-label="Сортировка по клиенту">
-                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
-                        </button>
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Клиент</span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="client" title="Сортировка по клиенту" aria-label="Сортировка по клиенту">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-client-filter-btn"
+                            id="orders-filter-client-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-client-popover"
+                            title="Фильтр по клиенту"
+                          >
+                            Фильтр
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        class="orders-th-filter-btn orders-client-filter-btn"
-                        id="orders-filter-client-toggle"
-                        aria-expanded="false"
-                        aria-controls="orders-filter-client-popover"
-                        title="Фильтр по клиенту"
-                      >
-                        Фильтр
-                      </button>
                     </th>
                     <th scope="col" class="col-pct">
-                      <div class="orders-th-inner">
-                        <span class="orders-th-title">Собран (%)</span>
-                        <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
-                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
-                        </button>
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Собран (%)</span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-pct-filter-btn"
+                            id="orders-filter-pct-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-pct-popover"
+                            title="Фильтр по проценту сборки"
+                          >
+                            Фильтр
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        class="orders-th-filter-btn orders-pct-filter-btn"
-                        id="orders-filter-pct-toggle"
-                        aria-expanded="false"
-                        aria-controls="orders-filter-pct-popover"
-                        title="Фильтр по проценту сборки"
-                      >
-                        Фильтр
-                      </button>
                     </th>
-                    <th scope="col" class="col-qty">Количество</th>
+                    <th scope="col" class="col-qty">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Количество</span>
+                        </div>
+                        <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
+                      </div>
+                    </th>
                     <th scope="col" class="col-extra-info">
-                      <span class="orders-th-title orders-th-title--block">Доп. информация</span>
-                      <button
-                        type="button"
-                        class="orders-th-filter-btn orders-extra-info-filter-btn"
-                        id="orders-filter-extra-toggle"
-                        aria-expanded="false"
-                        aria-controls="orders-filter-extra-popover"
-                        title="Фильтр по доп. информации"
-                      >
-                        Фильтр
-                      </button>
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title orders-th-title--block">Доп. информация</span>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-extra-info-filter-btn"
+                            id="orders-filter-extra-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-extra-popover"
+                            title="Фильтр по доп. информации"
+                          >
+                            Фильтр
+                          </button>
+                        </div>
+                      </div>
                     </th>
                     <th scope="col" class="col-actions">Действия</th>
                   </tr>

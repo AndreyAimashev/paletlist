@@ -1127,6 +1127,33 @@
         min-height: 1.75rem;
       }
 
+      /* Дата: поле фильтра на второй строке, ширина = строка «заголовок + сортировка» */
+      .orders-th-inner--date-filter {
+        flex-wrap: wrap;
+        align-items: center;
+        width: max-content;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .orders-th-inner--date-filter .orders-th-title {
+        flex: 0 1 auto;
+        min-width: 0;
+      }
+
+      .orders-th-inner--date-filter .orders-th-sort {
+        flex: 0 0 auto;
+      }
+
+      .orders-th-inner--date-filter .orders-filter-input {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        margin-top: 0;
+        box-sizing: border-box;
+      }
+
       .orders-th-controls {
         display: flex;
         align-items: center;
@@ -2373,34 +2400,34 @@
           white-space: nowrap;
         }
 
-        .orders-table thead th.col-date .orders-th-stack {
-          display: inline-grid;
-          grid-template-columns: max-content;
+        .orders-table thead th.col-date .orders-th-inner--date-filter {
           width: max-content;
           max-width: 100%;
           gap: 4px;
-          vertical-align: top;
+          min-height: 0;
         }
 
-        .orders-table thead th.col-date .orders-th-inner {
-          display: flex;
-          width: auto;
-          max-width: none;
-          min-width: 0;
-        }
-
-        .orders-table thead th.col-date .orders-th-controls {
-          width: auto;
-          min-width: 0;
-          justify-self: stretch;
-        }
-
-        .orders-table thead th.col-date .orders-th-title {
-          flex: 0 1 auto;
+        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-th-title {
           font-size: 15px;
           line-height: 1.2;
           white-space: normal;
           max-width: 5.25rem;
+        }
+
+        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-th-sort {
+          margin-left: auto;
+        }
+
+        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-filter-input {
+          display: block;
+          flex: none;
+          width: auto;
+          min-width: 0;
+          max-width: 100%;
+          margin-top: 0;
+          padding: 6px 6px;
+          font-size: 18px;
+          box-sizing: border-box;
         }
 
         .orders-table thead th .orders-th-stack {
@@ -2413,16 +2440,6 @@
 
         .orders-table thead th .orders-th-controls {
           min-height: 2.25rem;
-        }
-
-        .orders-table thead th.col-date .orders-filter-input {
-          width: 100%;
-          min-width: 0;
-          max-width: none;
-          margin-top: 0;
-          padding: 6px 6px;
-          font-size: 18px;
-          box-sizing: border-box;
         }
 
         .orders-date-cell {
@@ -2804,16 +2821,12 @@
                 <thead>
                   <tr>
                     <th scope="col" class="col-date">
-                      <div class="orders-th-stack">
-                        <div class="orders-th-inner">
-                          <span class="orders-th-title">Дата отгрузки</span>
-                          <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
-                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
-                          </button>
-                        </div>
-                        <div class="orders-th-controls">
-                          <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
-                        </div>
+                      <div class="orders-th-inner orders-th-inner--date-filter">
+                        <span class="orders-th-title">Дата отгрузки</span>
+                        <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
+                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                        </button>
+                        <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
                       </div>
                     </th>
                     <th scope="col" class="col-client">
@@ -6080,6 +6093,46 @@
         }, 220);
       }
 
+      let ordersDateFilterWidthRaf = 0;
+
+      /** На мобиле: ширина поля «Содержит…» = от левого края блока до правого края кнопки ⇅ */
+      function syncOrdersDateFilterInputWidth() {
+        const mq = window.matchMedia("(max-width: 768px)");
+        const input = document.getElementById("orders-filter-ship");
+        if (!input) {
+          return;
+        }
+        if (!mq.matches) {
+          input.style.width = "";
+          input.style.maxWidth = "";
+          return;
+        }
+        const inner = document.querySelector("thead th.col-date .orders-th-inner--date-filter");
+        const sort = inner?.querySelector(".orders-th-sort");
+        if (!inner || !sort) {
+          return;
+        }
+        const innerRect = inner.getBoundingClientRect();
+        const sortRect = sort.getBoundingClientRect();
+        const w = Math.ceil(sortRect.right - innerRect.left);
+        if (w > 0) {
+          input.style.width = `${w}px`;
+          input.style.maxWidth = "100%";
+        }
+      }
+
+      function scheduleSyncOrdersDateFilterInputWidth() {
+        if (ordersDateFilterWidthRaf) {
+          cancelAnimationFrame(ordersDateFilterWidthRaf);
+        }
+        ordersDateFilterWidthRaf = requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            ordersDateFilterWidthRaf = 0;
+            syncOrdersDateFilterInputWidth();
+          });
+        });
+      }
+
       function renderOrderRowActions(orderId, variant) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
@@ -6104,17 +6157,20 @@
         updateOrdersClientFilterToggle();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
+          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         if (!cachedOrdersListRows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
+          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         const rows = getOrdersRowsForDisplay();
         if (!rows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Нет заказов по текущим фильтрам.</td></tr>";
+          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         ordersTableBody.innerHTML = rows
@@ -6152,6 +6208,7 @@
                 </tr>`;
           })
           .join("");
+        scheduleSyncOrdersDateFilterInputWidth();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -6676,6 +6733,7 @@
               "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
           }
           syncOrdersSortIndicators();
+          scheduleSyncOrdersDateFilterInputWidth();
         }
       }
 
@@ -7618,6 +7676,12 @@
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
       ensureOrdersExtraInfoFilterPopoverMounted();
+
+      window.addEventListener("resize", scheduleSyncOrdersDateFilterInputWidth);
+      const ordersDateFilterHead = document.querySelector("thead th.col-date");
+      if (ordersDateFilterHead && typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(() => scheduleSyncOrdersDateFilterInputWidth()).observe(ordersDateFilterHead);
+      }
 
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {

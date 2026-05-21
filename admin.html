@@ -1091,9 +1091,18 @@
         white-space: nowrap;
       }
 
-      /* Дубликат кнопок под датой — только мобильная вёрстка (десктоп скрыт) */
-      .orders-row-actions.orders-row-actions--mobile {
+      /* Дубликаты кнопок в дате / клиенте — только мобильная вёрстка (десктоп скрыт) */
+      .orders-row-actions.orders-row-actions--mobile-date,
+      .orders-row-actions.orders-row-actions--mobile-client {
         display: none;
+      }
+
+      .orders-client-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        min-width: 0;
       }
 
       .orders-table .col-actions {
@@ -2317,9 +2326,9 @@
 
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: 142px;
-          max-width: 38vw;
-          min-width: 132px;
+          width: auto;
+          max-width: 28vw;
+          min-width: 0;
           padding-left: 6px;
           padding-right: 6px;
           vertical-align: top;
@@ -2341,34 +2350,38 @@
           max-width: 100%;
         }
 
-        /* Кнопки под датой: +50% к 40px, сетка 2×2 */
-        .orders-row-actions.orders-row-actions--mobile {
-          display: grid;
-          grid-template-columns: repeat(2, 60px);
-          grid-template-rows: repeat(2, 60px);
-          gap: 6px;
+        /* Кнопки: 2 под датой, 2 под клиентом — столбиком 1×2 */
+        .orders-row-actions.orders-row-actions--mobile-date,
+        .orders-row-actions.orders-row-actions--mobile-client {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
           width: max-content;
           max-width: 100%;
-          justify-content: start;
-          align-content: start;
         }
 
-        .orders-row-actions.orders-row-actions--mobile .icon-btn {
-          width: 60px;
-          height: 60px;
-          border-radius: 10px;
+        .orders-row-actions.orders-row-actions--mobile-date .icon-btn,
+        .orders-row-actions.orders-row-actions--mobile-client .icon-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 8px;
         }
 
-        .orders-row-actions.orders-row-actions--mobile .icon-btn svg {
-          width: 24px;
-          height: 24px;
+        .orders-row-actions.orders-row-actions--mobile-date .icon-btn svg,
+        .orders-row-actions.orders-row-actions--mobile-client .icon-btn svg {
+          width: 20px;
+          height: 20px;
+        }
+
+        .orders-client-cell {
+          gap: 4px;
         }
 
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
-          width: 4.75rem;
-          max-width: 20vw;
-          min-width: 3.25rem;
+          width: auto;
+          max-width: 26vw;
+          min-width: 0;
           padding-left: 6px;
           padding-right: 6px;
           font-size: 11px;
@@ -5923,16 +5936,20 @@
         }, 220);
       }
 
-      function renderOrderRowActions(orderId, forMobileUnderDate) {
+      function renderOrderRowActions(orderId, variant) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
-        const mobileClass = forMobileUnderDate ? " orders-row-actions--mobile" : "";
-        return `<div class="orders-row-actions${mobileClass}">
-            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактирование">${ORDER_ROW_ICON_EDIT}</button>
-            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка">${ORDER_ROW_ICON_ASSEMBLE}</button>
-            <button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Паллетные листы">${ORDER_ROW_ICON_PALLET}</button>
-            <button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>
-          </div>`;
+        const editBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактировать заказ">${ORDER_ROW_ICON_EDIT}</button>`;
+        const assembleBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка заказа">${ORDER_ROW_ICON_ASSEMBLE}</button>`;
+        const palletBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Сформировать паллетные листы">${ORDER_ROW_ICON_PALLET}</button>`;
+        const deleteBtn = `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
+        if (variant === "mobile-date") {
+          return `<div class="orders-row-actions orders-row-actions--mobile-date">${editBtn}${assembleBtn}</div>`;
+        }
+        if (variant === "mobile-client") {
+          return `<div class="orders-row-actions orders-row-actions--mobile-client">${palletBtn}${deleteBtn}</div>`;
+        }
+        return `<div class="orders-row-actions">${editBtn}${assembleBtn}${palletBtn}${deleteBtn}</div>`;
       }
 
       function renderOrdersTable() {
@@ -5968,16 +5985,22 @@
             const qtyCellHtml = skippedNote
               ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit)}${skippedNote}</div>`
               : formatOrderQuantityCell(o, ordersNamesDisplayUnit);
-            const actionsHtml = renderOrderRowActions(o.id, false);
-            const actionsMobileHtml = renderOrderRowActions(o.id, true);
+            const actionsHtml = renderOrderRowActions(o.id, "desktop");
+            const actionsMobileDateHtml = renderOrderRowActions(o.id, "mobile-date");
+            const actionsMobileClientHtml = renderOrderRowActions(o.id, "mobile-client");
             return `<tr>
                   <td class="col-date">
                     <div class="orders-date-cell">
                       <span class="orders-date-text">${escapeXml(o.ship_date || "—")}</span>
-                      ${actionsMobileHtml}
+                      ${actionsMobileDateHtml}
                     </div>
                   </td>
-                  <td class="col-client">${escapeXml(o.client || "—")}</td>
+                  <td class="col-client">
+                    <div class="orders-client-cell">
+                      <span class="orders-client-text">${escapeXml(o.client || "—")}</span>
+                      ${actionsMobileClientHtml}
+                    </div>
+                  </td>
                   <td class="${pctCellClass}">${formatOrderAssembledPctCell(o)}</td>
                   <td class="col-qty">${qtyCellHtml}</td>
                   <td class="col-extra-info">${escapeXml(o.extra_info || "—")}</td>

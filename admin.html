@@ -1105,7 +1105,7 @@
         min-width: 0;
       }
 
-      .orders-client-text {
+      .orders-table tbody .orders-client-text {
         display: block;
         overflow-wrap: anywhere;
         word-break: break-word;
@@ -2500,11 +2500,17 @@
           min-width: 0;
         }
 
-        .orders-client-text {
+        .orders-table tbody .orders-client-text {
           font-size: 20px;
           line-height: 1.35;
           max-width: 100%;
           white-space: normal;
+        }
+
+        .orders-table thead th.col-client .orders-th-title {
+          white-space: nowrap;
+          word-break: normal;
+          overflow-wrap: normal;
         }
 
         .orders-table thead th.col-client,

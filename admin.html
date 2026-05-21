@@ -2451,6 +2451,13 @@
 
         .orders-table tbody td.col-date {
           white-space: nowrap;
+          height: 1px;
+        }
+
+        .orders-date-cell,
+        .orders-client-cell {
+          height: 100%;
+          box-sizing: border-box;
         }
 
         .orders-date-cell {
@@ -2469,7 +2476,7 @@
           max-width: 100%;
         }
 
-        /* Кнопки: 2 под датой, 2 под клиентом — в ряд */
+        /* Кнопки: 2 под датой + 2 под клиентом — в один ряд по вертикали (низ ячейки строки) */
         .orders-row-actions.orders-row-actions--mobile-date,
         .orders-row-actions.orders-row-actions--mobile-client {
           display: flex;
@@ -2478,6 +2485,8 @@
           gap: 4px;
           width: max-content;
           max-width: 100%;
+          margin-top: auto;
+          flex-shrink: 0;
         }
 
         .orders-row-actions.orders-row-actions--mobile-date .icon-btn,
@@ -2498,6 +2507,7 @@
           width: 100%;
           max-width: 100%;
           min-width: 0;
+          align-items: flex-start;
         }
 
         .orders-table tbody .orders-client-text {
@@ -2525,6 +2535,7 @@
 
         .orders-table tbody td.col-client {
           white-space: normal;
+          height: 1px;
         }
 
         .orders-table thead th.col-pct,

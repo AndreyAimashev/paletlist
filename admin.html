@@ -3725,8 +3725,6 @@
         return `${nS} шт`;
       }
 
-      const LAB_MAX_BATCHES_PER_PALLET_SLOT = 2;
-
       function formatLabSingleBatchDisplay(part) {
         const p = String(part ?? "").trim();
         if (!p) {
@@ -3743,11 +3741,11 @@
       }
 
       function formatLabRow10BatchLines(raw) {
-        const parts = parseBatchNumbers(raw).slice(0, LAB_MAX_BATCHES_PER_PALLET_SLOT);
-        if (!parts.length) {
+        const part = normalizeLabBatchNumberField(raw);
+        if (!part) {
           return ["—"];
         }
-        return parts.map((p) => formatLabSingleBatchDisplay(p));
+        return [formatLabSingleBatchDisplay(part)];
       }
 
       function formatLabRow10Batch(raw) {
@@ -3755,9 +3753,14 @@
       }
 
       function normalizeLabBatchNumberField(raw) {
-        return formatBatchNumbers(
-          parseBatchNumbers(raw).slice(0, LAB_MAX_BATCHES_PER_PALLET_SLOT),
-        );
+        const s = String(raw ?? "").trim();
+        if (!s) {
+          return "";
+        }
+        if (s.includes(",")) {
+          return s.split(",")[0].trim();
+        }
+        return s;
       }
 
       function formatLabRow10Expiry(raw) {
@@ -3859,6 +3862,23 @@
         return orderBo || "—";
       }
 
+      function labProductiveSlotsOnPallet(pal, items) {
+        const out = [];
+        const slots = Array.isArray(pal?.slots) ? pal.slots : [];
+        for (const s of slots) {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            continue;
+          }
+          const li = Number(ns.lineIndex);
+          if (!items[li]) {
+            continue;
+          }
+          out.push({ slot: s, lineIdx: li, normalized: ns });
+        }
+        return out;
+      }
+
       function buildLabPalletPdfPayloadFromDraft(orderItems, draftPallets, labBuyerCtx) {
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
@@ -3873,89 +3893,92 @@
               }
             : null);
         const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
-        const palletTotal = sortedPallets.length;
-        return sortedPallets.map((pal, idx) => {
-          const slots = Array.isArray(pal.slots) ? pal.slots : [];
-          let article = "";
-          let name = "";
-          let lineIdx = null;
-          for (const s of slots) {
-            const ns = normalizeSlot(s);
-            if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
-              continue;
-            }
-            const li = Number(ns.lineIndex);
-            const it = items[li];
-            if (it) {
-              if (lineIdx === null) {
-                lineIdx = li;
-              }
-              if (!article) {
-                article = String(it.article || "").trim();
-              }
-              if (!name) {
-                name = String(it.name || "").trim();
-              }
-            }
-          }
+        const rows = [];
+        sortedPallets.forEach((pal, idx) => {
           let pallet_number = String(pal.palletNumber ?? "").trim();
           if (!pallet_number) {
             pallet_number = String(idx + 1);
           }
-          const totalPieces =
-            lineIdx !== null
-              ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
-              : 0;
-          let volumeMl = 0;
-          let volumeUnit = "ml";
-          if (lineIdx !== null && items[lineIdx]) {
-            volumeMl = Number(items[lineIdx].volume_ml);
-            volumeUnit = normalizeVolumeUnit(items[lineIdx].volume_unit);
+          const productive = labProductiveSlotsOnPallet(pal, items);
+          const buildRow = (lineIdx, slot, sheetI, sheetTotal) => {
+            const it = items[lineIdx];
+            const article = String(it?.article || "").trim() || "—";
+            const name = String(it?.name || "").trim() || "—";
+            const ns = slot ? normalizeSlot(slot) : null;
+            const slotPieces = ns
+              ? allocationToPieces(it, slotToAlloc(ns))
+              : lineIdx !== null
+                ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
+                : 0;
+            const boxesOnPallet = ns
+              ? allocationToBoxes(it, slotToAlloc(ns))
+              : computeArnestPalletBoxesQty(pal, items);
+            let volumeMl = Number(it?.volume_ml);
+            let volumeUnit = normalizeVolumeUnit(it?.volume_unit);
             if (!Number.isFinite(volumeMl)) {
               const nom = nomenclatureItems.find(
                 (n) =>
-                  (n.article || "").trim() === (items[lineIdx].article || "").trim() &&
+                  (n.article || "").trim() === (it?.article || "").trim() &&
                   (n.article || "").trim() !== "",
               );
               volumeMl = nom ? Number(nom.volume_ml) : 0;
               volumeUnit = nom ? normalizeVolumeUnit(nom.volume_unit) : "ml";
             }
-          }
-          const boxesOnPallet = computeArnestPalletBoxesQty(pal, items);
-          const { batchRaw, expiryRaw } = labAssembleFieldsFromPallet(pal);
-          return {
-            article: article || "—",
-            name: name || "—",
-            pallet_number,
-            total_pieces: totalPieces,
-            volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
-            volume_unit: volumeUnit,
-            row3_text: formatLabRow3Text(totalPieces, volumeMl, volumeUnit),
-            boxes_on_pallet: boxesOnPallet,
-            row4_text: formatLabRow4Text(boxesOnPallet),
-            buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
-            total_order_quantity:
-              lineIdx !== null &&
-              items[lineIdx] &&
-              items[lineIdx].total_order_quantity != null &&
-              items[lineIdx].total_order_quantity !== ""
-                ? Number(items[lineIdx].total_order_quantity)
-                : null,
-            row6_text:
-              lineIdx !== null &&
-              items[lineIdx] &&
-              items[lineIdx].total_order_quantity != null &&
-              items[lineIdx].total_order_quantity !== ""
-                ? formatLabRow6Text(items[lineIdx].total_order_quantity)
-                : formatLabRow6Text(null),
-            row7_text: `${idx + 1} из ${palletTotal}`,
-            batch_number: batchRaw,
-            lab_expiry_date: expiryRaw,
-            row10_batch_text: formatLabRow10Batch(batchRaw),
-            row10_expiry_text: formatLabRow10Expiry(expiryRaw),
-            row11_gs1_hri: formatLabProductGs1Hri(article || "—", batchRaw, expiryRaw),
+            const batchRaw = slot
+              ? normalizeLabBatchNumberField(slot.batchNumber ?? "")
+              : labAssembleFieldsFromPallet(pal).batchRaw;
+            const expiryRaw = slot
+              ? String(slot.labExpiryDate ?? "").trim()
+              : labAssembleFieldsFromPallet(pal).expiryRaw;
+            return {
+              article,
+              name,
+              pallet_number,
+              total_pieces: slotPieces,
+              volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
+              volume_unit: volumeUnit,
+              row3_text: formatLabRow3Text(slotPieces, volumeMl, volumeUnit),
+              boxes_on_pallet: boxesOnPallet,
+              row4_text: formatLabRow4Text(boxesOnPallet),
+              buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
+              total_order_quantity:
+                it?.total_order_quantity != null && it?.total_order_quantity !== ""
+                  ? Number(it.total_order_quantity)
+                  : null,
+              row6_text: formatLabRow6Text(
+                it?.total_order_quantity != null && it?.total_order_quantity !== ""
+                  ? it.total_order_quantity
+                  : null,
+              ),
+              row7_text: `${sheetI} из ${sheetTotal}`,
+              batch_number: batchRaw,
+              lab_expiry_date: expiryRaw,
+              row10_batch_text: formatLabRow10Batch(batchRaw),
+              row10_expiry_text: formatLabRow10Expiry(expiryRaw),
+              row11_gs1_hri: formatLabProductGs1Hri(article, batchRaw, expiryRaw),
+            };
           };
+          if (!productive.length) {
+            let lineIdx = null;
+            for (const s of Array.isArray(pal.slots) ? pal.slots : []) {
+              const ns = normalizeSlot(s);
+              if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+                continue;
+              }
+              lineIdx = Number(ns.lineIndex);
+              if (items[lineIdx]) {
+                break;
+              }
+            }
+            rows.push(buildRow(lineIdx, null, 1, 1));
+            return;
+          }
+          const sheetTotal = productive.length;
+          productive.forEach(({ slot, lineIdx }, sheetI) => {
+            rows.push(buildRow(lineIdx, slot, sheetI + 1, sheetTotal));
+          });
         });
+        return rows;
       }
 
       function buildArnestPalletPdfPayloadFromDraft(orderItems, draftPallets) {
@@ -4062,9 +4085,9 @@
         }
         const allParts = parseBatchNumbers(input.value);
         const lab = isAssembleLabMode();
-        if (lab && allParts.length > LAB_MAX_BATCHES_PER_PALLET_SLOT) {
+        if (lab && allParts.length > 1) {
           input.setCustomValidity(
-            "Для ЛАБ Индастриз на одной позиции паллеты — не более 2 партий через запятую.",
+            "Укажите одну партию. Для второй партии добавьте строку товара на этом паллете.",
           );
           input.reportValidity();
         } else {
@@ -6879,12 +6902,12 @@
         const batchPlaceholder = isAssembleUnirusMode()
           ? "Укажите партию"
           : isAssembleLabMode()
-            ? "До 2 партий через запятую"
+            ? "Укажите партию"
             : "Партии через запятую";
         const batchTitle = isAssembleUnirusMode()
           ? ""
           : isAssembleLabMode()
-            ? ' title="Не более 2 партий через запятую, пробелы после запятой не учитываются"'
+            ? ' title="Одна партия на строку. Для другой партии добавьте строку товара на паллете"'
             : ' title="Несколько партий: через запятую, пробелы после запятой не учитываются"';
         const umVal = escapeXml(String(slot.unirusMfgDate ?? ""));
         const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
@@ -7119,9 +7142,9 @@
           if (t.dataset.field === "batchNumber") {
             if (isAssembleLabMode()) {
               const n = parseBatchNumbers(t.value).length;
-              if (n > LAB_MAX_BATCHES_PER_PALLET_SLOT) {
+              if (n > 1) {
                 t.setCustomValidity(
-                  "Для ЛАБ Индастриз на одной позиции паллеты — не более 2 партий через запятую.",
+                  "Укажите одну партию. Для второй партии добавьте строку товара на этом паллете.",
                 );
               } else {
                 t.setCustomValidity("");

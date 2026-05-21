@@ -146,11 +146,17 @@ def _lab_assemble_fields_from_pallet(pal: dict[str, Any]) -> tuple[str, str]:
     return batch_raw, expiry_raw
 
 
-_LAB_MAX_BATCHES_PER_SLOT = 2
+def _lab_normalize_batch_single(raw: str) -> str:
+    """Одна партия на строку товара на паллете (без перечисления через запятую)."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    return s.split(",")[0].strip()
 
 
-def _lab_batch_parts(raw: str, max_parts: int = _LAB_MAX_BATCHES_PER_SLOT) -> list[str]:
-    return [p.strip() for p in str(raw or "").split(",") if p.strip()][:max_parts]
+def _lab_batch_parts(raw: str, max_parts: int = 1) -> list[str]:
+    part = _lab_normalize_batch_single(raw)
+    return [part] if part else []
 
 
 def _format_lab_single_batch_display(part: str) -> str:
@@ -167,11 +173,11 @@ def _format_lab_single_batch_display(part: str) -> str:
 
 
 def _format_lab_row10_batch_lines(raw: str) -> list[str]:
-    """До двух партий — каждая строка для столбика в рамке строки 10."""
-    parts = _lab_batch_parts(raw, _LAB_MAX_BATCHES_PER_SLOT)
-    if not parts:
+    """Одна партия на паллетный лист."""
+    part = _lab_normalize_batch_single(raw)
+    if not part:
         return ["—"]
-    return [_format_lab_single_batch_display(p) for p in parts]
+    return [_format_lab_single_batch_display(part)]
 
 
 def _format_lab_row10_batch(raw: str) -> str:
@@ -303,6 +309,52 @@ def _boxes_on_pallet(
     return total
 
 
+def _pieces_on_slot(items: list[dict[str, Any]], slot: dict[str, Any]) -> float:
+    from packing_sheets_generic import (
+        _allocation_to_pieces,
+        _normalize_slot,
+        _slot_to_alloc,
+    )
+
+    ns = _normalize_slot(slot)
+    li = ns["lineIndex"]
+    if li is None or li < 0 or li >= len(items):
+        return 0.0
+    return float(_allocation_to_pieces(items[li], _slot_to_alloc(ns)) or 0)
+
+
+def _boxes_on_slot(items: list[dict[str, Any]], slot: dict[str, Any]) -> float:
+    from packing_sheets_generic import (
+        _allocation_to_boxes,
+        _normalize_slot,
+        _slot_to_alloc,
+    )
+
+    ns = _normalize_slot(slot)
+    li = ns["lineIndex"]
+    if li is None or li < 0 or li >= len(items):
+        return 0.0
+    return float(_allocation_to_boxes(items[li], _slot_to_alloc(ns)) or 0)
+
+
+def _lab_productive_slots(
+    pal: dict[str, Any], items: list[dict[str, Any]]
+) -> list[tuple[dict[str, Any], int]]:
+    """Слоты паллеты с выбранной позицией заказа — по одному листу PDF на слот."""
+    from packing_sheets_generic import _normalize_slot
+
+    out: list[tuple[dict[str, Any], int]] = []
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        ns = _normalize_slot(slot)
+        li = ns["lineIndex"]
+        if li is None or li < 0 or li >= len(items):
+            continue
+        out.append((slot, li))
+    return out
+
+
 def _format_lab_row7_pallet_seq(pallet_index: int, pallet_total: int) -> str:
     """Например: 1 из 10."""
     total = max(1, int(pallet_total))
@@ -395,54 +447,100 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
     out: list[dict[str, Any]] = []
-    pallet_total = len(pallets)
     for idx, pal in enumerate(pallets, start=1):
         pnum = str(pal.get("palletNumber") or "").strip()
         if not pnum:
             pnum = str(idx)
-        line_idx, article, name = _first_line_on_pallet(pal, items)
-        total_pcs = totals.get(line_idx, 0.0) if line_idx is not None else 0.0
-        boxes_on_pal = _boxes_on_pallet(pal, items)
-        vol = 0.0
-        vol_unit = "ml"
-        if line_idx is not None and 0 <= line_idx < len(items):
-            vol = float(items[line_idx].get("volume_ml") or 0)
-            vol_unit = str(items[line_idx].get("volume_unit") or "ml")
-        buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
-        total_order_qty = None
-        if line_idx is not None and 0 <= line_idx < len(items):
-            raw_tq = items[line_idx].get("total_order_quantity")
+        productive = _lab_productive_slots(pal, items)
+        if not productive:
+            line_idx, article, name = _first_line_on_pallet(pal, items)
+            total_pcs = totals.get(line_idx, 0.0) if line_idx is not None else 0.0
+            boxes_on_pal = _boxes_on_pallet(pal, items)
+            vol = 0.0
+            vol_unit = "ml"
+            if line_idx is not None and 0 <= line_idx < len(items):
+                vol = float(items[line_idx].get("volume_ml") or 0)
+                vol_unit = str(items[line_idx].get("volume_unit") or "ml")
+            buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
+            total_order_qty = None
+            if line_idx is not None and 0 <= line_idx < len(items):
+                raw_tq = items[line_idx].get("total_order_quantity")
+                if raw_tq is not None:
+                    try:
+                        total_order_qty = float(raw_tq)
+                    except (TypeError, ValueError):
+                        total_order_qty = None
+            batch_raw, expiry_raw = _lab_assemble_fields_from_pallet(pal)
+            _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
+                article, batch_raw, expiry_raw
+            )
+            out.append(
+                {
+                    "article": article,
+                    "name": name,
+                    "pallet_number": pnum,
+                    "total_pieces": total_pcs,
+                    "volume_ml": vol,
+                    "volume_unit": vol_unit,
+                    "row3_text": _format_lab_row3_text(total_pcs, vol, vol_unit),
+                    "boxes_on_pallet": boxes_on_pal,
+                    "row4_text": _format_lab_row4_boxes(boxes_on_pal),
+                    "buyer_order": buyer_order,
+                    "total_order_quantity": total_order_qty,
+                    "row6_text": _format_lab_row6_total_order(total_order_qty),
+                    "row7_text": _format_lab_row7_pallet_seq(1, 1),
+                    "batch_number": batch_raw,
+                    "lab_expiry_date": expiry_raw,
+                    "row10_batch_text": _format_lab_row10_batch(batch_raw),
+                    "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
+                    "row11_gs1_hri": gs1_hri or "",
+                }
+            )
+            continue
+        sheet_total = len(productive)
+        for sheet_i, (slot, line_idx) in enumerate(productive, start=1):
+            it = items[line_idx]
+            article = str(it.get("article") or "").strip() or "—"
+            name = str(it.get("name") or "").strip() or "—"
+            slot_pcs = _pieces_on_slot(items, slot)
+            boxes_on_pal = _boxes_on_slot(items, slot)
+            vol = float(it.get("volume_ml") or 0)
+            vol_unit = str(it.get("volume_unit") or "ml")
+            buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
+            total_order_qty = None
+            raw_tq = it.get("total_order_quantity")
             if raw_tq is not None:
                 try:
                     total_order_qty = float(raw_tq)
                 except (TypeError, ValueError):
                     total_order_qty = None
-        batch_raw, expiry_raw = _lab_assemble_fields_from_pallet(pal)
-        _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
-            article, batch_raw, expiry_raw
-        )
-        out.append(
-            {
-                "article": article,
-                "name": name,
-                "pallet_number": pnum,
-                "total_pieces": total_pcs,
-                "volume_ml": vol,
-                "volume_unit": vol_unit,
-                "row3_text": _format_lab_row3_text(total_pcs, vol, vol_unit),
-                "boxes_on_pallet": boxes_on_pal,
-                "row4_text": _format_lab_row4_boxes(boxes_on_pal),
-                "buyer_order": buyer_order,
-                "total_order_quantity": total_order_qty,
-                "row6_text": _format_lab_row6_total_order(total_order_qty),
-                "row7_text": _format_lab_row7_pallet_seq(idx, pallet_total),
-                "batch_number": batch_raw,
-                "lab_expiry_date": expiry_raw,
-                "row10_batch_text": _format_lab_row10_batch(batch_raw),
-                "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
-                "row11_gs1_hri": gs1_hri or "",
-            }
-        )
+            batch_raw = _lab_normalize_batch_single(str(slot.get("batchNumber") or ""))
+            expiry_raw = str(slot.get("labExpiryDate") or "").strip()
+            _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
+                article, batch_raw, expiry_raw
+            )
+            out.append(
+                {
+                    "article": article,
+                    "name": name,
+                    "pallet_number": pnum,
+                    "total_pieces": slot_pcs,
+                    "volume_ml": vol,
+                    "volume_unit": vol_unit,
+                    "row3_text": _format_lab_row3_text(slot_pcs, vol, vol_unit),
+                    "boxes_on_pallet": boxes_on_pal,
+                    "row4_text": _format_lab_row4_boxes(boxes_on_pal),
+                    "buyer_order": buyer_order,
+                    "total_order_quantity": total_order_qty,
+                    "row6_text": _format_lab_row6_total_order(total_order_qty),
+                    "row7_text": _format_lab_row7_pallet_seq(sheet_i, sheet_total),
+                    "batch_number": batch_raw,
+                    "lab_expiry_date": expiry_raw,
+                    "row10_batch_text": _format_lab_row10_batch(batch_raw),
+                    "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
+                    "row11_gs1_hri": gs1_hri or "",
+                }
+            )
     return out
 
 

@@ -1127,30 +1127,38 @@
         min-height: 1.75rem;
       }
 
-      /* Дата: поле фильтра на второй строке, ширина = строка «заголовок + сортировка» */
+      /* Дата: строка 1 — заголовок + сортировка; строка 2 — фильтр */
       .orders-th-inner--date-filter {
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: minmax(0, max-content) auto;
+        grid-template-rows: auto auto;
         align-items: center;
+        gap: 6px;
         width: max-content;
         max-width: 100%;
         box-sizing: border-box;
       }
 
       .orders-th-inner--date-filter .orders-th-title {
-        flex: 0 1 auto;
+        grid-column: 1;
+        grid-row: 1;
         min-width: 0;
       }
 
       .orders-th-inner--date-filter .orders-th-sort {
-        flex: 0 0 auto;
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
       }
 
       .orders-th-inner--date-filter .orders-filter-input {
-        flex: 1 1 100%;
+        grid-column: 1 / -1;
+        grid-row: 2;
         width: 100%;
         min-width: 0;
         max-width: 100%;
         margin-top: 0;
+        justify-self: start;
         box-sizing: border-box;
       }
 
@@ -2401,8 +2409,6 @@
         }
 
         .orders-table thead th.col-date .orders-th-inner--date-filter {
-          width: max-content;
-          max-width: 100%;
           gap: 4px;
           min-height: 0;
         }
@@ -2414,20 +2420,12 @@
           max-width: 5.25rem;
         }
 
-        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-th-sort {
-          margin-left: auto;
-        }
-
         .orders-table thead th.col-date .orders-th-inner--date-filter .orders-filter-input {
-          display: block;
-          flex: none;
           width: auto;
           min-width: 0;
           max-width: 100%;
-          margin-top: 0;
           padding: 6px 6px;
           font-size: 18px;
-          box-sizing: border-box;
         }
 
         .orders-table thead th .orders-th-stack {

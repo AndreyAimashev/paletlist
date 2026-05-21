@@ -1105,6 +1105,12 @@
         min-width: 0;
       }
 
+      .orders-client-text {
+        display: block;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
       .orders-table .col-actions {
         width: 1%;
         white-space: nowrap;
@@ -2489,19 +2495,16 @@
 
         .orders-client-cell {
           gap: 4px;
-          width: max-content;
+          width: 100%;
           max-width: 100%;
           min-width: 0;
         }
 
         .orders-client-text {
-          display: block;
           font-size: 20px;
           line-height: 1.35;
-          max-width: 7.5rem;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          max-width: 100%;
+          white-space: normal;
         }
 
         .orders-table thead th.col-client,
@@ -2515,7 +2518,7 @@
         }
 
         .orders-table tbody td.col-client {
-          white-space: nowrap;
+          white-space: normal;
         }
 
         .orders-table thead th.col-pct,

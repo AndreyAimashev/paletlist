@@ -2350,11 +2350,12 @@
           max-width: 100%;
         }
 
-        /* Кнопки: 2 под датой, 2 под клиентом — столбиком 1×2 */
+        /* Кнопки: 2 под датой, 2 под клиентом — в ряд */
         .orders-row-actions.orders-row-actions--mobile-date,
         .orders-row-actions.orders-row-actions--mobile-client {
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
+          flex-wrap: nowrap;
           gap: 4px;
           width: max-content;
           max-width: 100%;

@@ -2326,19 +2326,40 @@
 
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: auto;
-          max-width: 28vw;
+          width: 1%;
           min-width: 0;
-          padding-left: 6px;
-          padding-right: 6px;
+          max-width: none;
+          padding-left: 4px;
+          padding-right: 4px;
           vertical-align: top;
+          white-space: nowrap;
+        }
+
+        .orders-table thead th.col-date .orders-th-inner {
+          width: max-content;
+          max-width: 100%;
+        }
+
+        .orders-table thead th.col-date .orders-th-title {
+          font-size: 10px;
+          line-height: 1.2;
           white-space: normal;
+          max-width: 5.25rem;
+        }
+
+        .orders-table thead th.col-date .orders-filter-input {
+          width: 5.75rem;
+          max-width: 100%;
+          margin-top: 4px;
+          padding: 6px 6px;
+          font-size: 12px;
         }
 
         .orders-date-cell {
-          gap: 6px;
-          min-width: 0;
+          gap: 4px;
+          width: max-content;
           max-width: 100%;
+          min-width: 0;
         }
 
         .orders-date-text {

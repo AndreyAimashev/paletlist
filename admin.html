@@ -6834,6 +6834,8 @@
       function renderSlotSourceOptions(orderItems, pIdx, rowIdxInPallet, slot) {
         const pal = assembleAllocState.pallets[pIdx];
         const unirus = isAssembleUnirusMode();
+        const lab = isAssembleLabMode();
+        const blockRepeatLineOnPallet = !unirus && !lab;
         const usedOrder = new Set();
         (pal.slots || []).forEach((sl, j) => {
           if (j === rowIdxInPallet) {
@@ -6846,7 +6848,7 @@
           if (!Number.isFinite(n)) {
             return;
           }
-          if (!unirus) {
+          if (blockRepeatLineOnPallet) {
             usedOrder.add(n);
           }
         });
@@ -6880,7 +6882,7 @@
           if (unirus && lockLi !== null && idx !== lockLi) {
             return;
           }
-          if (!unirus && usedOrder.has(idx) && idx !== curOrder) {
+          if (blockRepeatLineOnPallet && usedOrder.has(idx) && idx !== curOrder) {
             return;
           }
           const maxP = orderLineMaxPieces(it);

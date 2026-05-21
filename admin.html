@@ -3723,8 +3723,10 @@
         return `${String(b).replace(".", ",")} кор.`;
       }
 
-      function formatLabRow7SingleSheet() {
-        return "1 из 1";
+      function formatLabRow7PalletSeq(palletIndex, palletTotal) {
+        const total = Math.max(1, Math.trunc(Number(palletTotal)) || 1);
+        const num = Math.max(1, Math.min(Math.trunc(Number(palletIndex)) || 1, total));
+        return `${num} из ${total}`;
       }
 
       function formatLabRow6Text(totalOrderQty) {
@@ -3904,12 +3906,14 @@
               }
             : null);
         const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
+        const palletTotal = sortedPallets.length;
         const rows = [];
         sortedPallets.forEach((pal, idx) => {
           let pallet_number = String(pal.palletNumber ?? "").trim();
           if (!pallet_number) {
             pallet_number = String(idx + 1);
           }
+          const row7Pallet = formatLabRow7PalletSeq(idx + 1, palletTotal);
           const productive = labProductiveSlotsOnPallet(pal, items);
           const buildRow = (lineIdx, slot) => {
             const it = items[lineIdx];

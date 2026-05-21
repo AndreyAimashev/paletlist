@@ -1127,41 +1127,6 @@
         min-height: 1.75rem;
       }
 
-      /* Дата: строка 1 — заголовок + сортировка; строка 2 — фильтр */
-      .orders-th-inner--date-filter {
-        display: grid;
-        grid-template-columns: minmax(0, max-content) auto;
-        grid-template-rows: auto auto;
-        align-items: center;
-        gap: 6px;
-        width: max-content;
-        max-width: 100%;
-        box-sizing: border-box;
-      }
-
-      .orders-th-inner--date-filter .orders-th-title {
-        grid-column: 1;
-        grid-row: 1;
-        min-width: 0;
-      }
-
-      .orders-th-inner--date-filter .orders-th-sort {
-        grid-column: 2;
-        grid-row: 1;
-        justify-self: end;
-      }
-
-      .orders-th-inner--date-filter .orders-filter-input {
-        grid-column: 1 / -1;
-        grid-row: 2;
-        width: 100%;
-        min-width: 0;
-        max-width: 100%;
-        margin-top: 0;
-        justify-self: start;
-        box-sizing: border-box;
-      }
-
       .orders-th-controls {
         display: flex;
         align-items: center;
@@ -2338,31 +2303,104 @@
         }
 
         .orders-table {
-          min-width: 700px;
+          min-width: 560px;
           font-size: 18px;
           border-collapse: separate;
           border-spacing: 0;
         }
 
-        .orders-table th,
         .orders-table td {
-          padding: 8px 10px;
+          padding: 6px 5px;
         }
 
         .orders-th-sort {
-          min-width: 28px;
-          min-height: 28px;
-          padding: 4px 8px;
+          min-width: 22px;
+          min-height: 22px;
+          padding: 2px 5px;
         }
 
         .orders-filter-input,
         .orders-filter-select {
-          padding: 8px 10px;
-          font-size: 21px;
+          padding: 6px 8px;
+          font-size: 16px;
         }
 
         .orders-table .orders-th-filter-btn {
-          font-size: 18px;
+          font-size: 12px;
+        }
+
+        /* Шапка: одна сетка на все колонки, без растягивания на всю ячейку */
+        .orders-table thead th {
+          padding: 4px 3px;
+          line-height: 1.15;
+          overflow: hidden;
+          vertical-align: top;
+        }
+
+        .orders-table thead .orders-th-stack {
+          gap: 3px;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .orders-table thead .orders-th-inner {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 3px;
+          align-items: center;
+          width: 100%;
+          min-width: 0;
+          min-height: 0;
+        }
+
+        .orders-table thead .orders-th-title {
+          flex: none;
+          font-size: 11px;
+          line-height: 1.15;
+          white-space: normal;
+          word-break: break-word;
+          min-width: 0;
+          max-width: none;
+        }
+
+        .orders-table thead .orders-th-sort {
+          justify-self: end;
+          padding: 2px 5px;
+          min-width: 22px;
+          min-height: 22px;
+          font-size: 10px;
+        }
+
+        .orders-table thead .orders-th-controls {
+          min-height: 0;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .orders-table thead .orders-th-controls--empty {
+          display: none;
+        }
+
+        .orders-table thead .orders-filter-input,
+        .orders-table thead .orders-th-filter-btn,
+        .orders-table thead .orders-pct-filter-btn,
+        .orders-table thead .orders-client-filter-btn,
+        .orders-table thead .orders-extra-info-filter-btn {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          margin: 0;
+          padding: 4px 5px;
+          font-size: 12px;
+          line-height: 1.2;
+          box-sizing: border-box;
+        }
+
+        .orders-table thead input[type="search"].orders-filter-input {
+          -webkit-appearance: none;
+          appearance: none;
         }
 
         .assemble-summary-unit-btn {
@@ -2400,44 +2438,15 @@
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
           width: 1%;
-          min-width: 0;
-          max-width: none;
-          padding-left: 4px;
-          padding-right: 4px;
+          min-width: 4.5rem;
+          max-width: 24vw;
+          padding-left: 3px;
+          padding-right: 3px;
           vertical-align: top;
+        }
+
+        .orders-table tbody td.col-date {
           white-space: nowrap;
-        }
-
-        .orders-table thead th.col-date .orders-th-inner--date-filter {
-          gap: 4px;
-          min-height: 0;
-        }
-
-        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-th-title {
-          font-size: 15px;
-          line-height: 1.2;
-          white-space: normal;
-          max-width: 5.25rem;
-        }
-
-        .orders-table thead th.col-date .orders-th-inner--date-filter .orders-filter-input {
-          width: auto;
-          min-width: 0;
-          max-width: 100%;
-          padding: 6px 6px;
-          font-size: 18px;
-        }
-
-        .orders-table thead th .orders-th-stack {
-          gap: 4px;
-        }
-
-        .orders-table thead th .orders-th-inner {
-          min-height: 1.5rem;
-        }
-
-        .orders-table thead th .orders-th-controls {
-          min-height: 2.25rem;
         }
 
         .orders-date-cell {
@@ -2500,65 +2509,29 @@
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
           width: 1%;
-          min-width: 0;
-          max-width: none;
-          padding-left: 4px;
-          padding-right: 4px;
-          line-height: 1.35;
+          min-width: 4.5rem;
+          max-width: 24vw;
+          padding-left: 3px;
+          padding-right: 3px;
           vertical-align: top;
+        }
+
+        .orders-table tbody td.col-client {
           white-space: nowrap;
-        }
-
-        .orders-table thead th.col-client {
-          min-width: 0;
-        }
-
-        .orders-table thead th.col-client .orders-th-inner {
-          width: max-content;
-          max-width: 100%;
-        }
-
-        .orders-table thead th.col-client .orders-th-title {
-          font-size: 15px;
-          line-height: 1.2;
-          white-space: normal;
-          max-width: 5.25rem;
-        }
-
-        .orders-client-filter-btn {
-          width: 5.75rem;
-          max-width: 100%;
-          box-sizing: border-box;
-          margin-top: 0;
-          padding: 4px 6px;
-          font-size: 17px;
         }
 
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
-          width: 3.35rem;
-          min-width: 3.1rem;
-          max-width: 13vw;
-          padding-left: 4px;
-          padding-right: 4px;
+          width: 1%;
+          min-width: 3rem;
+          max-width: 14vw;
+          padding-left: 3px;
+          padding-right: 3px;
         }
 
-        .orders-table thead th.col-pct .orders-th-inner {
-          justify-content: center;
-          gap: 2px;
-        }
-
-        .orders-table thead th.col-pct .orders-th-title {
-          font-size: 14px;
-          line-height: 1.2;
-          white-space: normal;
+        .orders-table thead th.col-pct .orders-th-title,
+        .orders-table tbody td.col-pct {
           text-align: center;
-        }
-
-        .orders-pct-filter-btn {
-          margin-top: 0;
-          padding: 4px 5px;
-          font-size: 15px;
         }
 
         .orders-table tbody td.col-pct .orders-pct-cell {
@@ -2576,42 +2549,22 @@
 
         .orders-table thead th.col-extra-info,
         .orders-table tbody td.col-extra-info {
-          width: 4.25rem;
-          max-width: 17vw;
-          min-width: 3rem;
-          padding-left: 6px;
-          padding-right: 6px;
-          line-height: 1.3;
+          width: 1%;
+          min-width: 3.25rem;
+          max-width: 16vw;
+          padding-left: 3px;
+          padding-right: 3px;
           vertical-align: top;
-        }
-
-        .orders-table thead th.col-extra-info {
-          min-width: 0;
-        }
-
-        .orders-table thead th.col-extra-info .orders-th-title--block {
-          font-size: 17px;
-        }
-
-        .orders-extra-info-filter-btn {
-          margin-top: 0;
-          padding: 4px 6px;
-          font-size: 17px;
         }
 
         .orders-table thead th.col-qty,
         .orders-table tbody td.col-qty {
-          width: 12.5rem;
-          min-width: 12.5rem;
-          max-width: 48vw;
-          padding-left: 8px;
-          padding-right: 8px;
-          line-height: 1.35;
+          width: auto;
+          min-width: 7.5rem;
+          max-width: 42vw;
+          padding-left: 4px;
+          padding-right: 4px;
           vertical-align: top;
-        }
-
-        .orders-table thead th.col-qty .orders-th-title {
-          font-size: 17px;
         }
 
         .orders-qty-cell,
@@ -2819,12 +2772,16 @@
                 <thead>
                   <tr>
                     <th scope="col" class="col-date">
-                      <div class="orders-th-inner orders-th-inner--date-filter">
-                        <span class="orders-th-title">Дата отгрузки</span>
-                        <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
-                          <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
-                        </button>
-                        <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title" title="Дата отгрузки">Дата</span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                        </div>
                       </div>
                     </th>
                     <th scope="col" class="col-client">
@@ -2844,7 +2801,7 @@
                             aria-controls="orders-filter-client-popover"
                             title="Фильтр по клиенту"
                           >
-                            Фильтр
+                            Фил.
                           </button>
                         </div>
                       </div>
@@ -2852,7 +2809,7 @@
                     <th scope="col" class="col-pct">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title">Собран (%)</span>
+                          <span class="orders-th-title" title="Собран (%)">%</span>
                           <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
                             <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                           </button>
@@ -2866,7 +2823,7 @@
                             aria-controls="orders-filter-pct-popover"
                             title="Фильтр по проценту сборки"
                           >
-                            Фильтр
+                            Фил.
                           </button>
                         </div>
                       </div>
@@ -2874,7 +2831,7 @@
                     <th scope="col" class="col-qty">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title">Количество</span>
+                          <span class="orders-th-title" title="Количество">Кол-во</span>
                         </div>
                         <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
                       </div>
@@ -2882,7 +2839,7 @@
                     <th scope="col" class="col-extra-info">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title orders-th-title--block">Доп. информация</span>
+                          <span class="orders-th-title orders-th-title--block" title="Доп. информация">Доп.</span>
                         </div>
                         <div class="orders-th-controls">
                           <button
@@ -2893,7 +2850,7 @@
                             aria-controls="orders-filter-extra-popover"
                             title="Фильтр по доп. информации"
                           >
-                            Фильтр
+                            Фил.
                           </button>
                         </div>
                       </div>
@@ -6091,46 +6048,6 @@
         }, 220);
       }
 
-      let ordersDateFilterWidthRaf = 0;
-
-      /** На мобиле: ширина поля «Содержит…» = от левого края блока до правого края кнопки ⇅ */
-      function syncOrdersDateFilterInputWidth() {
-        const mq = window.matchMedia("(max-width: 768px)");
-        const input = document.getElementById("orders-filter-ship");
-        if (!input) {
-          return;
-        }
-        if (!mq.matches) {
-          input.style.width = "";
-          input.style.maxWidth = "";
-          return;
-        }
-        const inner = document.querySelector("thead th.col-date .orders-th-inner--date-filter");
-        const sort = inner?.querySelector(".orders-th-sort");
-        if (!inner || !sort) {
-          return;
-        }
-        const innerRect = inner.getBoundingClientRect();
-        const sortRect = sort.getBoundingClientRect();
-        const w = Math.ceil(sortRect.right - innerRect.left);
-        if (w > 0) {
-          input.style.width = `${w}px`;
-          input.style.maxWidth = "100%";
-        }
-      }
-
-      function scheduleSyncOrdersDateFilterInputWidth() {
-        if (ordersDateFilterWidthRaf) {
-          cancelAnimationFrame(ordersDateFilterWidthRaf);
-        }
-        ordersDateFilterWidthRaf = requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            ordersDateFilterWidthRaf = 0;
-            syncOrdersDateFilterInputWidth();
-          });
-        });
-      }
-
       function renderOrderRowActions(orderId, variant) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
@@ -6155,20 +6072,17 @@
         updateOrdersClientFilterToggle();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
-          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         if (!cachedOrdersListRows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
-          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         const rows = getOrdersRowsForDisplay();
         if (!rows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Нет заказов по текущим фильтрам.</td></tr>";
-          scheduleSyncOrdersDateFilterInputWidth();
           return;
         }
         ordersTableBody.innerHTML = rows
@@ -6206,7 +6120,6 @@
                 </tr>`;
           })
           .join("");
-        scheduleSyncOrdersDateFilterInputWidth();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -6731,7 +6644,6 @@
               "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
           }
           syncOrdersSortIndicators();
-          scheduleSyncOrdersDateFilterInputWidth();
         }
       }
 
@@ -7674,12 +7586,6 @@
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
       ensureOrdersExtraInfoFilterPopoverMounted();
-
-      window.addEventListener("resize", scheduleSyncOrdersDateFilterInputWidth);
-      const ordersDateFilterHead = document.querySelector("thead th.col-date");
-      if (ordersDateFilterHead && typeof ResizeObserver !== "undefined") {
-        new ResizeObserver(() => scheduleSyncOrdersDateFilterInputWidth()).observe(ordersDateFilterHead);
-      }
 
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {

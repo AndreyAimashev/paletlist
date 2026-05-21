@@ -2012,7 +2012,7 @@ def _normalize_order_items_body(body: dict):
     buyer_order_mode = ""
     order_buyer_order = ""
     if lab_client:
-        mode_raw = str(body.get("buyer_order_mode") or "single").strip().lower()
+        mode_raw = str(body.get("buyer_order_mode") or "multiple").strip().lower()
         buyer_order_mode = (
             "multiple" if mode_raw in ("multiple", "multi", "several") else "single"
         )

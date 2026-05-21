@@ -2373,9 +2373,21 @@
           white-space: nowrap;
         }
 
+        .orders-table thead th.col-date .orders-th-stack {
+          width: max-content;
+          max-width: 100%;
+          align-items: stretch;
+        }
+
         .orders-table thead th.col-date .orders-th-inner {
           width: max-content;
           max-width: 100%;
+        }
+
+        .orders-table thead th.col-date .orders-th-controls {
+          width: 100%;
+          align-self: stretch;
+          box-sizing: border-box;
         }
 
         .orders-table thead th.col-date .orders-th-title {
@@ -2398,11 +2410,12 @@
         }
 
         .orders-table thead th.col-date .orders-filter-input {
-          width: 5.75rem;
+          width: 100%;
           max-width: 100%;
           margin-top: 0;
           padding: 6px 6px;
           font-size: 18px;
+          box-sizing: border-box;
         }
 
         .orders-date-cell {

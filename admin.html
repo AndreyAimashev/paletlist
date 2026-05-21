@@ -2303,7 +2303,7 @@
         }
 
         .orders-table {
-          min-width: 560px;
+          min-width: 600px;
           font-size: 18px;
           border-collapse: separate;
           border-spacing: 0;
@@ -2314,31 +2314,28 @@
         }
 
         .orders-th-sort {
-          min-width: 22px;
-          min-height: 22px;
-          padding: 2px 5px;
+          min-width: 28px;
+          min-height: 28px;
+          padding: 4px 6px;
         }
 
         .orders-filter-input,
         .orders-filter-select {
           padding: 6px 8px;
-          font-size: 16px;
+          font-size: 18px;
         }
 
-        .orders-table .orders-th-filter-btn {
-          font-size: 12px;
-        }
-
-        /* Шапка: одна сетка на все колонки, без растягивания на всю ячейку */
+        /* Шапка: тот же кегль, что и в строках таблицы (18px) */
         .orders-table thead th {
-          padding: 4px 3px;
-          line-height: 1.15;
+          padding: 5px 4px;
+          font-size: 18px;
+          line-height: 1.25;
           overflow: hidden;
           vertical-align: top;
         }
 
         .orders-table thead .orders-th-stack {
-          gap: 3px;
+          gap: 4px;
           width: 100%;
           min-width: 0;
           max-width: 100%;
@@ -2348,7 +2345,7 @@
         .orders-table thead .orders-th-inner {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          gap: 3px;
+          gap: 4px;
           align-items: center;
           width: 100%;
           min-width: 0;
@@ -2357,8 +2354,8 @@
 
         .orders-table thead .orders-th-title {
           flex: none;
-          font-size: 11px;
-          line-height: 1.15;
+          font-size: inherit;
+          line-height: 1.25;
           white-space: normal;
           word-break: break-word;
           min-width: 0;
@@ -2367,10 +2364,11 @@
 
         .orders-table thead .orders-th-sort {
           justify-self: end;
-          padding: 2px 5px;
-          min-width: 22px;
-          min-height: 22px;
-          font-size: 10px;
+          padding: 4px 6px;
+          min-width: 28px;
+          min-height: 28px;
+          font-size: 14px;
+          line-height: 1;
         }
 
         .orders-table thead .orders-th-controls {
@@ -2392,9 +2390,9 @@
           min-width: 0;
           max-width: 100%;
           margin: 0;
-          padding: 4px 5px;
-          font-size: 12px;
-          line-height: 1.2;
+          padding: 5px 6px;
+          font-size: inherit;
+          line-height: 1.25;
           box-sizing: border-box;
         }
 
@@ -2438,10 +2436,10 @@
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
           width: 1%;
-          min-width: 4.5rem;
-          max-width: 24vw;
-          padding-left: 3px;
-          padding-right: 3px;
+          min-width: 5.5rem;
+          max-width: 28vw;
+          padding-left: 4px;
+          padding-right: 4px;
           vertical-align: top;
         }
 
@@ -2509,10 +2507,10 @@
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
           width: 1%;
-          min-width: 4.5rem;
-          max-width: 24vw;
-          padding-left: 3px;
-          padding-right: 3px;
+          min-width: 5.5rem;
+          max-width: 28vw;
+          padding-left: 4px;
+          padding-right: 4px;
           vertical-align: top;
         }
 
@@ -2523,10 +2521,10 @@
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
           width: 1%;
-          min-width: 3rem;
-          max-width: 14vw;
-          padding-left: 3px;
-          padding-right: 3px;
+          min-width: 3.5rem;
+          max-width: 16vw;
+          padding-left: 4px;
+          padding-right: 4px;
         }
 
         .orders-table thead th.col-pct .orders-th-title,
@@ -2550,20 +2548,20 @@
         .orders-table thead th.col-extra-info,
         .orders-table tbody td.col-extra-info {
           width: 1%;
-          min-width: 3.25rem;
-          max-width: 16vw;
-          padding-left: 3px;
-          padding-right: 3px;
+          min-width: 4rem;
+          max-width: 18vw;
+          padding-left: 4px;
+          padding-right: 4px;
           vertical-align: top;
         }
 
         .orders-table thead th.col-qty,
         .orders-table tbody td.col-qty {
           width: auto;
-          min-width: 7.5rem;
-          max-width: 42vw;
-          padding-left: 4px;
-          padding-right: 4px;
+          min-width: 8.5rem;
+          max-width: 44vw;
+          padding-left: 5px;
+          padding-right: 5px;
           vertical-align: top;
         }
 

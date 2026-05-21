@@ -2374,23 +2374,29 @@
         }
 
         .orders-table thead th.col-date .orders-th-stack {
+          display: inline-grid;
+          grid-template-columns: max-content;
           width: max-content;
           max-width: 100%;
-          align-items: stretch;
+          gap: 4px;
+          vertical-align: top;
         }
 
         .orders-table thead th.col-date .orders-th-inner {
-          width: max-content;
-          max-width: 100%;
+          display: flex;
+          width: auto;
+          max-width: none;
+          min-width: 0;
         }
 
         .orders-table thead th.col-date .orders-th-controls {
-          width: 100%;
-          align-self: stretch;
-          box-sizing: border-box;
+          width: auto;
+          min-width: 0;
+          justify-self: stretch;
         }
 
         .orders-table thead th.col-date .orders-th-title {
+          flex: 0 1 auto;
           font-size: 15px;
           line-height: 1.2;
           white-space: normal;
@@ -2411,7 +2417,8 @@
 
         .orders-table thead th.col-date .orders-filter-input {
           width: 100%;
-          max-width: 100%;
+          min-width: 0;
+          max-width: none;
           margin-top: 0;
           padding: 6px 6px;
           font-size: 18px;

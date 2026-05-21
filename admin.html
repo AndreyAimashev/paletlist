@@ -1774,6 +1774,10 @@
       }
 
       .order-item-autocomplete {
+        min-width: 0;
+      }
+
+      .order-item-search-wrap {
         position: relative;
         min-width: 0;
       }
@@ -2531,7 +2535,8 @@
           padding-bottom: 0;
         }
 
-        .new-order-dialog .order-item-autocomplete {
+        .new-order-dialog .order-item-autocomplete,
+        .new-order-dialog .order-item-search-wrap {
           width: 100%;
         }
 
@@ -3168,12 +3173,15 @@
       <div class="order-item-row">
         <div class="order-item-autocomplete">
           <span class="order-item-field-caption">Наименование</span>
-          <input
-            type="text"
-            class="order-item-search"
-            placeholder="Артикул или наименование…"
-            autocomplete="off"
-          />
+          <div class="order-item-search-wrap">
+            <input
+              type="text"
+              class="order-item-search"
+              placeholder="Артикул или наименование…"
+              autocomplete="off"
+            />
+            <ul class="order-item-suggestions" hidden></ul>
+          </div>
           <div class="order-item-lab-total-wrap" hidden>
             <div class="order-items-lab-total-field">
               <span class="order-item-field-caption">Заказ покупателя</span>
@@ -3198,7 +3206,6 @@
             </div>
           </div>
           <input type="hidden" class="order-item-product-id" value="" />
-          <ul class="order-item-suggestions" hidden></ul>
         </div>
         <div class="order-item-metric-cell">
           <span class="order-item-field-caption">Количество</span>

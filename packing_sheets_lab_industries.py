@@ -354,8 +354,10 @@ def _buyer_order_for_pallet(
     return order_bo if order_bo else "—"
 
 
-def _format_lab_row3_text(total_pieces: float, volume_ml: float) -> str:
-    """Например: 2394 х 200мл."""
+def _format_lab_row3_text(
+    total_pieces: float, volume_ml: float, volume_unit: str = "ml"
+) -> str:
+    """Например: 2394 х 200мл или 2394 х 70г."""
     pcs = max(0, int(round(total_pieces)))
     vol = float(volume_ml or 0)
     if vol <= 0:
@@ -364,7 +366,9 @@ def _format_lab_row3_text(total_pieces: float, volume_ml: float) -> str:
         vol_s = str(int(round(vol)))
     else:
         vol_s = ("%g" % vol).replace(".", ",")
-    return f"{pcs} х {vol_s}мл"
+    unit = (volume_unit or "ml").strip().lower()
+    suffix = "г" if unit in ("g", "gr", "г", "гр") else "мл"
+    return f"{pcs} х {vol_s}{suffix}"
 
 
 def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]]:
@@ -396,8 +400,10 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
         total_pcs = totals.get(line_idx, 0.0) if line_idx is not None else 0.0
         boxes_on_pal = _boxes_on_pallet(pal, items)
         vol = 0.0
+        vol_unit = "ml"
         if line_idx is not None and 0 <= line_idx < len(items):
             vol = float(items[line_idx].get("volume_ml") or 0)
+            vol_unit = str(items[line_idx].get("volume_unit") or "ml")
         buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
         total_order_qty = None
         if line_idx is not None and 0 <= line_idx < len(items):
@@ -418,7 +424,8 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                 "pallet_number": pnum,
                 "total_pieces": total_pcs,
                 "volume_ml": vol,
-                "row3_text": _format_lab_row3_text(total_pcs, vol),
+                "volume_unit": vol_unit,
+                "row3_text": _format_lab_row3_text(total_pcs, vol, vol_unit),
                 "boxes_on_pallet": boxes_on_pal,
                 "row4_text": _format_lab_row4_boxes(boxes_on_pal),
                 "buyer_order": buyer_order,
@@ -558,7 +565,8 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             if not row3_text:
                 total_pcs = float(row.get("total_pieces") or 0)
                 vol = float(row.get("volume_ml") or 0)
-                row3_text = _format_lab_row3_text(total_pcs, vol)
+                vol_unit = str(row.get("volume_unit") or "ml")
+                row3_text = _format_lab_row3_text(total_pcs, vol, vol_unit)
             row4_text = str(row.get("row4_text") or "").strip()
             if not row4_text:
                 boxes_on_pal = float(row.get("boxes_on_pallet") or 0)

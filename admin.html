@@ -1444,6 +1444,25 @@
         margin-top: 8px;
       }
 
+      .nomenclature-volume-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 12px;
+        margin-bottom: 6px;
+      }
+
+      .nomenclature-volume-row label {
+        margin-bottom: 0;
+      }
+
+      .nomenclature-volume-unit-toggle {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
       .nomenclature-pack-line .pack-stat {
         display: inline-flex;
         align-items: center;
@@ -3002,7 +3021,25 @@
               Объем
             </label>
             <div id="edit-volume-wrap" class="nomenclature-volume-wrap" hidden>
-              <label for="edit-volume-ml">Объем (мл)</label>
+              <div class="nomenclature-volume-row">
+                <label for="edit-volume-ml" id="edit-volume-label">Объем (мл)</label>
+                <div
+                  class="nomenclature-volume-unit-toggle"
+                  role="group"
+                  aria-label="Единица объёма"
+                >
+                  <button
+                    type="button"
+                    class="orders-names-unit-btn active"
+                    data-edit-volume-unit="ml"
+                  >
+                    мл
+                  </button>
+                  <button type="button" class="orders-names-unit-btn" data-edit-volume-unit="g">
+                    гр
+                  </button>
+                </div>
+              </div>
               <input id="edit-volume-ml" name="volume_ml" type="number" min="0" step="any" />
             </div>
           </div>
@@ -3071,7 +3108,25 @@
               Объем
             </label>
             <div id="create-volume-wrap" class="nomenclature-volume-wrap" hidden>
-              <label for="create-volume-ml">Объем (мл)</label>
+              <div class="nomenclature-volume-row">
+                <label for="create-volume-ml" id="create-volume-label">Объем (мл)</label>
+                <div
+                  class="nomenclature-volume-unit-toggle"
+                  role="group"
+                  aria-label="Единица объёма"
+                >
+                  <button
+                    type="button"
+                    class="orders-names-unit-btn active"
+                    data-create-volume-unit="ml"
+                  >
+                    мл
+                  </button>
+                  <button type="button" class="orders-names-unit-btn" data-create-volume-unit="g">
+                    гр
+                  </button>
+                </div>
+              </div>
               <input id="create-volume-ml" name="volume_ml" type="number" min="0" step="any" value="0" />
             </div>
           </div>
@@ -3239,7 +3294,9 @@
       const createBoxWeightInput = document.getElementById("create-box-weight");
       const createVolumeEnabled = document.getElementById("create-volume-enabled");
       const createVolumeWrap = document.getElementById("create-volume-wrap");
+      const createVolumeLabel = document.getElementById("create-volume-label");
       const createVolumeMlInput = document.getElementById("create-volume-ml");
+      const createVolumeUnitBtns = nomenclatureCreateForm.querySelectorAll("[data-create-volume-unit]");
       const navMain = document.getElementById("nav-main");
       const navPallet = document.getElementById("nav-pallet");
       const navCreate = document.getElementById("nav-create");
@@ -3318,7 +3375,9 @@
       const editBoxWeightInput = document.getElementById("edit-box-weight");
       const editVolumeEnabled = document.getElementById("edit-volume-enabled");
       const editVolumeWrap = document.getElementById("edit-volume-wrap");
+      const editVolumeLabel = document.getElementById("edit-volume-label");
       const editVolumeMlInput = document.getElementById("edit-volume-ml");
+      const editVolumeUnitBtns = nomenclatureEditForm.querySelectorAll("[data-edit-volume-unit]");
       let nomenclatureEditId = null;
       const output = document.getElementById("arnest-output");
       const buildSheetButton = document.getElementById("build-sheet");
@@ -3680,7 +3739,7 @@
           .forEach((node) => applyUnirusDateInputValidation(node));
       }
 
-      function formatLabRow3Text(totalPieces, volumeMl) {
+      function formatLabRow3Text(totalPieces, volumeMl, volumeUnit) {
         const pcs = Math.max(0, Math.round(Number(totalPieces) || 0));
         const vol = Number(volumeMl);
         if (!Number.isFinite(vol) || vol <= 0) {
@@ -3689,7 +3748,7 @@
         const volInt = Math.round(vol);
         const volS =
           Math.abs(vol - volInt) < 1e-6 ? String(volInt) : String(vol).replace(".", ",");
-        return `${pcs} х ${volS}мл`;
+        return `${pcs} х ${volS}${volumeUnitSuffix(volumeUnit)}`;
       }
 
       function formatLabRow4Text(boxes) {
@@ -3887,8 +3946,10 @@
               ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
               : 0;
           let volumeMl = 0;
+          let volumeUnit = "ml";
           if (lineIdx !== null && items[lineIdx]) {
             volumeMl = Number(items[lineIdx].volume_ml);
+            volumeUnit = normalizeVolumeUnit(items[lineIdx].volume_unit);
             if (!Number.isFinite(volumeMl)) {
               const nom = nomenclatureItems.find(
                 (n) =>
@@ -3896,6 +3957,7 @@
                   (n.article || "").trim() !== "",
               );
               volumeMl = nom ? Number(nom.volume_ml) : 0;
+              volumeUnit = nom ? normalizeVolumeUnit(nom.volume_unit) : "ml";
             }
           }
           const boxesOnPallet = computeArnestPalletBoxesQty(pal, items);
@@ -3906,7 +3968,8 @@
             pallet_number,
             total_pieces: totalPieces,
             volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
-            row3_text: formatLabRow3Text(totalPieces, volumeMl),
+            volume_unit: volumeUnit,
+            row3_text: formatLabRow3Text(totalPieces, volumeMl, volumeUnit),
             boxes_on_pallet: boxesOnPallet,
             row4_text: formatLabRow4Text(boxesOnPallet),
             buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
@@ -4800,29 +4863,76 @@
         return String(Math.round(n * 10) / 10);
       }
 
+      function normalizeVolumeUnit(unit) {
+        return String(unit || "ml").trim().toLowerCase() === "g" ? "g" : "ml";
+      }
+
+      function volumeUnitLabel(unit) {
+        return normalizeVolumeUnit(unit) === "g" ? "Объем (гр)" : "Объем (мл)";
+      }
+
+      function volumeUnitSuffix(unit) {
+        return normalizeVolumeUnit(unit) === "g" ? "г" : "мл";
+      }
+
+      function setVolumeUnitOnForm(unitBtns, labelEl, unit) {
+        const u = normalizeVolumeUnit(unit);
+        unitBtns.forEach((btn) => {
+          const btnUnit = btn.dataset.createVolumeUnit || btn.dataset.editVolumeUnit || "ml";
+          btn.classList.toggle("active", normalizeVolumeUnit(btnUnit) === u);
+        });
+        if (labelEl) {
+          labelEl.textContent = volumeUnitLabel(u);
+        }
+      }
+
+      function getActiveVolumeUnit(unitBtns) {
+        const active = Array.from(unitBtns).find((btn) => btn.classList.contains("active"));
+        if (!active) {
+          return "ml";
+        }
+        return normalizeVolumeUnit(
+          active.dataset.createVolumeUnit || active.dataset.editVolumeUnit,
+        );
+      }
+
       function syncVolumeField(enabledEl, wrapEl, valueEl) {
         const on = enabledEl.checked;
         wrapEl.hidden = !on;
         valueEl.disabled = !on;
       }
 
-      function getVolumeMlFromForm(enabledEl, valueEl) {
+      function getVolumeFromForm(enabledEl, valueEl, unitBtns) {
         if (!enabledEl.checked) {
-          return 0;
+          return { volume_ml: 0, volume_unit: "ml" };
         }
         const raw = String(valueEl.value).trim().replace(",", ".");
         const n = Number(raw);
-        return Number.isFinite(n) && n > 0 ? n : 0;
+        const volume_ml = Number.isFinite(n) && n > 0 ? n : 0;
+        return {
+          volume_ml,
+          volume_unit: getActiveVolumeUnit(unitBtns),
+        };
       }
 
-      function applyVolumeToForm(enabledEl, wrapEl, valueEl, storedVolumeMl) {
+      function applyVolumeToForm(
+        enabledEl,
+        wrapEl,
+        valueEl,
+        labelEl,
+        unitBtns,
+        storedVolumeMl,
+        storedVolumeUnit,
+      ) {
         const vol = Number(storedVolumeMl);
         if (Number.isFinite(vol) && vol > 0) {
           enabledEl.checked = true;
           valueEl.value = formatPackVolume(vol);
+          setVolumeUnitOnForm(unitBtns, labelEl, storedVolumeUnit);
         } else {
           enabledEl.checked = false;
           valueEl.value = "0";
+          setVolumeUnitOnForm(unitBtns, labelEl, "ml");
         }
         syncVolumeField(enabledEl, wrapEl, valueEl);
       }
@@ -4880,7 +4990,10 @@
           editVolumeEnabled,
           editVolumeWrap,
           editVolumeMlInput,
+          editVolumeLabel,
+          editVolumeUnitBtns,
           item.volume_ml,
+          item.volume_unit,
         );
         nomenclatureEditOverlay.hidden = false;
         editArticleInput.focus();
@@ -4972,7 +5085,10 @@
           createVolumeEnabled,
           createVolumeWrap,
           createVolumeMlInput,
+          createVolumeLabel,
+          createVolumeUnitBtns,
           0,
+          "ml",
         );
         clearNomenclatureCreateError();
         nomenclatureCreateOverlay.hidden = false;
@@ -4991,9 +5107,10 @@
         const maxR = formatPackInt(item.max_rows);
         const w = formatPackWeight(item.box_weight);
         const vol = Number(item.volume_ml);
+        const volUnit = normalizeVolumeUnit(item.volume_unit);
         const volBlock =
           Number.isFinite(vol) && vol > 0
-            ? `<span class="pack-stat" title="Объем, мл">${NOMENCLATURE_PACK_ICONS.volume}<span>${escapeXml(formatPackVolume(vol))}</span></span>`
+            ? `<span class="pack-stat" title="Объем, ${escapeXml(volumeUnitSuffix(volUnit))}">${NOMENCLATURE_PACK_ICONS.volume}<span>${escapeXml(formatPackVolume(vol))} ${escapeXml(volumeUnitSuffix(volUnit))}</span></span>`
             : "";
         const pib = Math.max(0, Math.trunc(Number(item.pieces_in_box)) || 0);
         const sib = Math.max(1, Math.trunc(Number(item.sets_in_box)) || 1);
@@ -8698,9 +8815,15 @@
         const weightRaw = String(editBoxWeightInput.value).trim().replace(",", ".");
         const parsedWeight = Number(weightRaw);
         const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
-        const parsedVolumeMl = getVolumeMlFromForm(editVolumeEnabled, editVolumeMlInput);
-        if (editVolumeEnabled.checked && parsedVolumeMl <= 0) {
-          alert("Укажите объем в мл больше нуля или снимите галочку «Объем».");
+        const parsedVolume = getVolumeFromForm(
+          editVolumeEnabled,
+          editVolumeMlInput,
+          editVolumeUnitBtns,
+        );
+        if (editVolumeEnabled.checked && parsedVolume.volume_ml <= 0) {
+          alert(
+            `Укажите объем в ${volumeUnitSuffix(parsedVolume.volume_unit)} больше нуля или снимите галочку «Объем».`,
+          );
           return;
         }
         const response = await fetch(`/api/nomenclature/${nomenclatureEditId}`, {
@@ -8714,7 +8837,8 @@
             row_layout: Math.trunc(Number(editRowLayoutInput.value)) || 0,
             max_rows: Math.trunc(Number(editMaxRowsInput.value)) || 0,
             box_weight: parsedBoxWeight,
-            volume_ml: parsedVolumeMl,
+            volume_ml: parsedVolume.volume_ml,
+            volume_unit: parsedVolume.volume_unit,
           }),
         });
         let editPayload = null;
@@ -8747,6 +8871,20 @@
       editVolumeEnabled.addEventListener("change", () => {
         syncVolumeField(editVolumeEnabled, editVolumeWrap, editVolumeMlInput);
       });
+      createVolumeUnitBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setVolumeUnitOnForm(
+            createVolumeUnitBtns,
+            createVolumeLabel,
+            btn.dataset.createVolumeUnit,
+          );
+        });
+      });
+      editVolumeUnitBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setVolumeUnitOnForm(editVolumeUnitBtns, editVolumeLabel, btn.dataset.editVolumeUnit);
+        });
+      });
 
       nomenclatureEditCancel.addEventListener("click", () => {
         closeNomenclatureEdit();
@@ -8769,10 +8907,14 @@
         const weightRaw = String(createBoxWeightInput.value).trim().replace(",", ".");
         const parsedWeight = Number(weightRaw);
         const parsedBoxWeight = Number.isFinite(parsedWeight) ? parsedWeight : 0;
-        const parsedVolumeMl = getVolumeMlFromForm(createVolumeEnabled, createVolumeMlInput);
-        if (createVolumeEnabled.checked && parsedVolumeMl <= 0) {
+        const parsedVolume = getVolumeFromForm(
+          createVolumeEnabled,
+          createVolumeMlInput,
+          createVolumeUnitBtns,
+        );
+        if (createVolumeEnabled.checked && parsedVolume.volume_ml <= 0) {
           showNomenclatureCreateError(
-            "Укажите объем в мл больше нуля или снимите галочку «Объем».",
+            `Укажите объем в ${volumeUnitSuffix(parsedVolume.volume_unit)} больше нуля или снимите галочку «Объем».`,
           );
           return;
         }
@@ -8789,7 +8931,8 @@
               row_layout: Math.trunc(Number(createRowLayoutInput.value)) || 0,
               max_rows: Math.trunc(Number(createMaxRowsInput.value)) || 0,
               box_weight: parsedBoxWeight,
-              volume_ml: parsedVolumeMl,
+              volume_ml: parsedVolume.volume_ml,
+              volume_unit: parsedVolume.volume_unit,
             }),
           });
         } catch (netErr) {

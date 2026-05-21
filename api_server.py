@@ -1456,6 +1456,10 @@ def _migrate_products(cur):
         cur.execute(
             "ALTER TABLE products ADD COLUMN volume_ml REAL NOT NULL DEFAULT 0"
         )
+    if "volume_unit" not in cols:
+        cur.execute(
+            "ALTER TABLE products ADD COLUMN volume_unit TEXT NOT NULL DEFAULT 'ml'"
+        )
     if "pieces_per_set" not in cols:
         cur.execute(
             "ALTER TABLE products ADD COLUMN pieces_per_set INTEGER NOT NULL DEFAULT 1"
@@ -2800,6 +2804,7 @@ def _order_item_row_to_dict(ir):
     pid = ir["product_id"]
     keys = ir.keys() if hasattr(ir, "keys") else ()
     vol = float(ir["volume_ml"] or 0) if "volume_ml" in keys else 0.0
+    vol_unit = _normalize_volume_unit(ir["volume_unit"]) if "volume_unit" in keys else "ml"
     return {
         "product_id": int(pid) if pid is not None else None,
         "article": ir["article"] or "",
@@ -2819,7 +2824,15 @@ def _order_item_row_to_dict(ir):
         "max_rows": max(0, int(ir["max_rows"] or 0)),
         "box_weight": float(ir["box_weight"] or 0),
         "volume_ml": vol,
+        "volume_unit": vol_unit,
     }
+
+
+def _normalize_volume_unit(value) -> str:
+    u = (value or "").strip().lower()
+    if u in ("g", "gr", "г", "гр", "gram", "grams"):
+        return "g"
+    return "ml"
 
 
 def fetch_order_detail(order_id: int):
@@ -2847,7 +2860,8 @@ def fetch_order_detail(order_id: int):
                    p.row_layout AS row_layout,
                    p.max_rows AS max_rows,
                    p.box_weight AS box_weight,
-                   p.volume_ml AS volume_ml
+                   p.volume_ml AS volume_ml,
+                   p.volume_unit AS volume_unit
             FROM order_items oi
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ?
@@ -2919,7 +2933,8 @@ def fetch_orders():
                        p.row_layout AS row_layout,
                        p.max_rows AS max_rows,
                        p.box_weight AS box_weight,
-                       p.volume_ml AS volume_ml
+                       p.volume_ml AS volume_ml,
+                       p.volume_unit AS volume_unit
                 FROM order_items oi
                 LEFT JOIN products p ON p.id = oi.product_id
                 WHERE oi.order_id IN ({placeholders})
@@ -2962,7 +2977,7 @@ def fetch_nomenclature():
         rows = cur.execute(
             """
             SELECT id, article, name,
-                   pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml
+                   pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml, volume_unit
             FROM products ORDER BY id
             """
         ).fetchall()
@@ -2988,6 +3003,9 @@ def fetch_nomenclature():
                     "max_rows": int(row["max_rows"] or 0),
                     "box_weight": float(row["box_weight"] or 0),
                     "volume_ml": float(row["volume_ml"] or 0),
+                    "volume_unit": _normalize_volume_unit(
+                        row["volume_unit"] if "volume_unit" in row.keys() else "ml"
+                    ),
                 }
             )
         for clean_name, rid in updates:
@@ -3011,6 +3029,7 @@ def update_nomenclature_row(
     max_rows: int = 0,
     box_weight: float = 0,
     volume_ml: float = 0,
+    volume_unit: str = "ml",
 ):
     norm = _normalize_packaging(pieces_in_box, sets_in_box)
     if isinstance(norm, dict):
@@ -3023,7 +3042,7 @@ def update_nomenclature_row(
             """
             UPDATE products SET
               article = ?, name = ?,
-              pieces_in_box = ?, sets_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?, volume_ml = ?
+              pieces_in_box = ?, sets_in_box = ?, pieces_per_set = ?, row_layout = ?, max_rows = ?, box_weight = ?, volume_ml = ?, volume_unit = ?
             WHERE id = ?
             """,
             (
@@ -3036,6 +3055,7 @@ def update_nomenclature_row(
                 int(max_rows),
                 float(box_weight),
                 max(0.0, float(volume_ml)),
+                _normalize_volume_unit(volume_unit),
                 row_id,
             ),
         )
@@ -3104,6 +3124,7 @@ def insert_nomenclature_row(
     max_rows: int,
     box_weight: float,
     volume_ml: float = 0,
+    volume_unit: str = "ml",
 ):
     article_n = _normalize_str(article)
     name_n = _strip_trailing_name_suffix(_normalize_str(name))
@@ -3122,8 +3143,8 @@ def insert_nomenclature_row(
             """
             INSERT INTO products (
               id, article, name,
-              pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              pieces_in_box, sets_in_box, pieces_per_set, row_layout, max_rows, box_weight, volume_ml, volume_unit
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(next_id),
@@ -3136,6 +3157,7 @@ def insert_nomenclature_row(
                 int(max_rows),
                 float(box_weight),
                 max(0.0, float(volume_ml)),
+                _normalize_volume_unit(volume_unit),
             ),
         )
         con.commit()
@@ -3658,6 +3680,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 _int_body("max_rows"),
                 _float_body("box_weight"),
                 max(0.0, _float_body("volume_ml")),
+                body.get("volume_unit", "ml"),
             )
         except sqlite3.Error as exc:
             self._send_json(
@@ -3749,6 +3772,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             _int_body("max_rows"),
             _float_body("box_weight"),
             max(0.0, _float_body("volume_ml")),
+            body.get("volume_unit", "ml"),
         )
         if isinstance(ok, dict) and ok.get("error") == "validation":
             self._send_json(400, ok)

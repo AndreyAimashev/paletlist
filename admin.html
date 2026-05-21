@@ -1158,6 +1158,14 @@
         min-width: 0;
       }
 
+      .orders-th-label-short {
+        display: none;
+      }
+
+      .orders-th-label-full {
+        display: inline;
+      }
+
       .orders-th-sort {
         flex-shrink: 0;
         margin: 0;
@@ -2407,6 +2415,14 @@
           appearance: none;
         }
 
+        .orders-table thead .orders-th-label-full {
+          display: none;
+        }
+
+        .orders-table thead .orders-th-label-short {
+          display: inline;
+        }
+
         .assemble-summary-unit-btn {
           flex: 1;
           min-width: 0;
@@ -2792,7 +2808,10 @@
                     <th scope="col" class="col-date">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title" title="Дата отгрузки">Дата</span>
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Дата отгрузки</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Дата</span>
+                          </span>
                           <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
                             <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                           </button>
@@ -2819,7 +2838,8 @@
                             aria-controls="orders-filter-client-popover"
                             title="Фильтр по клиенту"
                           >
-                            Фил.
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
                           </button>
                         </div>
                       </div>
@@ -2827,7 +2847,10 @@
                     <th scope="col" class="col-pct">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title" title="Собран (%)">%</span>
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Собран (%)</span>
+                            <span class="orders-th-label-short" aria-hidden="true">%</span>
+                          </span>
                           <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
                             <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
                           </button>
@@ -2841,7 +2864,8 @@
                             aria-controls="orders-filter-pct-popover"
                             title="Фильтр по проценту сборки"
                           >
-                            Фил.
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
                           </button>
                         </div>
                       </div>
@@ -2849,7 +2873,10 @@
                     <th scope="col" class="col-qty">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title" title="Количество">Кол-во</span>
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Количество</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Кол-во</span>
+                          </span>
                         </div>
                         <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
                       </div>
@@ -2857,7 +2884,10 @@
                     <th scope="col" class="col-extra-info">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
-                          <span class="orders-th-title orders-th-title--block" title="Доп. информация">Доп.</span>
+                          <span class="orders-th-title orders-th-title--block">
+                            <span class="orders-th-label-full">Доп. информация</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Доп.</span>
+                          </span>
                         </div>
                         <div class="orders-th-controls">
                           <button
@@ -2868,7 +2898,8 @@
                             aria-controls="orders-filter-extra-popover"
                             title="Фильтр по доп. информации"
                           >
-                            Фил.
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
                           </button>
                         </div>
                       </div>

@@ -3,8 +3,7 @@
 Paletlist is a warehouse/order management web app. The repository contains a
 static browser UI, a Python API server, SQLite-backed data storage, and PDF/XLSX
 generators for packing and pallet sheets.
-
-This is not a GitHub Pages-only static site anymore. Production deployment is
+Production deployment is
 performed to a server over SSH by GitHub Actions.
 
 ## Repository layout

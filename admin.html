@@ -7232,6 +7232,9 @@
             const unirusAssemble = isAssembleUnirusMode();
             const showAddSlotRow =
               !unirusAssemble || !palletHasSelectedOrderLine(pal, items.length);
+            const palletNumberInputModeAttrs = unirusAssemble
+              ? ' inputmode="numeric" pattern="[0-9]*"'
+              : "";
             const addBtn = showAddSlotRow
               ? `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`
               : "";
@@ -7240,7 +7243,7 @@
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">
                 <label for="pn-${pIdx}">Номер паллета</label>
-                <input id="pn-${pIdx}" type="text" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
+                <input id="pn-${pIdx}" type="text"${palletNumberInputModeAttrs} data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
               </div>
               ${removeBtn}
             </div>

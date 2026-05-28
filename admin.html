@@ -7728,9 +7728,6 @@
             const unirusAssemble = isAssembleUnirusMode();
             const showAddSlotRow =
               !unirusAssemble || !palletHasSelectedOrderLine(pal, items.length);
-            const palletNumberInputModeAttrs = unirusAssemble
-              ? ' inputmode="numeric" pattern="[0-9]*"'
-              : "";
             const addBtn = showAddSlotRow
               ? `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`
               : "";

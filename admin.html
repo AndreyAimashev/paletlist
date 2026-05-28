@@ -622,10 +622,10 @@
         width: auto;
         max-width: 100%;
         padding: 8px 10px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(0, 200, 160, 0.38);
-        background: rgba(0, 200, 160, 0.08);
-        box-shadow: 0 0 0 1px rgba(0, 200, 160, 0.06);
+        border-radius: 12px;
+        border: 1px solid rgba(185, 103, 255, 0.5);
+        background: rgba(22, 18, 34, 0.75);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
       }
 
       .assemble-field.assemble-pallet-number-field label {
@@ -634,7 +634,7 @@
         max-width: 100%;
         font-size: 12px;
         font-weight: 600;
-        color: var(--accent-teal);
+        color: #d4b0ff;
         letter-spacing: 0.02em;
         margin-bottom: 6px;
         white-space: nowrap;
@@ -648,8 +648,27 @@
         box-sizing: border-box;
         font-weight: 600;
         text-align: center;
-        padding-left: 6px;
-        padding-right: 6px;
+        padding: 8px 10px;
+        border: 1px solid rgba(185, 103, 255, 0.35);
+        border-radius: 8px;
+        background: rgba(12, 10, 18, 0.9);
+        color: var(--text-main);
+      }
+
+      .assemble-field.assemble-pallet-number-field--duplicate {
+        border-color: rgba(255, 120, 120, 0.65);
+        background: rgba(48, 18, 22, 0.82);
+        box-shadow: inset 0 1px 0 rgba(255, 200, 200, 0.06);
+      }
+
+      .assemble-field.assemble-pallet-number-field--duplicate label {
+        color: #ff9b7a;
+      }
+
+      .assemble-field.assemble-pallet-number-field--duplicate input {
+        border-color: rgba(255, 120, 120, 0.85);
+        background: rgba(28, 12, 14, 0.95);
+        color: #ffc8b8;
       }
 
       .assemble-order-line-select {
@@ -6403,6 +6422,42 @@
         return Math.trunc(n);
       }
 
+      function assembleDuplicatePalletNumberIndices(pallets) {
+        const byNum = new Map();
+        (pallets || []).forEach((pal, idx) => {
+          const n = parseAssemblePalletNumberInt(pal);
+          if (n === null) {
+            return;
+          }
+          if (!byNum.has(n)) {
+            byNum.set(n, []);
+          }
+          byNum.get(n).push(idx);
+        });
+        const dupes = new Set();
+        byNum.forEach((indices) => {
+          if (indices.length > 1) {
+            indices.forEach((i) => dupes.add(i));
+          }
+        });
+        return dupes;
+      }
+
+      function refreshAssemblePalletNumberDuplicateStyles() {
+        if (!assemblePalletsRoot || !assembleAllocState) {
+          return;
+        }
+        const dupes = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
+        assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
+          const pIdx = Number(card.dataset.palletCard);
+          const field = card.querySelector(".assemble-pallet-number-field");
+          if (!field || !Number.isFinite(pIdx)) {
+            return;
+          }
+          field.classList.toggle("assemble-pallet-number-field--duplicate", dupes.has(pIdx));
+        });
+      }
+
       /** Следующий номер: сначала «дыра» в ряду (1,3 → 2), иначе max+1. */
       function suggestNextAssemblePalletNumber(pallets) {
         const used = new Set();
@@ -7320,6 +7375,12 @@
       function validateAssembleAllocations() {
         const items = assembleOrderSnapshot?.items || [];
         const msgs = [];
+        if (assembleAllocState) {
+          const dupes = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
+          if (dupes.size) {
+            msgs.push("Номера паллетов должны быть уникальными — исправьте дубликаты.");
+          }
+        }
         items.forEach((it, li) => {
           const maxP = orderLineMaxPieces(it);
           const sum = lineAllocatedPiecesSum(li);

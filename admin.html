@@ -7335,17 +7335,6 @@
         const items = assembleOrderSnapshot.items;
         syncAssembleStateFromDom();
         const pallets = assembleAllocState.pallets;
-        const hasContent = assembleStateHasMeaningfulData(items, pallets);
-        if (
-          !hasContent &&
-          (assembleServerHadContent || assembleKnownRevision > 0)
-        ) {
-          setAssembleSaveStatus(
-            "Сохранение пропущено: на сервере уже есть сборка. Обновите страницу.",
-            true,
-          );
-          return false;
-        }
         const assembled_percent = computeAssembledPercentFromDraftItems(items, pallets);
         const assemble_state = { version: 2, pallets };
         assembleSaveInFlight = true;
@@ -7381,6 +7370,19 @@
               "Конфликт: сборка изменена на другом устройстве. Обновите страницу или дождитесь синхронизации.",
               true,
             );
+            return false;
+          }
+          if (res.status === 400) {
+            let errBody = null;
+            try {
+              errBody = await res.json();
+            } catch (e) {
+              /* ignore */
+            }
+            const msg =
+              (errBody && (errBody.message || errBody.error)) ||
+              "Не удалось сохранить сборку на сервер.";
+            setAssembleSaveStatus(String(msg), true);
             return false;
           }
           if (!res.ok) {
@@ -7908,9 +7910,6 @@
           return;
         }
         const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
-        if (cards.length !== assembleAllocState.pallets.length) {
-          return;
-        }
         cards.forEach((card) => {
           const pIdx = Number(card.dataset.palletCard);
           const pal = assembleAllocState.pallets[pIdx];
@@ -8103,7 +8102,7 @@
         if (addS) {
           ev.preventDefault();
           syncAssembleStateFromDom();
-          const pi = Number(addS.dataset.pallet);
+          const pi = Number(addS.dataset.pallet ?? addS.getAttribute("data-pallet"));
           if (!Number.isFinite(pi) || !assembleAllocState.pallets[pi]) {
             return;
           }
@@ -8200,6 +8199,9 @@
             updateAssemblePresenceHint(p.others);
           }
         });
+        if (assemblePalletsRoot) {
+          assemblePalletsRoot.innerHTML = "";
+        }
         assembleAllocState = { pallets: picked.pallets };
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();

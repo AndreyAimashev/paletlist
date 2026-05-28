@@ -6702,6 +6702,14 @@
         const serverRev = Number(orderData.assemble_revision) || 0;
         const localRev = Number(localDraft?.assemble_revision) || 0;
         if (serverStored) {
+          if (localHas && localRev > serverRev) {
+            return {
+              pallets: localPallets,
+              revision: localRev,
+              pushToServer: true,
+              serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
+            };
+          }
           return {
             pallets: serverPallets,
             revision: serverRev,

@@ -349,6 +349,10 @@ _ARNEST_LINE9_TI_HI_LABEL = "TI*HI"
 _ARNEST_LINE10_KOR_LABEL = "кор."
 _ARNEST_LINE12_TOTAL_QUANTITY_LABEL = "Total Quantity"
 _ARNEST_LINE15_BATCH_NUMBER_LABEL = "Batch Number"
+_ARNEST_LINE14_TO_BATCH_LABEL_GAP_MM = 0.0  # штрих-код паллеты (стр. 14) → «Batch Number»
+_ARNEST_LINE15_LABEL_TO_BATCH_GAP_MM = (
+    _ARNEST_TEXT_LINE_GAP_MM / 2.0
+)  # «Batch Number» → номер партии
 
 
 def _arnest_regular_font_path() -> Path | None:
@@ -982,13 +986,15 @@ def build_arnest_unirus_pallet_sheets_pdf_with_barcodes(
                     pallet_bc,
                     body_caption_style=True,
                 )
-                y_after_line14 = y14 + h_pallet_mm + cap14_h + _ARNEST_TEXT_LINE_GAP_MM
+                y_after_line14 = (
+                    y14 + h_pallet_mm + cap14_h + _ARNEST_LINE14_TO_BATCH_LABEL_GAP_MM
+                )
             y15 = y_after_line14
             rem_bn = max(0.0, max_r - x_units)
             pdf.set_font("PLCalibri", "", fs)
             pdf.set_xy(x_units, y15)
             pdf.cell(rem_bn, h_txt, _ARNEST_LINE15_BATCH_NUMBER_LABEL, align="L")
-            y16 = y15 + h_txt + _ARNEST_TEXT_LINE_GAP_MM
+            y16 = y15 + h_txt + _ARNEST_LINE15_LABEL_TO_BATCH_GAP_MM
             batch_disp = str(
                 row.get("batch_number", row.get("batchNumber", ""))
             ).strip() or "—"

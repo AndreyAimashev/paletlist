@@ -4291,23 +4291,75 @@
 
       const ASSEMBLE_OPTIONAL_BATCH_KEY = "paletlist_assemble_optional_batch";
 
-      function readAssembleOptionalBatchFlag() {
+      function assembleOptionalBatchStorageKey(orderId) {
+        return `${ASSEMBLE_OPTIONAL_BATCH_KEY}_${orderId}`;
+      }
+
+      function readAssembleOptionalBatchFlagForOrder(orderId) {
         try {
-          return window.localStorage.getItem(ASSEMBLE_OPTIONAL_BATCH_KEY) === "1";
+          return window.localStorage.getItem(assembleOptionalBatchStorageKey(orderId)) === "1";
         } catch (e) {
           return false;
         }
       }
 
-      function writeAssembleOptionalBatchFlag(on) {
+      function writeAssembleOptionalBatchFlagForOrder(orderId, on) {
         try {
-          window.localStorage.setItem(ASSEMBLE_OPTIONAL_BATCH_KEY, on ? "1" : "0");
+          window.localStorage.setItem(assembleOptionalBatchStorageKey(orderId), on ? "1" : "0");
         } catch (e) {
           /* ignore */
         }
       }
 
-      let assembleOptionalBatchEnabled = readAssembleOptionalBatchFlag();
+      function optionalBatchFromAssembleState(st) {
+        if (!st || typeof st !== "object") {
+          return null;
+        }
+        if ("optional_batch_enabled" in st) {
+          return !!st.optional_batch_enabled;
+        }
+        return null;
+      }
+
+      function buildAssembleStateForSave(pallets) {
+        return {
+          version: 2,
+          pallets,
+          optional_batch_enabled: !!assembleOptionalBatchEnabled,
+        };
+      }
+
+      function applyOptionalBatchSetting(enabled, orderId, client) {
+        const next = !!enabled;
+        if (next === assembleOptionalBatchEnabled) {
+          return false;
+        }
+        assembleOptionalBatchEnabled = next;
+        if (orderId != null && Number.isFinite(Number(orderId))) {
+          writeAssembleOptionalBatchFlagForOrder(orderId, next);
+        }
+        mountOptionalBatchToggleForClient(client || assembleOrderSnapshot?.client || "");
+        return true;
+      }
+
+      function syncOptionalBatchToggleFromServer(data) {
+        if (!assembleOrderSnapshot || !data || data.id !== assembleOrderSnapshot.id) {
+          return;
+        }
+        const ob = optionalBatchFromAssembleState(data.assemble_state);
+        if (ob === null) {
+          return;
+        }
+        if (!applyOptionalBatchSetting(ob, data.id, assembleOrderSnapshot.client)) {
+          return;
+        }
+        if (assembleAllocState && !assembleDirty) {
+          renderAssemblePalletCards();
+          renderAssembleAlerts();
+        }
+      }
+
+      let assembleOptionalBatchEnabled = false;
 
       function showAssembleBatchFieldInSlots() {
         return isAssembleUnirusMode() || assembleOptionalBatchEnabled;
@@ -4771,6 +4823,7 @@
             void leaveAssemblePresence(assembleOrderSnapshot.id);
           }
           hideAssemblePresenceHint();
+          markAssembleSaveSucceeded();
         }
         const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
         const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
@@ -7080,10 +7133,16 @@
             : [{ id: 1, palletNumber: "", slots: [] }];
         assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision;
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
+        const obRemote = optionalBatchFromAssembleState(data.assemble_state);
+        if (obRemote !== null) {
+          assembleOptionalBatchEnabled = obRemote;
+          writeAssembleOptionalBatchFlagForOrder(data.id, obRemote);
+        }
         assembleAllocState = { pallets };
         assembleDirty = false;
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();
+        mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
         setAssembleSaveStatus("Загружены данные с сервера.", false);
         renderAssemblePalletCards();
         renderAssembleSummary();
@@ -7123,6 +7182,9 @@
         }
         const remoteRev = Number(data.assemble_revision) || 0;
         if (remoteRev <= assembleKnownRevision) {
+          if (!assembleDirty) {
+            syncOptionalBatchToggleFromServer(data);
+          }
           return;
         }
         const items = assembleOrderSnapshot.items;
@@ -7362,6 +7424,7 @@
               version: 2,
               pallets: assembleAllocState.pallets,
               assemble_revision: assembleKnownRevision,
+              optional_batch_enabled: !!assembleOptionalBatchEnabled,
             }),
           );
         } catch (e) {
@@ -7378,7 +7441,7 @@
         syncAssembleStateFromDom();
         const pallets = assembleAllocState.pallets;
         const assembled_percent = computeAssembledPercentFromDraftItems(items, pallets);
-        const assemble_state = { version: 2, pallets };
+        const assemble_state = buildAssembleStateForSave(pallets);
         assembleSaveInFlight = true;
         try {
           const res = await fetch(`/api/orders/${oid}`, {
@@ -8257,6 +8320,15 @@
         }
         assembleAllocState = { pallets: picked.pallets };
         finalizeAssembleSlots();
+        const obServer = optionalBatchFromAssembleState(data.assemble_state);
+        if (obServer !== null) {
+          assembleOptionalBatchEnabled = obServer;
+        } else if (localDraft && typeof localDraft.optional_batch_enabled === "boolean") {
+          assembleOptionalBatchEnabled = localDraft.optional_batch_enabled;
+        } else {
+          assembleOptionalBatchEnabled = readAssembleOptionalBatchFlagForOrder(orderId);
+        }
+        writeAssembleOptionalBatchFlagForOrder(orderId, assembleOptionalBatchEnabled);
         mirrorAssembleDraftLocal();
         if (picked.pushToServer) {
           void persistAssembleDraftToServer();
@@ -8318,7 +8390,12 @@
           const t = ev.target;
           if (t && t.id === "assemble-optional-batch-toggle") {
             assembleOptionalBatchEnabled = !!t.checked;
-            writeAssembleOptionalBatchFlag(assembleOptionalBatchEnabled);
+            if (assembleOrderSnapshot?.id != null) {
+              writeAssembleOptionalBatchFlagForOrder(
+                assembleOrderSnapshot.id,
+                assembleOptionalBatchEnabled,
+              );
+            }
             if (!assembleAllocState) {
               return;
             }

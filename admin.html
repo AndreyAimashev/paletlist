@@ -751,12 +751,14 @@
         font-size: 13px;
       }
 
-      .assemble-field input.assemble-unirus-date--invalid {
+      .assemble-field input.assemble-unirus-date--invalid,
+      .assemble-field input.assemble-lab-batch--invalid {
         border-color: rgba(255, 120, 120, 0.9);
         box-shadow: 0 0 0 1px rgba(255, 80, 80, 0.35);
       }
 
-      .assemble-unirus-date-msg {
+      .assemble-unirus-date-msg,
+      .assemble-lab-batch-msg {
         font-size: 10px;
         color: rgba(255, 160, 160, 0.95);
         margin: 4px 0 0;
@@ -3928,6 +3930,67 @@
         assemblePalletsRoot
           .querySelectorAll("[data-field='unirusMfgDate'], [data-field='unirusExpiryDate']")
           .forEach((node) => applyUnirusDateInputValidation(node));
+      }
+
+      const LAB_BATCH_CYRILLIC_RE = /[а-яёА-ЯЁ]/;
+
+      function labBatchHasCyrillic(raw) {
+        return LAB_BATCH_CYRILLIC_RE.test(String(raw ?? ""));
+      }
+
+      const LAB_BATCH_CYRILLIC_MSG =
+        "В партии нельзя использовать русские буквы — штрихкод на паллетном листе не сформируется.";
+
+      function refreshLabBatchCustomValidity(el) {
+        if (!el || !isAssembleLabMode() || el.dataset.field !== "batchNumber") {
+          return;
+        }
+        const val = String(el.value ?? "").trim();
+        if (val && labBatchHasCyrillic(val)) {
+          el.setCustomValidity(LAB_BATCH_CYRILLIC_MSG);
+          return;
+        }
+        const n = parseBatchNumbers(el.value).length;
+        if (n > 1) {
+          el.setCustomValidity(
+            "Укажите одну партию. Для второй партии добавьте строку товара на этом паллете.",
+          );
+          return;
+        }
+        el.setCustomValidity("");
+      }
+
+      function applyLabBatchInputValidation(el) {
+        if (!el || !isAssembleLabMode() || el.dataset.field !== "batchNumber") {
+          return;
+        }
+        const wrap = el.closest(".assemble-field");
+        const msgEl = wrap ? wrap.querySelector("[data-lab-batch-msg]") : null;
+        const INVALID = "assemble-lab-batch--invalid";
+        const val = String(el.value ?? "").trim();
+        if (val && labBatchHasCyrillic(val)) {
+          el.classList.add(INVALID);
+          el.setAttribute("title", LAB_BATCH_CYRILLIC_MSG);
+          if (msgEl) {
+            msgEl.textContent = LAB_BATCH_CYRILLIC_MSG;
+          }
+        } else {
+          el.classList.remove(INVALID);
+          el.removeAttribute("title");
+          if (msgEl) {
+            msgEl.textContent = "";
+          }
+        }
+        refreshLabBatchCustomValidity(el);
+      }
+
+      function refreshAllAssembleLabBatchValidations() {
+        if (!assemblePalletsRoot || !isAssembleLabMode()) {
+          return;
+        }
+        assemblePalletsRoot
+          .querySelectorAll("[data-field='batchNumber']")
+          .forEach((node) => applyLabBatchInputValidation(node));
       }
 
       function formatLabRow3Text(totalPieces, volumeMl, volumeUnit) {
@@ -7609,6 +7672,16 @@
             });
           });
         }
+        if (isAssembleLabMode() && assembleAllocState) {
+          assembleAllocState.pallets.forEach((pal, pi) => {
+            (pal.slots || []).forEach((slot, si) => {
+              const bn = normalizeLabBatchNumberField(slot.batchNumber ?? "");
+              if (bn && labBatchHasCyrillic(bn)) {
+                msgs.push(`Паллет ${pi + 1}, позиция ${si + 1}: ${LAB_BATCH_CYRILLIC_MSG}`);
+              }
+            });
+          });
+        }
         return msgs;
       }
 
@@ -7877,10 +7950,14 @@
         const ueVal = escapeXml(String(slot.unirusExpiryDate ?? ""));
         const unirusEx = unirusTodayDDMMYYExample();
         const productRowClass = "assemble-slot-product-row";
+        const labBatchMsgHtml = isAssembleLabMode()
+          ? `<p class="assemble-lab-batch-msg" data-lab-batch-msg aria-live="polite"></p>`
+          : "";
         const batchFieldHtml = showBatch
           ? `<div class="assemble-field" style="max-width:100%">
               <label for="ab-${pIdx}-${sIdx}">Партия</label>
               <input id="ab-${pIdx}-${sIdx}" type="text" data-assemble-input data-pallet="${pIdx}" data-slot="${sIdx}" data-field="batchNumber" placeholder="${batchPlaceholder}" autocomplete="off" value="${batchVal}"${batchTitle} />
+              ${labBatchMsgHtml}
             </div>`
           : "";
         const labExpiryVal = escapeXml(String(slot.labExpiryDate ?? ""));
@@ -8018,6 +8095,7 @@
           })
           .join("");
         refreshAllAssembleUnirusDateValidations();
+        refreshAllAssembleLabBatchValidations();
         refreshAssemblePalletNumberDuplicateStyles();
       }
 
@@ -8111,19 +8189,16 @@
         if (t.matches("[data-assemble-input]")) {
           if (t.dataset.field === "batchNumber") {
             if (isAssembleLabMode()) {
-              const n = parseBatchNumbers(t.value).length;
-              if (n > 1) {
-                t.setCustomValidity(
-                  "Укажите одну партию. Для второй партии добавьте строку товара на этом паллете.",
-                );
-              } else {
-                t.setCustomValidity("");
-              }
+              applyLabBatchInputValidation(t);
             }
             if (ev.type === "blur") {
               applyBatchNumberInputNormalization(t);
+              if (isAssembleLabMode()) {
+                applyLabBatchInputValidation(t);
+              }
               syncAssembleStateFromDom();
               saveAssembleDraft();
+              renderAssembleAlerts();
               return;
             }
           }

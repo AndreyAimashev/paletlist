@@ -238,6 +238,10 @@ def _format_lab_row10_expiry(raw: str) -> str:
     return s
 
 
+def _lab_batch_has_cyrillic(raw: str) -> bool:
+    return bool(re.search(r"[а-яёА-ЯЁ]", str(raw or "")))
+
+
 def _format_lab_batch_for_barcode(raw: str) -> str:
     """ТA127361601 → A127361601 (последняя буква префикса + цифры); первая партия."""
     parts = _lab_batch_parts(raw, 1)
@@ -263,6 +267,8 @@ def build_lab_product_gs1_128(
     art_digits = _arnest_first_digit_run(str(article or "").strip())
     if not art_digits:
         return None, None, "в артикуле нет цифр"
+    if _lab_batch_has_cyrillic(str(batch_raw or "")):
+        return None, None, "в номере партии нельзя использовать русские буквы"
     batch_bc = _format_lab_batch_for_barcode(batch_raw)
     if not batch_bc:
         return None, None, "не указана партия"

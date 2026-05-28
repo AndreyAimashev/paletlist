@@ -655,20 +655,22 @@
         color: var(--text-main);
       }
 
-      .assemble-field.assemble-pallet-number-field--duplicate {
-        border-color: rgba(255, 120, 120, 0.65);
-        background: rgba(48, 18, 22, 0.82);
-        box-shadow: inset 0 1px 0 rgba(255, 200, 200, 0.06);
+      .assemble-field.assemble-pallet-number-field.assemble-pallet-number-field--duplicate {
+        border-color: rgba(255, 100, 100, 0.85);
+        background: rgba(56, 16, 20, 0.92);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 200, 200, 0.08),
+          0 0 0 1px rgba(255, 120, 120, 0.35);
       }
 
-      .assemble-field.assemble-pallet-number-field--duplicate label {
-        color: #ff9b7a;
+      .assemble-field.assemble-pallet-number-field.assemble-pallet-number-field--duplicate label {
+        color: #ff8a6a;
       }
 
-      .assemble-field.assemble-pallet-number-field--duplicate input {
-        border-color: rgba(255, 120, 120, 0.85);
-        background: rgba(28, 12, 14, 0.95);
-        color: #ffc8b8;
+      .assemble-field.assemble-pallet-number-field.assemble-pallet-number-field--duplicate input {
+        border-color: rgba(255, 100, 100, 0.9);
+        background: rgba(36, 10, 12, 0.98);
+        color: #ffd0c4;
       }
 
       .assemble-order-line-select {
@@ -6443,11 +6445,44 @@
         return dupes;
       }
 
+      function assembleDuplicatePalletNumberIndicesFromDom() {
+        const dupes = new Set();
+        if (!assemblePalletsRoot) {
+          return dupes;
+        }
+        const byNum = new Map();
+        assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
+          const pIdx = Number(card.dataset.palletCard);
+          const numEl = card.querySelector("[data-assemble-pallet-number]");
+          if (!numEl || !Number.isFinite(pIdx)) {
+            return;
+          }
+          const raw = String(numEl.value ?? "").trim();
+          if (!raw) {
+            return;
+          }
+          const n = Math.trunc(Number(raw));
+          if (!Number.isFinite(n) || n < 0) {
+            return;
+          }
+          if (!byNum.has(n)) {
+            byNum.set(n, []);
+          }
+          byNum.get(n).push(pIdx);
+        });
+        byNum.forEach((indices) => {
+          if (indices.length > 1) {
+            indices.forEach((i) => dupes.add(i));
+          }
+        });
+        return dupes;
+      }
+
       function refreshAssemblePalletNumberDuplicateStyles() {
-        if (!assemblePalletsRoot || !assembleAllocState) {
+        if (!assemblePalletsRoot) {
           return;
         }
-        const dupes = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
+        const dupes = assembleDuplicatePalletNumberIndicesFromDom();
         assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
           const pIdx = Number(card.dataset.palletCard);
           const field = card.querySelector(".assemble-pallet-number-field");
@@ -7375,12 +7410,6 @@
       function validateAssembleAllocations() {
         const items = assembleOrderSnapshot?.items || [];
         const msgs = [];
-        if (assembleAllocState) {
-          const dupes = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
-          if (dupes.size) {
-            msgs.push("Номера паллетов должны быть уникальными — исправьте дубликаты.");
-          }
-        }
         items.forEach((it, li) => {
           const maxP = orderLineMaxPieces(it);
           const sum = lineAllocatedPiecesSum(li);
@@ -7808,9 +7837,14 @@
             '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу страницы.</p>';
           return;
         }
+        syncAssembleStateFromDom();
+        const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
         assemblePalletsRoot.innerHTML = assembleAllocState.pallets
           .map((pal, pIdx) => {
             const numVal = escapeXml(String(pal.palletNumber ?? ""));
+            const palletNumDupClass = duplicatePalletIdx.has(pIdx)
+              ? " assemble-pallet-number-field--duplicate"
+              : "";
             const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`;
             const slots = Array.isArray(pal.slots) ? pal.slots : [];
             const slotsHtml =
@@ -7826,7 +7860,7 @@
             const addRowHtml = addBtn ? `<div class="assemble-pallet-add-row">${addBtn}</div>` : "";
             return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
-              <div class="assemble-field assemble-pallet-number-field">
+              <div class="assemble-field assemble-pallet-number-field${palletNumDupClass}">
                 <label for="pn-${pIdx}">Номер паллета</label>
                 <input id="pn-${pIdx}" type="number" min="0" step="1" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
               </div>
@@ -7838,6 +7872,7 @@
           })
           .join("");
         refreshAllAssembleUnirusDateValidations();
+        refreshAssemblePalletNumberDuplicateStyles();
       }
 
       function syncAssembleStateFromDom() {
@@ -7954,6 +7989,7 @@
           if (t.dataset.field === "palletNumber") {
             syncAssembleStateFromDom();
             saveAssembleDraft();
+            refreshAssemblePalletNumberDuplicateStyles();
             return;
           }
           if (
@@ -8220,6 +8256,18 @@
         assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
         assemblePalletsRoot.addEventListener("blur", onAssembleFormEvent, true);
         assemblePalletsRoot.addEventListener("click", onAssemblePalletClick);
+        assemblePalletsRoot.addEventListener("input", (ev) => {
+          const t = ev.target;
+          if (t && t.matches && t.matches('[data-field="palletNumber"]')) {
+            refreshAssemblePalletNumberDuplicateStyles();
+          }
+        });
+        assemblePalletsRoot.addEventListener("change", (ev) => {
+          const t = ev.target;
+          if (t && t.matches && t.matches('[data-field="palletNumber"]')) {
+            refreshAssemblePalletNumberDuplicateStyles();
+          }
+        });
       }
       if (assembleAddPalletBtn) {
         assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());

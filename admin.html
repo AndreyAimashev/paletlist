@@ -7607,6 +7607,21 @@
           /* ignore */
         }
         renderAssembleSummary();
+        if (assembleAllocState) {
+          renderAssemblePalletCards();
+        }
+      }
+
+      function formatAssembleLineRemainingSuffix(it, lineIdx) {
+        const maxP = orderLineMaxPieces(it);
+        const allocP = lineAllocatedPiecesSum(lineIdx);
+        const restP = Math.max(0, maxP - allocP);
+        const unit = assembleSummaryDisplayUnit;
+        const fine = summaryLineNeedsFinePrecision(it, unit);
+        const qRest = summaryPiecesToUnit(it, restP, unit);
+        const qtyStr = formatSummaryQty(qRest, fine);
+        const unitShort = ASSEMBLE_SUMMARY_UNITS[unit]?.short || "шт";
+        return `ост. ${qtyStr} ${unitShort}`;
       }
 
       function renderAssembleSummary() {
@@ -7713,7 +7728,7 @@
           if (maxP > tol && allocGlobal >= maxP - tol && idx !== curOrder) {
             return;
           }
-          const label = `${idx + 1}. ${formatAssembleProductLabel(it, assembleOrderSnapshot)}`;
+          const label = `${idx + 1}. ${formatAssembleProductLabel(it, assembleOrderSnapshot)} — ${formatAssembleLineRemainingSuffix(it, idx)}`;
           const v = `order:${idx}`;
           const sel = v === curVal ? " selected" : "";
           html += `<option value="${v}"${sel}>${escapeXml(label)}</option>`;

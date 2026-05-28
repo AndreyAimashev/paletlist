@@ -6391,6 +6391,40 @@
         return [1, 0, raw.toLowerCase()];
       }
 
+      function parseAssemblePalletNumberInt(pal) {
+        const raw = String(pal?.palletNumber ?? pal?.pallet_number ?? "").trim();
+        if (!raw) {
+          return null;
+        }
+        const n = Number(String(raw).replace(",", "."));
+        if (!Number.isFinite(n) || n < 0) {
+          return null;
+        }
+        return Math.trunc(n);
+      }
+
+      /** Следующий номер: сначала «дыра» в ряду (1,3 → 2), иначе max+1. */
+      function suggestNextAssemblePalletNumber(pallets) {
+        const used = new Set();
+        let max = 0;
+        (pallets || []).forEach((pal) => {
+          const n = parseAssemblePalletNumberInt(pal);
+          if (n === null) {
+            return;
+          }
+          used.add(n);
+          if (n > max) {
+            max = n;
+          }
+        });
+        for (let i = 1; i <= max; i += 1) {
+          if (!used.has(i)) {
+            return String(i);
+          }
+        }
+        return String(max + 1 || 1);
+      }
+
       function sortAssemblePalletsByNumber(pallets) {
         if (!Array.isArray(pallets) || pallets.length < 2) {
           return Array.isArray(pallets) ? pallets.slice() : [];
@@ -7961,9 +7995,10 @@
         syncAssembleStateFromDom();
         const nextId =
           assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
+        const nextPalletNumber = suggestNextAssemblePalletNumber(assembleAllocState.pallets);
         assembleAllocState.pallets.push({
           id: nextId,
-          palletNumber: "",
+          palletNumber: nextPalletNumber,
           slots: [],
         });
         finalizeAssembleSlots();

@@ -2322,9 +2322,23 @@
         }
 
         .assemble-field.assemble-pallet-number-field {
-          width: max-content;
-          max-width: 100%;
-          align-self: flex-start;
+          width: 100%;
+          max-width: none;
+          align-self: stretch;
+          align-items: stretch;
+          box-sizing: border-box;
+        }
+
+        .assemble-field.assemble-pallet-number-field label {
+          width: 100%;
+          max-width: none;
+          text-align: center;
+        }
+
+        .assemble-field.assemble-pallet-number-field input {
+          width: 100%;
+          min-width: 0;
+          text-align: center;
         }
 
         .assemble-inputs-grid {

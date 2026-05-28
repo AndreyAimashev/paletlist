@@ -1729,6 +1729,82 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE order_items ADD COLUMN total_order_quantity REAL"
         )
+    if "lab_sscc_ai_seq" not in order_cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN lab_sscc_ai_seq INTEGER")
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    if not cur.execute(
+        "SELECT 1 FROM app_settings WHERE key = 'lab_sscc_next_ai' LIMIT 1"
+    ).fetchone():
+        cur.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('lab_sscc_next_ai', '1')"
+        )
+
+
+_LAB_SSCC_NEXT_AI_KEY = "lab_sscc_next_ai"
+
+
+def _lab_sscc_next_counter(cur) -> int:
+    row = cur.execute(
+        "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
+        (_LAB_SSCC_NEXT_AI_KEY,),
+    ).fetchone()
+    if not row:
+        return 1
+    try:
+        return int(str(row[0]).strip()) % 100
+    except ValueError:
+        return 1
+
+
+def _lab_sscc_set_next_counter(cur, value: int) -> None:
+    cur.execute(
+        """
+        INSERT INTO app_settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (_LAB_SSCC_NEXT_AI_KEY, str(int(value) % 100)),
+    )
+
+
+def _assign_lab_sscc_ai_seq(cur, order_id: int) -> int:
+    """Номер (01)…(99), (00) для штрих-кода паллеты ЛАБ; один на заказ."""
+    next_val = _lab_sscc_next_counter(cur)
+    seq = next_val % 100
+    cur.execute(
+        "UPDATE orders SET lab_sscc_ai_seq = ? WHERE id = ?",
+        (seq, int(order_id)),
+    )
+    _lab_sscc_set_next_counter(cur, (next_val + 1) % 100)
+    return seq
+
+
+def get_or_assign_lab_sscc_ai_seq(order_id: int) -> int:
+    """Возвращает сохранённый AI заказа или выдаёт следующий по счётчику."""
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT lab_sscc_ai_seq FROM orders WHERE id = ?",
+            (int(order_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return 0
+        if row[0] is not None:
+            seq = int(row[0]) % 100
+            con.close()
+            return seq
+        seq = _assign_lab_sscc_ai_seq(cur, int(order_id))
+        con.commit()
+        con.close()
+        return seq
 
 
 _MAX_ASSEMBLE_STATE_JSON_BYTES = 2 * 1024 * 1024
@@ -2119,6 +2195,7 @@ def insert_order_with_items(body: dict):
             (ship, client_n, names_summary, buyer_order_mode, order_buyer_order),
         )
         oid = cur.lastrowid
+        lab_sscc_ai_seq = _assign_lab_sscc_ai_seq(cur, int(oid))
         for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
             cur.execute(
                 """
@@ -2132,7 +2209,7 @@ def insert_order_with_items(body: dict):
             )
         con.commit()
         con.close()
-    return {"ok": True, "id": int(oid)}
+    return {"ok": True, "id": int(oid), "lab_sscc_ai_seq": lab_sscc_ai_seq}
 
 
 _IMPORT_SKIP_META_PREFIX = "__import_skip__:"
@@ -2648,6 +2725,7 @@ def import_orders_from_excel_bytes(data: bytes):
                     (ship, client_n, names_summary, extra_info),
                 )
                 oid = int(cur.lastrowid)
+                _assign_lab_sscc_ai_seq(cur, oid)
                 created_ids.append(oid)
                 if skipped_count > 0:
                     import_errors.append(
@@ -2691,6 +2769,7 @@ def import_orders_from_excel_bytes(data: bytes):
                 (ship, client_n, names_summary, extra_info),
             )
             oid = int(cur.lastrowid)
+            _assign_lab_sscc_ai_seq(cur, oid)
             for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
                 cur.execute(
                     """
@@ -2841,7 +2920,7 @@ def fetch_order_detail(order_id: int):
         row = con.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, total_order_quantity
+                   buyer_order_mode, buyer_order, total_order_quantity, lab_sscc_ai_seq
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -2890,6 +2969,9 @@ def fetch_order_detail(order_id: int):
         "total_order_quantity": float(row["total_order_quantity"])
         if row["total_order_quantity"] is not None
         and "total_order_quantity" in row.keys()
+        else None,
+        "lab_sscc_ai_seq": int(row["lab_sscc_ai_seq"]) % 100
+        if row["lab_sscc_ai_seq"] is not None and "lab_sscc_ai_seq" in row.keys()
         else None,
         "items": items,
         **extra_fields,
@@ -3252,7 +3334,23 @@ class ApiHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-        blob, err, err_detail = build_lab_industries_pallet_sheets_pdf_bytes(pallets_raw)
+        lab_sscc_ai_seq = 0
+        order_id_raw = body.get("order_id")
+        if order_id_raw is not None and str(order_id_raw).strip() != "":
+            try:
+                lab_sscc_ai_seq = get_or_assign_lab_sscc_ai_seq(int(order_id_raw))
+            except (TypeError, ValueError):
+                lab_sscc_ai_seq = 0
+        pallets_for_pdf = []
+        for p in pallets_raw:
+            if not isinstance(p, dict):
+                continue
+            row = dict(p)
+            row["lab_sscc_ai_seq"] = lab_sscc_ai_seq
+            pallets_for_pdf.append(row)
+        blob, err, err_detail = build_lab_industries_pallet_sheets_pdf_bytes(
+            pallets_for_pdf
+        )
         if err:
             status_map = {
                 "validation_pallets": 400,
@@ -3437,8 +3535,12 @@ class ApiHandler(BaseHTTPRequestHandler):
                 build_lab_industries_pallet_sheets_pdf_from_order is not None
                 and is_lab_industries_client(str(detail.get("client") or ""))
             ):
+                lab_sscc_ai_seq = get_or_assign_lab_sscc_ai_seq(packing_oid)
+                detail["lab_sscc_ai_seq"] = lab_sscc_ai_seq
                 pdf_blob, err, err_detail = (
-                    build_lab_industries_pallet_sheets_pdf_from_order(detail)
+                    build_lab_industries_pallet_sheets_pdf_from_order(
+                        detail, lab_sscc_ai_seq=lab_sscc_ai_seq
+                    )
                 )
                 if err:
                     status_map = {

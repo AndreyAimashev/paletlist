@@ -47,14 +47,21 @@ def _parse_pallet_number_int(pallet_number: str, fallback_index: int) -> int:
     return max(1, int(fallback_index))
 
 
-def build_lab_pallet_sscc_gs1(pallet_number: str, fallback_index: int = 1) -> tuple[str, str]:
-    """GS1-128 (AI 00): код для генератора и подпись (00)150000000000000001."""
+def build_lab_pallet_sscc_gs1(
+    pallet_number: str,
+    fallback_index: int = 1,
+    *,
+    ai_seq: int = 0,
+) -> tuple[str, str]:
+    """GS1-128: префикс AI по заказу (01)…(99), затем (00); SSCC 18 цифр + суффикс паллеты."""
     n = _parse_pallet_number_int(pallet_number, fallback_index)
     sscc18 = f"150000000000000{n:03d}"
     if len(sscc18) != 18:
         sscc18 = (sscc18 + "0" * 18)[:18]
-    encode = "00" + sscc18
-    human = f"(00){sscc18}"
+    ai = int(ai_seq) % 100
+    ai_str = f"{ai:02d}"
+    encode = ai_str + sscc18
+    human = f"({ai_str}){sscc18}"
     return encode, human
 
 
@@ -446,6 +453,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     totals = _pieces_by_line_index(items, pallets)
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
+    lab_sscc_ai_seq = int(detail.get("lab_sscc_ai_seq") or 0) % 100
     out: list[dict[str, Any]] = []
     pallet_total = len(pallets)
     for idx, pal in enumerate(pallets, start=1):
@@ -496,6 +504,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     "row10_batch_text": _format_lab_row10_batch(batch_raw),
                     "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
                     "row11_gs1_hri": gs1_hri or "",
+                    "lab_sscc_ai_seq": lab_sscc_ai_seq,
                 }
             )
             continue
@@ -540,6 +549,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     "row10_batch_text": _format_lab_row10_batch(batch_raw),
                     "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
                     "row11_gs1_hri": gs1_hri or "",
+                    "lab_sscc_ai_seq": lab_sscc_ai_seq,
                 }
             )
     return out
@@ -675,7 +685,10 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
                 boxes_on_pal = float(row.get("boxes_on_pallet") or 0)
                 row4_text = _format_lab_row4_boxes(boxes_on_pal)
             pallet_number = str(row.get("pallet_number") or "").strip()
-            gs1_data, gs1_hri = build_lab_pallet_sscc_gs1(pallet_number, idx)
+            ai_seq = int(row.get("lab_sscc_ai_seq") or 0) % 100
+            gs1_data, gs1_hri = build_lab_pallet_sscc_gs1(
+                pallet_number, idx, ai_seq=ai_seq
+            )
             try:
                 png = render_gs1_128_barcode_png(gs1_data, write_text=False)
             except Exception as exc:
@@ -1021,10 +1034,15 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
 
 def build_lab_industries_pallet_sheets_pdf_from_order(
     detail: dict[str, Any],
+    *,
+    lab_sscc_ai_seq: int | None = None,
 ) -> tuple[bytes | None, str | None, str | None]:
     if not is_lab_industries_client(str(detail.get("client") or "")):
         return None, "lab_client", lab_pallet_pdf_error_message("lab_client")
-    pallets = lab_pallets_from_order_detail(detail)
+    if lab_sscc_ai_seq is None:
+        lab_sscc_ai_seq = int(detail.get("lab_sscc_ai_seq") or 0) % 100
+    detail_with_seq = {**detail, "lab_sscc_ai_seq": lab_sscc_ai_seq}
+    pallets = lab_pallets_from_order_detail(detail_with_seq)
     if not pallets:
         st = detail.get("assemble_state")
         if not isinstance(st, dict):

@@ -4077,8 +4077,13 @@
             ? {
                 buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
                 buyer_order: assembleOrderSnapshot.buyer_order,
+                lab_sscc_ai_seq: assembleOrderSnapshot.lab_sscc_ai_seq,
               }
             : null);
+        const labSsccAiSeq =
+          ctx && ctx.lab_sscc_ai_seq != null && ctx.lab_sscc_ai_seq !== ""
+            ? Number(ctx.lab_sscc_ai_seq) % 100
+            : 0;
         const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
         const palletTotal = sortedPallets.length;
         const rows = [];
@@ -4123,6 +4128,7 @@
               article,
               name,
               pallet_number,
+              lab_sscc_ai_seq: labSsccAiSeq,
               total_pieces: slotPieces,
               volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
               volume_unit: volumeUnit,
@@ -4517,10 +4523,12 @@
               {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
+                lab_sscc_ai_seq: order.lab_sscc_ai_seq,
               },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
               pallets: palletsPayload,
+              order_id: order.id,
             });
             if (token !== palletSheetsLoadToken) {
               return;
@@ -4899,8 +4907,12 @@
               const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
+                lab_sscc_ai_seq: order.lab_sscc_ai_seq,
               });
-              blob = await fetchLabIndustriesPalletSheetsPdfBlob({ pallets: palletsPayload });
+              blob = await fetchLabIndustriesPalletSheetsPdfBlob({
+                pallets: palletsPayload,
+                order_id: oid,
+              });
             } else {
               const palletsPayload = buildArnestPalletPdfPayloadFromDraft(orderItems, pallets);
               blob = await fetchArnestPalletSheetsPdfBlob({ pallets: palletsPayload });
@@ -7529,6 +7541,10 @@
           buyer_order_mode: data.buyer_order_mode || "",
           buyer_order: data.buyer_order || "",
           total_order_quantity: data.total_order_quantity,
+          lab_sscc_ai_seq:
+            data.lab_sscc_ai_seq != null && data.lab_sscc_ai_seq !== ""
+              ? Number(data.lab_sscc_ai_seq) % 100
+              : null,
           items,
         };
         const localDraft = loadAssembleDraft(orderId, items.length);

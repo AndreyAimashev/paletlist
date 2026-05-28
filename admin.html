@@ -115,6 +115,13 @@
         animation: titleGlitch 300ms ease;
       }
 
+      .assemble-presence-hint {
+        margin: 6px 0 0;
+        font-size: 13px;
+        line-height: 1.35;
+        color: #ffc090;
+      }
+
       .muted {
         color: var(--text-muted);
       }
@@ -2742,6 +2749,7 @@
       <main class="main-area">
         <section class="panel">
           <h1 id="menu-title">Главное меню</h1>
+          <p id="assemble-presence-hint" class="assemble-presence-hint" hidden aria-live="polite"></p>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
           <div class="menu-items">
@@ -3302,19 +3310,6 @@
       </div>
     </div>
 
-    <div id="assemble-presence-overlay" class="modal-overlay" hidden>
-      <div
-        class="modal-dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="assemble-presence-title"
-      >
-        <h3 id="assemble-presence-title">Другое устройство</h3>
-        <p id="assemble-presence-message" class="muted" style="margin: 0 0 18px; line-height: 1.45"></p>
-        <button type="button" id="assemble-presence-ok" class="menu-button">Понятно</button>
-      </div>
-    </div>
-
     <div id="new-order-overlay" class="modal-overlay new-order-overlay" hidden>
       <div
         id="new-order-dialog"
@@ -3492,9 +3487,7 @@
       const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
-      const assemblePresenceOverlay = document.getElementById("assemble-presence-overlay");
-      const assemblePresenceMessage = document.getElementById("assemble-presence-message");
-      const assemblePresenceOk = document.getElementById("assemble-presence-ok");
+      const assemblePresenceHint = document.getElementById("assemble-presence-hint");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
       const assembleSummaryUnitToolbar = document.getElementById("assemble-summary-unit-toolbar");
       const assembleSummaryThOrder = document.getElementById("assemble-summary-th-order");
@@ -4742,7 +4735,7 @@
             void persistAssembleDraftToServer();
             void leaveAssemblePresence(assembleOrderSnapshot.id);
           }
-          hideAssemblePresenceWarning();
+          hideAssemblePresenceHint();
         }
         const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
         const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
@@ -6286,8 +6279,6 @@
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
-      let assemblePresenceAckOthersKey = "";
-      let assemblePresenceLastOthersKey = "";
       const ASSEMBLE_CLIENT_ID_STORAGE = "paletlist_assemble_client_id";
       const assembleSyncChannel =
         typeof BroadcastChannel !== "undefined"
@@ -6833,51 +6824,46 @@
         }
       }
 
-      function assembleOthersKey(others) {
-        return (others || [])
-          .map((o) => String(o.client_id || ""))
-          .filter(Boolean)
-          .sort()
-          .join("\0");
-      }
-
-      function hideAssemblePresenceWarning() {
-        if (assemblePresenceOverlay) {
-          assemblePresenceOverlay.hidden = true;
+      function formatAssembleUsersCount(n) {
+        const num = Math.max(0, Math.floor(Number(n) || 0));
+        const mod100 = num % 100;
+        const mod10 = num % 10;
+        if (mod100 >= 11 && mod100 <= 14) {
+          return `${num} пользователей`;
         }
-        assemblePresenceLastOthersKey = "";
-        assemblePresenceAckOthersKey = "";
+        if (mod10 === 1) {
+          return `${num} пользователь`;
+        }
+        if (mod10 >= 2 && mod10 <= 4) {
+          return `${num} пользователя`;
+        }
+        return `${num} пользователей`;
       }
 
-      function updateAssemblePresenceWarning(others) {
-        if (!assemblePresenceOverlay || !assemblePresenceMessage) {
+      function hideAssemblePresenceHint() {
+        if (!assemblePresenceHint) {
           return;
         }
-        if (isMobileLayout()) {
-          assemblePresenceOverlay.hidden = true;
+        assemblePresenceHint.hidden = true;
+        assemblePresenceHint.textContent = "";
+      }
+
+      function updateAssemblePresenceHint(others) {
+        if (!assemblePresenceHint) {
+          return;
+        }
+        if (currentStage !== "assemble" || !assembleOrderSnapshot) {
+          hideAssemblePresenceHint();
           return;
         }
         const list = Array.isArray(others) ? others : [];
-        const key = assembleOthersKey(list);
-        assemblePresenceLastOthersKey = key;
         if (!list.length) {
-          assemblePresenceOverlay.hidden = true;
-          assemblePresenceAckOthersKey = "";
+          hideAssemblePresenceHint();
           return;
         }
-        if (key && key === assemblePresenceAckOthersKey) {
-          assemblePresenceOverlay.hidden = true;
-          return;
-        }
-        const labels = [...new Set(list.map((o) => o.label || "устройство"))];
-        let msg;
-        if (list.length === 1) {
-          msg = `Сборку этого заказа сейчас открыли на другом устройстве (${labels[0]}). Одновременная работа на двух экранах может привести к потере данных — лучше собирать заказ на одном устройстве.`;
-        } else {
-          msg = `Сборку этого заказа сейчас открыли ещё на ${list.length} устройствах (${labels.join(", ")}). Одновременная работа может привести к потере данных.`;
-        }
-        assemblePresenceMessage.textContent = msg;
-        assemblePresenceOverlay.hidden = false;
+        const totalUsers = 1 + list.length;
+        assemblePresenceHint.textContent = `В этой сборке заказа: ${formatAssembleUsersCount(totalUsers)}`;
+        assemblePresenceHint.hidden = false;
       }
 
       async function postAssemblePresenceHeartbeat(orderId) {
@@ -6943,7 +6929,7 @@
           assembleOrderSnapshot &&
           assembleOrderSnapshot.id === oid
         ) {
-          updateAssemblePresenceWarning(presencePayload.others);
+          updateAssemblePresenceHint(presencePayload.others);
         }
         let res;
         try {
@@ -8050,10 +8036,10 @@
         assembleKnownRevision = Number(data.assemble_revision) || 0;
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;
-        hideAssemblePresenceWarning();
+        hideAssemblePresenceHint();
         void postAssemblePresenceHeartbeat(orderId).then((p) => {
           if (p && assembleOrderSnapshot && assembleOrderSnapshot.id === orderId) {
-            updateAssemblePresenceWarning(p.others);
+            updateAssemblePresenceHint(p.others);
           }
         });
         assembleAllocState = { pallets: picked.pallets };
@@ -8086,7 +8072,7 @@
         }
         assembleOrderSnapshot = null;
         assembleAllocState = null;
-        hideAssemblePresenceWarning();
+        hideAssemblePresenceHint();
         setAssembleSaveStatus("");
         if (assembleSummaryUnitToolbar) {
           assembleSummaryUnitToolbar.hidden = true;
@@ -8150,14 +8136,6 @@
       }
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
-      }
-      if (assemblePresenceOk) {
-        assemblePresenceOk.addEventListener("click", () => {
-          if (assemblePresenceOverlay) {
-            assemblePresenceOverlay.hidden = true;
-          }
-          assemblePresenceAckOthersKey = assemblePresenceLastOthersKey;
-        });
       }
       if (assembleSyncChannel) {
         assembleSyncChannel.addEventListener("message", (ev) => {

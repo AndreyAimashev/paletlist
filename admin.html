@@ -823,6 +823,32 @@
         font-size: 13px;
       }
 
+      .assemble-sync-banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        border-color: rgba(72, 160, 255, 0.45);
+        background: rgba(14, 28, 48, 0.55);
+        color: #a8d4ff;
+      }
+
+      .assemble-sync-banner .assemble-btn {
+        margin: 0;
+        padding: 4px 10px;
+        font-size: 12px;
+      }
+
+      .assemble-save-status {
+        margin: 0 0 8px;
+        font-size: 12px;
+        color: rgba(200, 210, 220, 0.75);
+      }
+
+      .assemble-save-status.is-error {
+        color: #ff9b7a;
+      }
+
       .orders-import-toolbar {
         display: none;
         flex-wrap: wrap;
@@ -3011,6 +3037,16 @@
                   ← К списку заказов
                 </button>
               </div>
+              <p id="assemble-save-status" class="assemble-save-status" hidden aria-live="polite"></p>
+              <div id="assemble-sync-banner" class="assemble-alert assemble-sync-banner" hidden>
+                <span id="assemble-sync-banner-text"></span>
+                <button type="button" id="assemble-sync-banner-reload" class="assemble-btn">
+                  Загрузить с сервера
+                </button>
+                <button type="button" id="assemble-sync-banner-dismiss" class="assemble-btn">
+                  Оставить мои правки
+                </button>
+              </div>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
                 <p class="muted" style="margin: 0 0 6px; font-size: 12px">Позиции заказа и остаток к распределению</p>
@@ -3467,6 +3503,11 @@
       const assembleLoadedEl = document.getElementById("assemble-loaded");
       const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
+      const assembleSaveStatusEl = document.getElementById("assemble-save-status");
+      const assembleSyncBanner = document.getElementById("assemble-sync-banner");
+      const assembleSyncBannerText = document.getElementById("assemble-sync-banner-text");
+      const assembleSyncBannerReload = document.getElementById("assemble-sync-banner-reload");
+      const assembleSyncBannerDismiss = document.getElementById("assemble-sync-banner-dismiss");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
       const assembleSummaryUnitToolbar = document.getElementById("assemble-summary-unit-toolbar");
       const assembleSummaryThOrder = document.getElementById("assemble-summary-th-order");
@@ -4826,6 +4867,15 @@
 
         currentStage = stage;
 
+        if (stage === "orders" || stage === "assemble") {
+          startOrdersListSyncPoll();
+        } else {
+          stopOrdersListSyncPoll();
+        }
+        if (stage !== "assemble") {
+          stopAssembleSyncPoll();
+        }
+
         if (
           stage === "pallet" &&
           activeStageOrderId != null &&
@@ -6184,6 +6234,8 @@
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
+      const ASSEMBLE_SYNC_POLL_MS = 4000;
+      const ORDERS_LIST_SYNC_POLL_MS = 10000;
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
       const ASSEMBLE_SUMMARY_UNITS = {
         piece: { label: "штуки", short: "шт" },
@@ -6206,6 +6258,18 @@
       let assembleOrderSnapshot = null;
       let assembleAllocState = null;
       let assembleSaveTimer = null;
+      let assembleKnownRevision = 0;
+      let assembleServerHadContent = false;
+      let assembleDirty = false;
+      let assembleSaveInFlight = false;
+      let assembleSyncPollTimer = null;
+      let ordersListSyncPollTimer = null;
+      let assemblePendingRemotePayload = null;
+      let assembleDismissedRemoteRevision = -1;
+      const assembleSyncChannel =
+        typeof BroadcastChannel !== "undefined"
+          ? new BroadcastChannel("paletlist-assemble-v1")
+          : null;
 
       function assembleStorageKey(orderId) {
         return `${ASSEMBLE_STORAGE_PREFIX}${orderId}`;
@@ -6556,15 +6620,263 @@
         }
       }
 
+      function assembleStateHasMeaningfulData(items, pallets) {
+        if (!Array.isArray(pallets) || !pallets.length) {
+          return false;
+        }
+        for (const p of pallets) {
+          if (String(p.palletNumber ?? "").trim()) {
+            return true;
+          }
+          const slots = Array.isArray(p.slots) ? p.slots : [];
+          for (const s of slots) {
+            const ns = normalizeSlot(s);
+            if (ns.lineIndex !== "") {
+              return true;
+            }
+            if (ns.batchNumber) {
+              return true;
+            }
+            if (ns.unirusMfgDate || ns.unirusExpiryDate || ns.labExpiryDate) {
+              return true;
+            }
+          }
+        }
+        if (Array.isArray(items) && items.length) {
+          for (let li = 0; li < items.length; li += 1) {
+            if (lineAllocatedPiecesSumFromDraft(items, pallets, li) > 1e-4) {
+              return true;
+            }
+          }
+        }
+        return pallets.length > 1;
+      }
+
       function getAssemblePalletsFromOrderOrStorage(orderRow, orderId) {
+        const items = Array.isArray(orderRow?.items) ? orderRow.items : null;
         if (
           orderRow &&
           orderRow.assemble_state &&
           Array.isArray(orderRow.assemble_state.pallets)
         ) {
-          return orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
+          const mapped = orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
+          if (!items || !items.length) {
+            const hasSlots = mapped.some(
+              (p) => String(p.palletNumber ?? "").trim() || (p.slots || []).length,
+            );
+            if (hasSlots || mapped.length > 1) {
+              return mapped;
+            }
+          } else if (assembleStateHasMeaningfulData(items, mapped)) {
+            return mapped;
+          }
         }
         return tryGetAssembleDraftPallets(orderId);
+      }
+
+      function pickAssemblePalletsOnLoad(orderData, localDraft, items) {
+        const serverPallets =
+          orderData.assemble_state && Array.isArray(orderData.assemble_state.pallets)
+            ? orderData.assemble_state.pallets.map((p) => migratePalletRecord(p))
+            : null;
+        const localPallets =
+          localDraft && Array.isArray(localDraft.pallets)
+            ? localDraft.pallets.map((p) => migratePalletRecord(p))
+            : null;
+        const serverHas = assembleStateHasMeaningfulData(items, serverPallets);
+        const localHas = assembleStateHasMeaningfulData(items, localPallets);
+        const serverRev = Number(orderData.assemble_revision) || 0;
+        const localRev = Number(localDraft?.assemble_revision) || 0;
+        if (serverHas && localHas) {
+          if (localRev > serverRev) {
+            return {
+              pallets: localPallets,
+              revision: localRev,
+              pushToServer: true,
+              serverHadContent: true,
+            };
+          }
+          return {
+            pallets: serverPallets,
+            revision: serverRev,
+            pushToServer: false,
+            serverHadContent: true,
+          };
+        }
+        if (serverHas) {
+          return {
+            pallets: serverPallets,
+            revision: serverRev,
+            pushToServer: false,
+            serverHadContent: true,
+          };
+        }
+        if (localHas) {
+          return {
+            pallets: localPallets,
+            revision: Math.max(localRev, serverRev),
+            pushToServer: true,
+            serverHadContent: false,
+          };
+        }
+        return {
+          pallets: [{ id: 1, palletNumber: "", slots: [] }],
+          revision: serverRev,
+          pushToServer: false,
+          serverHadContent: false,
+        };
+      }
+
+      function stopAssembleSyncPoll() {
+        if (assembleSyncPollTimer) {
+          clearInterval(assembleSyncPollTimer);
+          assembleSyncPollTimer = null;
+        }
+      }
+
+      function startAssembleSyncPoll() {
+        stopAssembleSyncPoll();
+        assembleSyncPollTimer = setInterval(() => {
+          if (currentStage !== "assemble" || !assembleOrderSnapshot) {
+            return;
+          }
+          void pollAssembleOrderSync();
+        }, ASSEMBLE_SYNC_POLL_MS);
+      }
+
+      function stopOrdersListSyncPoll() {
+        if (ordersListSyncPollTimer) {
+          clearInterval(ordersListSyncPollTimer);
+          ordersListSyncPollTimer = null;
+        }
+      }
+
+      function startOrdersListSyncPoll() {
+        stopOrdersListSyncPoll();
+        ordersListSyncPollTimer = setInterval(() => {
+          if (currentStage !== "orders" && currentStage !== "assemble") {
+            return;
+          }
+          void loadOrders({ quiet: true });
+        }, ORDERS_LIST_SYNC_POLL_MS);
+      }
+
+      function setAssembleSaveStatus(text, isError) {
+        if (!assembleSaveStatusEl) {
+          return;
+        }
+        if (!text) {
+          assembleSaveStatusEl.hidden = true;
+          assembleSaveStatusEl.textContent = "";
+          assembleSaveStatusEl.classList.remove("is-error");
+          return;
+        }
+        assembleSaveStatusEl.hidden = false;
+        assembleSaveStatusEl.textContent = text;
+        assembleSaveStatusEl.classList.toggle("is-error", !!isError);
+      }
+
+      function hideAssembleSyncBanner() {
+        if (!assembleSyncBanner) {
+          return;
+        }
+        assembleSyncBanner.hidden = true;
+        assemblePendingRemotePayload = null;
+      }
+
+      function showAssembleSyncBanner(payload) {
+        if (!assembleSyncBanner || !assembleSyncBannerText) {
+          return;
+        }
+        const rev = Number(payload?.assemble_revision) || 0;
+        if (rev > 0 && rev === assembleDismissedRemoteRevision) {
+          return;
+        }
+        assemblePendingRemotePayload = payload;
+        assembleSyncBannerText.textContent =
+          "Сборка этого заказа изменена на другом устройстве. Загрузить актуальные данные с сервера?";
+        assembleSyncBanner.hidden = false;
+      }
+
+      function applyRemoteAssemblePayload(data) {
+        if (!assembleOrderSnapshot || !assembleAllocState || data.id !== assembleOrderSnapshot.id) {
+          return;
+        }
+        const items = assembleOrderSnapshot.items;
+        const pallets =
+          data.assemble_state && Array.isArray(data.assemble_state.pallets)
+            ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
+            : [{ id: 1, palletNumber: "", slots: [] }];
+        assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision;
+        assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
+        assembleAllocState = { pallets };
+        assembleDirty = false;
+        assembleDismissedRemoteRevision = -1;
+        finalizeAssembleSlots();
+        mirrorAssembleDraftLocal();
+        hideAssembleSyncBanner();
+        setAssembleSaveStatus("Загружены данные с сервера.", false);
+        renderAssemblePalletCards();
+        renderAssembleSummary();
+        renderAssembleAlerts();
+      }
+
+      async function pollAssembleOrderSync() {
+        if (!assembleOrderSnapshot || assembleSaveInFlight) {
+          return;
+        }
+        const oid = assembleOrderSnapshot.id;
+        let res;
+        try {
+          res = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
+        } catch (e) {
+          return;
+        }
+        if (!res.ok) {
+          return;
+        }
+        let data;
+        try {
+          data = await res.json();
+        } catch (e) {
+          return;
+        }
+        if (!assembleOrderSnapshot || data.id !== oid) {
+          return;
+        }
+        const remoteRev = Number(data.assemble_revision) || 0;
+        if (remoteRev <= assembleKnownRevision) {
+          return;
+        }
+        const items = assembleOrderSnapshot.items;
+        const remotePallets =
+          data.assemble_state && Array.isArray(data.assemble_state.pallets)
+            ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
+            : null;
+        const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
+        if (!remoteHas && assembleServerHadContent) {
+          return;
+        }
+        if (!assembleDirty) {
+          applyRemoteAssemblePayload(data);
+          return;
+        }
+        showAssembleSyncBanner(data);
+      }
+
+      function notifyAssembleSavedToOtherTabs(orderId, revision) {
+        if (!assembleSyncChannel) {
+          return;
+        }
+        try {
+          assembleSyncChannel.postMessage({
+            type: "assemble-saved",
+            orderId,
+            revision,
+          });
+        } catch (e) {
+          /* ignore */
+        }
       }
 
       function extractOrderBatchExportLines(order) {
@@ -6646,9 +6958,10 @@
         };
       }
 
-      async function loadOrders() {
+      async function loadOrders(opts) {
+        const quiet = !!(opts && opts.quiet);
         try {
-          const res = await fetch("/api/orders");
+          const res = await fetch("/api/orders", { cache: "no-store" });
           if (!res.ok) {
             throw new Error("API error");
           }
@@ -6697,14 +7010,18 @@
           cachedOrdersListRows = enriched;
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
-          renderOrdersTable();
-        } catch (error) {
-          cachedOrdersListRows = [];
-          if (ordersTableBody) {
-            ordersTableBody.innerHTML =
-              "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+          if (currentStage === "orders" || !quiet) {
+            renderOrdersTable();
           }
-          syncOrdersSortIndicators();
+        } catch (error) {
+          if (!quiet) {
+            cachedOrdersListRows = [];
+            if (ordersTableBody) {
+              ordersTableBody.innerHTML =
+                "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+            }
+            syncOrdersSortIndicators();
+          }
         }
       }
 
@@ -6764,7 +7081,11 @@
         try {
           localStorage.setItem(
             assembleStorageKey(oid),
-            JSON.stringify({ version: 2, pallets: assembleAllocState.pallets }),
+            JSON.stringify({
+              version: 2,
+              pallets: assembleAllocState.pallets,
+              assemble_revision: assembleKnownRevision,
+            }),
           );
         } catch (e) {
           /* ignore quota */
@@ -6772,29 +7093,91 @@
       }
 
       async function persistAssembleDraftToServer() {
-        if (!assembleOrderSnapshot || !assembleAllocState) {
-          return;
+        if (!assembleOrderSnapshot || !assembleAllocState || assembleSaveInFlight) {
+          return false;
         }
         const oid = assembleOrderSnapshot.id;
         const items = assembleOrderSnapshot.items;
+        syncAssembleStateFromDom();
         const pallets = assembleAllocState.pallets;
+        const hasContent = assembleStateHasMeaningfulData(items, pallets);
+        if (!hasContent && assembleServerHadContent && assembleKnownRevision > 0) {
+          setAssembleSaveStatus(
+            "Сохранение пропущено: на сервере уже есть сборка. Обновите данные, если нужно начать заново.",
+            true,
+          );
+          return false;
+        }
         const assembled_percent = computeAssembledPercentFromDraftItems(items, pallets);
         const assemble_state = { version: 2, pallets };
+        assembleSaveInFlight = true;
         try {
           const res = await fetch(`/api/orders/${oid}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ assembled_percent, assemble_state }),
+            body: JSON.stringify({
+              assembled_percent,
+              assemble_state,
+              expected_assemble_revision: assembleKnownRevision,
+            }),
           });
-          if (!res.ok) {
-            return;
+          if (res.status === 409) {
+            let conflict = null;
+            try {
+              conflict = await res.json();
+            } catch (e) {
+              /* ignore */
+            }
+            if (conflict) {
+              assembleKnownRevision = Number(conflict.assemble_revision) || assembleKnownRevision;
+              const cp =
+                conflict.assemble_state && Array.isArray(conflict.assemble_state.pallets)
+                  ? conflict.assemble_state.pallets
+                  : null;
+              assembleServerHadContent = assembleStateHasMeaningfulData(items, cp);
+              if (assembleDirty) {
+                showAssembleSyncBanner(conflict);
+              } else {
+                applyRemoteAssemblePayload({ ...conflict, id: oid });
+              }
+            }
+            setAssembleSaveStatus(
+              "Конфликт: сборка изменена на другом устройстве. Загрузите данные с сервера.",
+              true,
+            );
+            return false;
           }
+          if (!res.ok) {
+            setAssembleSaveStatus("Не удалось сохранить сборку на сервер.", true);
+            return false;
+          }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (e) {
+            /* ignore */
+          }
+          if (data && data.assemble_revision != null) {
+            assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision + 1;
+          } else {
+            assembleKnownRevision += 1;
+          }
+          assembleServerHadContent = hasContent;
+          assembleDirty = false;
+          mirrorAssembleDraftLocal();
+          setAssembleSaveStatus("Сохранено на сервере.", false);
+          notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
+          return true;
         } catch (e) {
-          return;
+          setAssembleSaveStatus("Нет связи с сервером — сборка только на этом устройстве.", true);
+          return false;
+        } finally {
+          assembleSaveInFlight = false;
         }
       }
 
       function saveAssembleDraft() {
+        assembleDirty = true;
         mirrorAssembleDraftLocal();
         clearTimeout(assembleSaveTimer);
         assembleSaveTimer = setTimeout(() => {
@@ -7548,30 +7931,19 @@
           items,
         };
         const localDraft = loadAssembleDraft(orderId, items.length);
-        const serverPallets =
-          data.assemble_state && Array.isArray(data.assemble_state.pallets)
-            ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
-            : null;
-        if (serverPallets) {
-          assembleAllocState = {
-            pallets: serverPallets,
-          };
-        } else if (localDraft && Array.isArray(localDraft.pallets)) {
-          assembleAllocState = {
-            pallets: localDraft.pallets.map((p) => migratePalletRecord(p)),
-          };
-        } else {
-          assembleAllocState = {
-            pallets: [{ id: 1, palletNumber: "", slots: [] }],
-          };
-        }
+        const picked = pickAssemblePalletsOnLoad(data, localDraft, items);
+        assembleKnownRevision = Number(data.assemble_revision) || 0;
+        assembleServerHadContent = picked.serverHadContent;
+        assembleDirty = false;
+        assembleDismissedRemoteRevision = -1;
+        hideAssembleSyncBanner();
+        assembleAllocState = { pallets: picked.pallets };
         finalizeAssembleSlots();
-        if (!serverPallets && localDraft && Array.isArray(localDraft.pallets)) {
-          mirrorAssembleDraftLocal();
+        mirrorAssembleDraftLocal();
+        if (picked.pushToServer) {
           void persistAssembleDraftToServer();
-        } else if (serverPallets) {
-          mirrorAssembleDraftLocal();
         }
+        startAssembleSyncPoll();
         assembleEmptyEl.hidden = true;
         assembleLoadedEl.hidden = false;
         if (assembleSummaryUnitToolbar) {
@@ -7588,8 +7960,11 @@
         if (!assembleEmptyEl || !assembleLoadedEl) {
           return;
         }
+        stopAssembleSyncPoll();
         assembleOrderSnapshot = null;
         assembleAllocState = null;
+        hideAssembleSyncBanner();
+        setAssembleSaveStatus("");
         if (assembleSummaryUnitToolbar) {
           assembleSummaryUnitToolbar.hidden = true;
         }
@@ -7653,6 +8028,52 @@
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
+      if (assembleSyncBannerReload) {
+        assembleSyncBannerReload.addEventListener("click", () => {
+          if (assemblePendingRemotePayload) {
+            applyRemoteAssemblePayload(assemblePendingRemotePayload);
+          }
+        });
+      }
+      if (assembleSyncBannerDismiss) {
+        assembleSyncBannerDismiss.addEventListener("click", () => {
+          assembleDismissedRemoteRevision =
+            Number(assemblePendingRemotePayload?.assemble_revision) || 0;
+          hideAssembleSyncBanner();
+        });
+      }
+      if (assembleSyncChannel) {
+        assembleSyncChannel.addEventListener("message", (ev) => {
+          const msg = ev.data;
+          if (!msg || msg.type !== "assemble-saved") {
+            return;
+          }
+          if (
+            currentStage === "assemble" &&
+            assembleOrderSnapshot &&
+            msg.orderId === assembleOrderSnapshot.id
+          ) {
+            void pollAssembleOrderSync();
+            return;
+          }
+          if (currentStage === "orders") {
+            void loadOrders({ quiet: true });
+          }
+        });
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          if (currentStage === "assemble" && assembleAllocState && assembleOrderSnapshot) {
+            syncAssembleStateFromDom();
+            clearTimeout(assembleSaveTimer);
+            void persistAssembleDraftToServer();
+          }
+          return;
+        }
+        if (currentStage === "assemble" && assembleOrderSnapshot) {
+          void pollAssembleOrderSync();
+        }
+      });
       ensureOrdersExtraInfoFilterPopoverMounted();
 
       if (ordersWorkspace) {

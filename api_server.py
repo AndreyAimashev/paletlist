@@ -1714,6 +1714,14 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE orders ADD COLUMN assemble_state TEXT NOT NULL DEFAULT ''"
         )
+    if "assemble_revision" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN assemble_revision INTEGER NOT NULL DEFAULT 0"
+        )
+    if "assemble_state_updated_at" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN assemble_state_updated_at TEXT NOT NULL DEFAULT ''"
+        )
     if "buyer_order_mode" not in order_cols:
         cur.execute(
             "ALTER TABLE orders ADD COLUMN buyer_order_mode TEXT NOT NULL DEFAULT ''"
@@ -1832,6 +1840,39 @@ def _assemble_state_cell_to_api(value) -> dict | None:
     return obj
 
 
+def _assemble_state_has_meaningful_pallets(pallets) -> bool:
+    """Пустой шаблон (один паллет без слотов) не считается сохранённой сборкой."""
+    if not isinstance(pallets, list) or not pallets:
+        return False
+    for pal in pallets:
+        if not isinstance(pal, dict):
+            continue
+        if str(pal.get("palletNumber") or pal.get("pallet_number") or "").strip():
+            return True
+        slots = pal.get("slots")
+        if not isinstance(slots, list):
+            continue
+        for slot in slots:
+            if not isinstance(slot, dict):
+                continue
+            li = slot.get("lineIndex")
+            if li not in ("", None):
+                try:
+                    if int(li) >= 0:
+                        return True
+                except (TypeError, ValueError):
+                    pass
+            for key in (
+                "batchNumber",
+                "unirusMfgDate",
+                "unirusExpiryDate",
+                "labExpiryDate",
+            ):
+                if str(slot.get(key) or "").strip():
+                    return True
+    return len(pallets) > 1
+
+
 def patch_order_assembly(order_id: int, body: dict) -> dict:
     """Частичное обновление: assembled_percent и/или assemble_state (распределение по паллетам)."""
     if not isinstance(body, dict):
@@ -1843,6 +1884,15 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
             "error": "validation",
             "message": "Передайте assembled_percent и/или assemble_state.",
         }
+    expected_rev = None
+    if "expected_assemble_revision" in body:
+        try:
+            expected_rev = int(body["expected_assemble_revision"])
+        except (TypeError, ValueError):
+            return {
+                "error": "validation",
+                "message": "expected_assemble_revision: нужно целое число.",
+            }
     new_pct = None
     if has_pct:
         try:
@@ -1850,10 +1900,12 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
         except (TypeError, ValueError):
             return {"error": "validation", "message": "assembled_percent: нужно целое 0…100."}
     new_state_json = None
+    new_state_pallets = None
     if has_state:
         st = body["assemble_state"]
         if st is None:
             new_state_json = ""
+            new_state_pallets = []
         elif not isinstance(st, dict):
             return {"error": "validation", "message": "assemble_state: ожидался объект или null."}
         else:
@@ -1872,12 +1924,14 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
                     "error": "validation",
                     "message": "assemble_state.pallets: ожидался массив.",
                 }
+            new_state_pallets = pallets
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT id, assembled_percent, assemble_state
+            SELECT id, assembled_percent, assemble_state, assemble_revision,
+                   assemble_state_updated_at
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -1885,6 +1939,37 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
         if not row:
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
+        current_rev = max(0, int(row["assemble_revision"] or 0))
+        if expected_rev is not None and expected_rev != current_rev:
+            con.close()
+            return {
+                "error": "conflict",
+                "message": "Сборка была изменена на другом устройстве. Обновите страницу или загрузите данные с сервера.",
+                "id": int(order_id),
+                "assemble_revision": current_rev,
+                "assembled_percent": max(
+                    0, min(100, int(row["assembled_percent"] or 0))
+                ),
+                "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
+                "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip(),
+            }
+        current_state = _assemble_state_cell_to_api(row["assemble_state"])
+        current_has = _assemble_state_has_meaningful_pallets(
+            (current_state or {}).get("pallets")
+        )
+        if (
+            has_state
+            and new_state_pallets is not None
+            and current_has
+            and current_rev > 0
+            and not _assemble_state_has_meaningful_pallets(new_state_pallets)
+            and not body.get("force_clear_assemble")
+        ):
+            con.close()
+            return {
+                "error": "validation",
+                "message": "Нельзя заменить непустую сборку пустой без подтверждения.",
+            }
         apct = new_pct if new_pct is not None else max(
             0, min(100, int(row["assembled_percent"] or 0))
         )
@@ -1892,16 +1977,28 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
             ajson = new_state_json
         else:
             ajson = row["assemble_state"] or ""
+        new_rev = current_rev + 1
+        updated_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         cur.execute(
             """
-            UPDATE orders SET assembled_percent = ?, assemble_state = ?
+            UPDATE orders
+            SET assembled_percent = ?, assemble_state = ?,
+                assemble_revision = ?, assemble_state_updated_at = ?
             WHERE id = ?
             """,
-            (apct, ajson, order_id),
+            (apct, ajson, new_rev, updated_at, order_id),
         )
         con.commit()
         con.close()
-    return {"ok": True, "id": int(order_id)}
+    return {
+        "ok": True,
+        "id": int(order_id),
+        "assemble_revision": new_rev,
+        "assemble_state_updated_at": updated_at,
+        "assembled_percent": apct,
+    }
 
 
 def _format_ship_date_storage(value: str) -> str:
@@ -2926,7 +3023,8 @@ def fetch_order_detail(order_id: int):
         row = con.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, total_order_quantity, lab_sscc_ai_seq
+                   buyer_order_mode, buyer_order, total_order_quantity, lab_sscc_ai_seq,
+                   assemble_revision, assemble_state_updated_at
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -2966,6 +3064,12 @@ def fetch_order_detail(order_id: int):
         "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
         "names": row["names"] or "",
         "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
+        "assemble_revision": max(0, int(row["assemble_revision"] or 0))
+        if "assemble_revision" in row.keys()
+        else 0,
+        "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip()
+        if "assemble_state_updated_at" in row.keys()
+        else "",
         "buyer_order_mode": (row["buyer_order_mode"] or "").strip()
         if "buyer_order_mode" in row.keys()
         else "",
@@ -3002,7 +3106,8 @@ def fetch_orders():
         con = get_connection()
         rows = con.execute(
             """
-            SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state
+            SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
+                   assemble_revision, assemble_state_updated_at
             FROM orders ORDER BY id DESC
             """
         ).fetchall()
@@ -3050,6 +3155,12 @@ def fetch_orders():
                 "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
                 "names": row["names"] or "",
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
+                "assemble_revision": max(0, int(row["assemble_revision"] or 0))
+                if "assemble_revision" in row.keys()
+                else 0,
+                "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip()
+                if "assemble_state_updated_at" in row.keys()
+                else "",
                 "items": items,
                 **extra_fields,
             }
@@ -3913,6 +4024,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if err == "not_found":
             self._send_json(404, result)
+            return
+        if err == "conflict":
+            self._send_json(409, result)
             return
         self._send_json(200, result)
 

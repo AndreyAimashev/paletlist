@@ -4851,6 +4851,7 @@
           nomenclatureCreateProductButton.classList.add("visible");
           backToMainNomenclatureButton.classList.add("visible");
           nomenclatureWorkspace.classList.add("visible");
+          loadNomenclature();
         }
 
         navMain.classList.toggle("active", stage === "main");
@@ -4871,6 +4872,11 @@
           startOrdersListSyncPoll();
         } else {
           stopOrdersListSyncPoll();
+        }
+        if (stage === "nomenclature") {
+          startNomenclatureSyncPoll();
+        } else {
+          stopNomenclatureSyncPoll();
         }
         if (stage !== "assemble") {
           stopAssembleSyncPoll();
@@ -5238,6 +5244,9 @@
         nomenclatureEditOverlay.hidden = true;
         nomenclatureEditId = null;
         nomenclatureEditForm.reset();
+        if (currentStage === "nomenclature") {
+          renderNomenclatureListFromSearch();
+        }
       }
 
       function clearNomenclatureCreateError() {
@@ -5333,6 +5342,9 @@
         nomenclatureCreateOverlay.hidden = true;
         nomenclatureCreateForm.reset();
         clearNomenclatureCreateError();
+        if (currentStage === "nomenclature") {
+          renderNomenclatureListFromSearch();
+        }
       }
 
       function nomenclaturePackRowHtml(item) {
@@ -5365,16 +5377,35 @@
         </div>`;
       }
 
-      async function loadNomenclature() {
+      function isNomenclatureModalOpen() {
+        const editOpen =
+          nomenclatureEditOverlay && !nomenclatureEditOverlay.hidden;
+        const createOpen =
+          nomenclatureCreateOverlay && !nomenclatureCreateOverlay.hidden;
+        return editOpen || createOpen;
+      }
+
+      async function loadNomenclature(opts) {
+        const quiet = !!(opts && opts.quiet);
+        const skipRender = !!(opts && opts.skipRender);
         try {
-          const res = await fetch("/api/nomenclature");
+          const res = await fetch("/api/nomenclature", { cache: "no-store" });
           if (!res.ok) {
             throw new Error("API error");
           }
-          nomenclatureItems = await res.json();
-          renderNomenclatureListFromSearch();
+          let rows = await res.json();
+          if (!Array.isArray(rows)) {
+            rows = [];
+          }
+          nomenclatureItems = rows;
+          if (!skipRender && (currentStage === "nomenclature" || !quiet)) {
+            renderNomenclatureListFromSearch();
+          }
         } catch (error) {
-          nomenclatureList.innerHTML = "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
+          if (!quiet) {
+            nomenclatureList.innerHTML =
+              "<div class='nomenclature-item'>Не удалось загрузить номенклатуру.</div>";
+          }
         }
       }
 
@@ -6236,6 +6267,7 @@
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
+      const NOMENCLATURE_SYNC_POLL_MS = 1000;
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
       const ASSEMBLE_SUMMARY_UNITS = {
         piece: { label: "штуки", short: "шт" },
@@ -6264,6 +6296,7 @@
       let assembleSaveInFlight = false;
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
+      let nomenclatureListSyncPollTimer = null;
       let assemblePendingRemotePayload = null;
       let assembleDismissedRemoteRevision = -1;
       const assembleSyncChannel =
@@ -6759,6 +6792,27 @@
           }
           void loadOrders({ quiet: true });
         }, ORDERS_LIST_SYNC_POLL_MS);
+      }
+
+      function stopNomenclatureSyncPoll() {
+        if (nomenclatureListSyncPollTimer) {
+          clearInterval(nomenclatureListSyncPollTimer);
+          nomenclatureListSyncPollTimer = null;
+        }
+      }
+
+      function startNomenclatureSyncPoll() {
+        stopNomenclatureSyncPoll();
+        nomenclatureListSyncPollTimer = setInterval(() => {
+          if (currentStage !== "nomenclature") {
+            return;
+          }
+          if (isNomenclatureModalOpen()) {
+            void loadNomenclature({ quiet: true, skipRender: true });
+            return;
+          }
+          void loadNomenclature({ quiet: true });
+        }, NOMENCLATURE_SYNC_POLL_MS);
       }
 
       function setAssembleSaveStatus(text, isError) {
@@ -8072,6 +8126,13 @@
         }
         if (currentStage === "assemble" && assembleOrderSnapshot) {
           void pollAssembleOrderSync();
+        }
+        if (currentStage === "nomenclature") {
+          if (isNomenclatureModalOpen()) {
+            void loadNomenclature({ quiet: true, skipRender: true });
+          } else {
+            void loadNomenclature({ quiet: true });
+          }
         }
       });
       ensureOrdersExtraInfoFilterPopoverMounted();

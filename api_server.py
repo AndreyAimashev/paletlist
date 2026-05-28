@@ -8,6 +8,7 @@ import re
 import socket
 import sqlite3
 import threading
+import time
 import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -76,6 +77,9 @@ except ImportError:
 
 PORT = 8081
 DB_LOCK = threading.Lock()
+PRESENCE_LOCK = threading.Lock()
+ASSEMBLE_PRESENCE_TTL_SEC = 15
+_ASSEMBLE_PRESENCE: dict[int, dict[str, dict]] = {}
 
 
 def _norm_api_path(path: str) -> str:
@@ -1429,6 +1433,74 @@ def _parse_orders_packing_sheets_pdf_id(path: str) -> int | None:
         return int(mid)
     except ValueError:
         return None
+
+
+def _parse_orders_assemble_presence_id(path: str) -> int | None:
+    """Для /api/orders/12/assemble-presence возвращает 12."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    suffix = "/assemble-presence"
+    if not p.startswith(prefix) or not p.endswith(suffix):
+        return None
+    mid = p[len(prefix) : -len(suffix)]
+    if not mid or "/" in mid:
+        return None
+    try:
+        return int(mid)
+    except ValueError:
+        return None
+
+
+def _presence_label_from_user_agent(user_agent: str) -> str:
+    u = (user_agent or "").lower()
+    if "ipad" in u or "tablet" in u:
+        return "планшет"
+    if "mobile" in u or "android" in u or "iphone" in u:
+        return "телефон"
+    return "компьютер"
+
+
+def _prune_assemble_presence_locked(now: float) -> None:
+    cutoff = now - ASSEMBLE_PRESENCE_TTL_SEC
+    for oid in list(_ASSEMBLE_PRESENCE.keys()):
+        bucket = _ASSEMBLE_PRESENCE[oid]
+        for cid in list(bucket.keys()):
+            if bucket[cid]["ts"] < cutoff:
+                del bucket[cid]
+        if not bucket:
+            del _ASSEMBLE_PRESENCE[oid]
+
+
+def touch_assemble_presence(order_id: int, client_id: str, user_agent: str = "") -> dict:
+    """Отметить, что клиент открыл сборку заказа; вернуть других активных клиентов."""
+    cid = (client_id or "").strip()
+    if not cid or len(cid) > 80:
+        return {"error": "validation", "message": "Укажите client_id (до 80 символов)."}
+    now = time.time()
+    label = _presence_label_from_user_agent(user_agent)
+    with PRESENCE_LOCK:
+        _prune_assemble_presence_locked(now)
+        bucket = _ASSEMBLE_PRESENCE.setdefault(int(order_id), {})
+        bucket[cid] = {"ts": now, "label": label}
+        others = [
+            {"client_id": k, "label": v.get("label") or "устройство"}
+            for k, v in bucket.items()
+            if k != cid
+        ]
+    return {"ok": True, "order_id": int(order_id), "others": others}
+
+
+def leave_assemble_presence(order_id: int, client_id: str) -> dict:
+    cid = (client_id or "").strip()
+    if not cid:
+        return {"error": "validation", "message": "Укажите client_id."}
+    with PRESENCE_LOCK:
+        bucket = _ASSEMBLE_PRESENCE.get(int(order_id))
+        if bucket and cid in bucket:
+            del bucket[cid]
+        if bucket is not None and not bucket:
+            del _ASSEMBLE_PRESENCE[int(order_id)]
+    return {"ok": True}
 
 
 def get_connection():
@@ -3829,6 +3901,25 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(201, result)
             return
+        presence_oid = _parse_orders_assemble_presence_id(path)
+        if presence_oid is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            ua = self.headers.get("User-Agent", "")
+            result = touch_assemble_presence(
+                presence_oid,
+                (body or {}).get("client_id", ""),
+                ua,
+            )
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            self._send_json(200, result)
+            return
         if _is_orders_list_path(path):
             try:
                 body = self._read_json_body()
@@ -4033,6 +4124,22 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        presence_oid = _parse_orders_assemble_presence_id(path)
+        if presence_oid is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                body = {}
+            result = leave_assemble_presence(
+                presence_oid,
+                (body or {}).get("client_id", ""),
+            )
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            self._send_json(200, result)
+            return
         oid = _parse_orders_detail_id(path)
         if oid is not None:
             try:

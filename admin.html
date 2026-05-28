@@ -823,22 +823,6 @@
         font-size: 13px;
       }
 
-      .assemble-sync-banner {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px 12px;
-        border-color: rgba(72, 160, 255, 0.45);
-        background: rgba(14, 28, 48, 0.55);
-        color: #a8d4ff;
-      }
-
-      .assemble-sync-banner .assemble-btn {
-        margin: 0;
-        padding: 4px 10px;
-        font-size: 12px;
-      }
-
       .assemble-save-status {
         margin: 0 0 8px;
         font-size: 12px;
@@ -3038,15 +3022,6 @@
                 </button>
               </div>
               <p id="assemble-save-status" class="assemble-save-status" hidden aria-live="polite"></p>
-              <div id="assemble-sync-banner" class="assemble-alert assemble-sync-banner" hidden>
-                <span id="assemble-sync-banner-text"></span>
-                <button type="button" id="assemble-sync-banner-reload" class="assemble-btn">
-                  Загрузить с сервера
-                </button>
-                <button type="button" id="assemble-sync-banner-dismiss" class="assemble-btn">
-                  Оставить мои правки
-                </button>
-              </div>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
                 <p class="muted" style="margin: 0 0 6px; font-size: 12px">Позиции заказа и остаток к распределению</p>
@@ -3327,6 +3302,19 @@
       </div>
     </div>
 
+    <div id="assemble-presence-overlay" class="modal-overlay" hidden>
+      <div
+        class="modal-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="assemble-presence-title"
+      >
+        <h3 id="assemble-presence-title">Другое устройство</h3>
+        <p id="assemble-presence-message" class="muted" style="margin: 0 0 18px; line-height: 1.45"></p>
+        <button type="button" id="assemble-presence-ok" class="menu-button">Понятно</button>
+      </div>
+    </div>
+
     <div id="new-order-overlay" class="modal-overlay new-order-overlay" hidden>
       <div
         id="new-order-dialog"
@@ -3504,10 +3492,9 @@
       const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
-      const assembleSyncBanner = document.getElementById("assemble-sync-banner");
-      const assembleSyncBannerText = document.getElementById("assemble-sync-banner-text");
-      const assembleSyncBannerReload = document.getElementById("assemble-sync-banner-reload");
-      const assembleSyncBannerDismiss = document.getElementById("assemble-sync-banner-dismiss");
+      const assemblePresenceOverlay = document.getElementById("assemble-presence-overlay");
+      const assemblePresenceMessage = document.getElementById("assemble-presence-message");
+      const assemblePresenceOk = document.getElementById("assemble-presence-ok");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
       const assembleSummaryUnitToolbar = document.getElementById("assemble-summary-unit-toolbar");
       const assembleSummaryThOrder = document.getElementById("assemble-summary-th-order");
@@ -4753,7 +4740,9 @@
             syncAssembleStateFromDom();
             clearTimeout(assembleSaveTimer);
             void persistAssembleDraftToServer();
+            void leaveAssemblePresence(assembleOrderSnapshot.id);
           }
+          hideAssemblePresenceWarning();
         }
         const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
         const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
@@ -6297,8 +6286,9 @@
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
-      let assemblePendingRemotePayload = null;
-      let assembleDismissedRemoteRevision = -1;
+      let assemblePresenceAckOthersKey = "";
+      let assemblePresenceLastOthersKey = "";
+      const ASSEMBLE_CLIENT_ID_STORAGE = "paletlist_assemble_client_id";
       const assembleSyncChannel =
         typeof BroadcastChannel !== "undefined"
           ? new BroadcastChannel("paletlist-assemble-v1")
@@ -6830,26 +6820,95 @@
         assembleSaveStatusEl.classList.toggle("is-error", !!isError);
       }
 
-      function hideAssembleSyncBanner() {
-        if (!assembleSyncBanner) {
-          return;
+      function getAssembleClientId() {
+        try {
+          let id = sessionStorage.getItem(ASSEMBLE_CLIENT_ID_STORAGE);
+          if (!id) {
+            id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+            sessionStorage.setItem(ASSEMBLE_CLIENT_ID_STORAGE, id);
+          }
+          return id;
+        } catch (e) {
+          return `c_${Math.random().toString(36).slice(2, 14)}`;
         }
-        assembleSyncBanner.hidden = true;
-        assemblePendingRemotePayload = null;
       }
 
-      function showAssembleSyncBanner(payload) {
-        if (!assembleSyncBanner || !assembleSyncBannerText) {
+      function assembleOthersKey(others) {
+        return (others || [])
+          .map((o) => String(o.client_id || ""))
+          .filter(Boolean)
+          .sort()
+          .join("\0");
+      }
+
+      function hideAssemblePresenceWarning() {
+        if (assemblePresenceOverlay) {
+          assemblePresenceOverlay.hidden = true;
+        }
+        assemblePresenceLastOthersKey = "";
+        assemblePresenceAckOthersKey = "";
+      }
+
+      function updateAssemblePresenceWarning(others) {
+        if (!assemblePresenceOverlay || !assemblePresenceMessage) {
           return;
         }
-        const rev = Number(payload?.assemble_revision) || 0;
-        if (rev > 0 && rev === assembleDismissedRemoteRevision) {
+        if (isMobileLayout()) {
+          assemblePresenceOverlay.hidden = true;
           return;
         }
-        assemblePendingRemotePayload = payload;
-        assembleSyncBannerText.textContent =
-          "Сборка этого заказа изменена на другом устройстве. Загрузить актуальные данные с сервера?";
-        assembleSyncBanner.hidden = false;
+        const list = Array.isArray(others) ? others : [];
+        const key = assembleOthersKey(list);
+        assemblePresenceLastOthersKey = key;
+        if (!list.length) {
+          assemblePresenceOverlay.hidden = true;
+          assemblePresenceAckOthersKey = "";
+          return;
+        }
+        if (key && key === assemblePresenceAckOthersKey) {
+          assemblePresenceOverlay.hidden = true;
+          return;
+        }
+        const labels = [...new Set(list.map((o) => o.label || "устройство"))];
+        let msg;
+        if (list.length === 1) {
+          msg = `Сборку этого заказа сейчас открыли на другом устройстве (${labels[0]}). Одновременная работа на двух экранах может привести к потере данных — лучше собирать заказ на одном устройстве.`;
+        } else {
+          msg = `Сборку этого заказа сейчас открыли ещё на ${list.length} устройствах (${labels.join(", ")}). Одновременная работа может привести к потере данных.`;
+        }
+        assemblePresenceMessage.textContent = msg;
+        assemblePresenceOverlay.hidden = false;
+      }
+
+      async function postAssemblePresenceHeartbeat(orderId) {
+        try {
+          const res = await fetch(`/api/orders/${orderId}/assemble-presence`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client_id: getAssembleClientId() }),
+          });
+          if (!res.ok) {
+            return null;
+          }
+          return res.json();
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function leaveAssemblePresence(orderId) {
+        if (orderId == null || !Number.isFinite(Number(orderId))) {
+          return;
+        }
+        try {
+          await fetch(`/api/orders/${orderId}/assemble-presence`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client_id: getAssembleClientId() }),
+          });
+        } catch (e) {
+          /* ignore */
+        }
       }
 
       function applyRemoteAssemblePayload(data) {
@@ -6865,10 +6924,8 @@
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         assembleAllocState = { pallets };
         assembleDirty = false;
-        assembleDismissedRemoteRevision = -1;
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();
-        hideAssembleSyncBanner();
         setAssembleSaveStatus("Загружены данные с сервера.", false);
         renderAssemblePalletCards();
         renderAssembleSummary();
@@ -6880,6 +6937,14 @@
           return;
         }
         const oid = assembleOrderSnapshot.id;
+        const presencePayload = await postAssemblePresenceHeartbeat(oid);
+        if (
+          presencePayload &&
+          assembleOrderSnapshot &&
+          assembleOrderSnapshot.id === oid
+        ) {
+          updateAssemblePresenceWarning(presencePayload.others);
+        }
         let res;
         try {
           res = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
@@ -6913,9 +6978,7 @@
         }
         if (!assembleDirty) {
           applyRemoteAssemblePayload(data);
-          return;
         }
-        showAssembleSyncBanner(data);
       }
 
       function notifyAssembleSavedToOtherTabs(orderId, revision) {
@@ -7189,14 +7252,12 @@
                   ? conflict.assemble_state.pallets
                   : null;
               assembleServerHadContent = assembleStateHasMeaningfulData(items, cp);
-              if (assembleDirty) {
-                showAssembleSyncBanner(conflict);
-              } else {
+              if (!assembleDirty) {
                 applyRemoteAssemblePayload({ ...conflict, id: oid });
               }
             }
             setAssembleSaveStatus(
-              "Конфликт: сборка изменена на другом устройстве. Загрузите данные с сервера.",
+              "Конфликт: сборка изменена на другом устройстве. Обновите страницу или дождитесь синхронизации.",
               true,
             );
             return false;
@@ -7989,8 +8050,12 @@
         assembleKnownRevision = Number(data.assemble_revision) || 0;
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;
-        assembleDismissedRemoteRevision = -1;
-        hideAssembleSyncBanner();
+        hideAssemblePresenceWarning();
+        void postAssemblePresenceHeartbeat(orderId).then((p) => {
+          if (p && assembleOrderSnapshot && assembleOrderSnapshot.id === orderId) {
+            updateAssemblePresenceWarning(p.others);
+          }
+        });
         assembleAllocState = { pallets: picked.pallets };
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();
@@ -8014,10 +8079,14 @@
         if (!assembleEmptyEl || !assembleLoadedEl) {
           return;
         }
+        const leavingOrderId = assembleOrderSnapshot?.id;
         stopAssembleSyncPoll();
+        if (leavingOrderId != null) {
+          void leaveAssemblePresence(leavingOrderId);
+        }
         assembleOrderSnapshot = null;
         assembleAllocState = null;
-        hideAssembleSyncBanner();
+        hideAssemblePresenceWarning();
         setAssembleSaveStatus("");
         if (assembleSummaryUnitToolbar) {
           assembleSummaryUnitToolbar.hidden = true;
@@ -8082,18 +8151,12 @@
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
-      if (assembleSyncBannerReload) {
-        assembleSyncBannerReload.addEventListener("click", () => {
-          if (assemblePendingRemotePayload) {
-            applyRemoteAssemblePayload(assemblePendingRemotePayload);
+      if (assemblePresenceOk) {
+        assemblePresenceOk.addEventListener("click", () => {
+          if (assemblePresenceOverlay) {
+            assemblePresenceOverlay.hidden = true;
           }
-        });
-      }
-      if (assembleSyncBannerDismiss) {
-        assembleSyncBannerDismiss.addEventListener("click", () => {
-          assembleDismissedRemoteRevision =
-            Number(assemblePendingRemotePayload?.assemble_revision) || 0;
-          hideAssembleSyncBanner();
+          assemblePresenceAckOthersKey = assemblePresenceLastOthersKey;
         });
       }
       if (assembleSyncChannel) {

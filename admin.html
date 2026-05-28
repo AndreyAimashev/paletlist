@@ -6283,6 +6283,7 @@
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 1000;
+      const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
       const NOMENCLATURE_SYNC_POLL_MS = 1000;
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
@@ -6311,6 +6312,8 @@
       let assembleServerHadContent = false;
       let assembleDirty = false;
       let assembleSaveInFlight = false;
+      let assembleSavePending = false;
+      let assembleSaveRetryTimer = null;
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
@@ -6871,6 +6874,45 @@
         };
       }
 
+      function stopAssembleSaveRetry() {
+        if (assembleSaveRetryTimer) {
+          clearInterval(assembleSaveRetryTimer);
+          assembleSaveRetryTimer = null;
+        }
+      }
+
+      function startAssembleSaveRetry() {
+        if (assembleSaveRetryTimer) {
+          return;
+        }
+        assembleSaveRetryTimer = setInterval(() => {
+          if (
+            currentStage !== "assemble" ||
+            !assembleOrderSnapshot ||
+            !assembleAllocState
+          ) {
+            assembleSavePending = false;
+            stopAssembleSaveRetry();
+            return;
+          }
+          if (!assembleSavePending) {
+            stopAssembleSaveRetry();
+            return;
+          }
+          void persistAssembleDraftToServer();
+        }, ASSEMBLE_SAVE_RETRY_MS);
+      }
+
+      function markAssembleSaveFailed() {
+        assembleSavePending = true;
+        startAssembleSaveRetry();
+      }
+
+      function markAssembleSaveSucceeded() {
+        assembleSavePending = false;
+        stopAssembleSaveRetry();
+      }
+
       function stopAssembleSyncPoll() {
         if (assembleSyncPollTimer) {
           clearInterval(assembleSyncPollTimer);
@@ -7367,9 +7409,10 @@
               }
             }
             setAssembleSaveStatus(
-              "Конфликт: сборка изменена на другом устройстве. Обновите страницу или дождитесь синхронизации.",
+              "Конфликт: сборка изменена на другом устройстве. Повторная попытка сохранения…",
               true,
             );
+            markAssembleSaveFailed();
             return false;
           }
           if (res.status === 400) {
@@ -7382,11 +7425,16 @@
             const msg =
               (errBody && (errBody.message || errBody.error)) ||
               "Не удалось сохранить сборку на сервер.";
-            setAssembleSaveStatus(String(msg), true);
+            setAssembleSaveStatus(`${String(msg)} Повторная попытка…`, true);
+            markAssembleSaveFailed();
             return false;
           }
           if (!res.ok) {
-            setAssembleSaveStatus("Не удалось сохранить сборку на сервер.", true);
+            setAssembleSaveStatus(
+              "Не удалось сохранить сборку на сервер. Повторная попытка…",
+              true,
+            );
+            markAssembleSaveFailed();
             return false;
           }
           let data = null;
@@ -7400,14 +7448,19 @@
           } else {
             assembleKnownRevision += 1;
           }
-          assembleServerHadContent = hasContent;
+          assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
           assembleDirty = false;
           mirrorAssembleDraftLocal();
+          markAssembleSaveSucceeded();
           setAssembleSaveStatus("Сохранено на сервере.", false);
           notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
           return true;
         } catch (e) {
-          setAssembleSaveStatus("Нет связи с сервером — сборка только на этом устройстве.", true);
+          setAssembleSaveStatus(
+            "Нет связи с сервером — повторная попытка сохранения каждую секунду…",
+            true,
+          );
+          markAssembleSaveFailed();
           return false;
         } finally {
           assembleSaveInFlight = false;
@@ -8227,6 +8280,7 @@
         }
         const leavingOrderId = assembleOrderSnapshot?.id;
         stopAssembleSyncPoll();
+        markAssembleSaveSucceeded();
         if (leavingOrderId != null) {
           void leaveAssemblePresence(leavingOrderId);
         }

@@ -2025,23 +2025,6 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
                 "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip(),
             }
-        current_state = _assemble_state_cell_to_api(row["assemble_state"])
-        current_has = _assemble_state_has_meaningful_pallets(
-            (current_state or {}).get("pallets")
-        )
-        if (
-            has_state
-            and new_state_pallets is not None
-            and current_has
-            and current_rev > 0
-            and not _assemble_state_has_meaningful_pallets(new_state_pallets)
-            and not body.get("force_clear_assemble")
-        ):
-            con.close()
-            return {
-                "error": "validation",
-                "message": "Нельзя заменить непустую сборку пустой без подтверждения.",
-            }
         apct = new_pct if new_pct is not None else max(
             0, min(100, int(row["assembled_percent"] or 0))
         )

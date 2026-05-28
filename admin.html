@@ -6413,7 +6413,7 @@
 
       function migratePalletRecord(p) {
         const id = p.id || 0;
-        const palletNumber = String(p.palletNumber ?? "");
+        const palletNumber = String(p.palletNumber ?? p.pallet_number ?? "");
         if (Array.isArray(p.slots)) {
           return {
             id,
@@ -6639,7 +6639,7 @@
           return false;
         }
         for (const p of pallets) {
-          if (String(p.palletNumber ?? "").trim()) {
+          if (String(p.palletNumber ?? p.pallet_number ?? "").trim()) {
             return true;
           }
           const slots = Array.isArray(p.slots) ? p.slots : [];
@@ -6654,6 +6654,16 @@
             if (ns.unirusMfgDate || ns.unirusExpiryDate || ns.labExpiryDate) {
               return true;
             }
+            const dq = Number(ns.directQty);
+            const fr = Number(ns.fullRows);
+            const pb = Number(ns.partialBoxes);
+            if (
+              (Number.isFinite(dq) && dq > 0) ||
+              (Number.isFinite(fr) && fr > 0) ||
+              (Number.isFinite(pb) && pb > 0)
+            ) {
+              return true;
+            }
           }
         }
         if (Array.isArray(items) && items.length) {
@@ -6666,24 +6676,14 @@
         return pallets.length > 1;
       }
 
+      function orderHasStoredAssembleState(orderRow) {
+        const pallets = orderRow?.assemble_state?.pallets;
+        return Array.isArray(pallets) && pallets.length > 0;
+      }
+
       function getAssemblePalletsFromOrderOrStorage(orderRow, orderId) {
-        const items = Array.isArray(orderRow?.items) ? orderRow.items : null;
-        if (
-          orderRow &&
-          orderRow.assemble_state &&
-          Array.isArray(orderRow.assemble_state.pallets)
-        ) {
-          const mapped = orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
-          if (!items || !items.length) {
-            const hasSlots = mapped.some(
-              (p) => String(p.palletNumber ?? "").trim() || (p.slots || []).length,
-            );
-            if (hasSlots || mapped.length > 1) {
-              return mapped;
-            }
-          } else if (assembleStateHasMeaningfulData(items, mapped)) {
-            return mapped;
-          }
+        if (orderRow && orderHasStoredAssembleState(orderRow)) {
+          return orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
         }
         return tryGetAssembleDraftPallets(orderId);
       }
@@ -6697,32 +6697,16 @@
           localDraft && Array.isArray(localDraft.pallets)
             ? localDraft.pallets.map((p) => migratePalletRecord(p))
             : null;
-        const serverHas = assembleStateHasMeaningfulData(items, serverPallets);
+        const serverStored = orderHasStoredAssembleState(orderData);
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         const serverRev = Number(orderData.assemble_revision) || 0;
         const localRev = Number(localDraft?.assemble_revision) || 0;
-        if (serverHas && localHas) {
-          if (localRev > serverRev) {
-            return {
-              pallets: localPallets,
-              revision: localRev,
-              pushToServer: true,
-              serverHadContent: true,
-            };
-          }
+        if (serverStored) {
           return {
             pallets: serverPallets,
             revision: serverRev,
             pushToServer: false,
-            serverHadContent: true,
-          };
-        }
-        if (serverHas) {
-          return {
-            pallets: serverPallets,
-            revision: serverRev,
-            pushToServer: false,
-            serverHadContent: true,
+            serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
           };
         }
         if (localHas) {
@@ -6959,7 +6943,9 @@
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : null;
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
-        if (!remoteHas && assembleServerHadContent) {
+        const localPallets = assembleAllocState?.pallets;
+        const localHas = assembleStateHasMeaningfulData(items, localPallets);
+        if (!remoteHas && localHas) {
           return;
         }
         if (!assembleDirty) {
@@ -7204,9 +7190,12 @@
         syncAssembleStateFromDom();
         const pallets = assembleAllocState.pallets;
         const hasContent = assembleStateHasMeaningfulData(items, pallets);
-        if (!hasContent && assembleServerHadContent && assembleKnownRevision > 0) {
+        if (
+          !hasContent &&
+          (assembleServerHadContent || assembleKnownRevision > 0)
+        ) {
           setAssembleSaveStatus(
-            "Сохранение пропущено: на сервере уже есть сборка. Обновите данные, если нужно начать заново.",
+            "Сохранение пропущено: на сервере уже есть сборка. Обновите страницу.",
             true,
           );
           return false;
@@ -7736,7 +7725,7 @@
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field">
                 <label for="pn-${pIdx}">Номер паллета</label>
-                <input id="pn-${pIdx}" type="text"${palletNumberInputModeAttrs} data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
+                <input id="pn-${pIdx}" type="number" min="0" step="1" data-assemble-pallet-number data-assemble-input data-field="palletNumber" autocomplete="off" placeholder="№" value="${numVal}" />
               </div>
               ${removeBtn}
             </div>

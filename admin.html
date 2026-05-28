@@ -7866,7 +7866,6 @@
             '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу страницы.</p>';
           return;
         }
-        syncAssembleStateFromDom();
         const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
         assemblePalletsRoot.innerHTML = assembleAllocState.pallets
           .map((pal, pIdx) => {
@@ -7908,7 +7907,11 @@
         if (!assemblePalletsRoot || !assembleAllocState || !assembleOrderSnapshot) {
           return;
         }
-        assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
+        const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
+        if (cards.length !== assembleAllocState.pallets.length) {
+          return;
+        }
+        cards.forEach((card) => {
           const pIdx = Number(card.dataset.palletCard);
           const pal = assembleAllocState.pallets[pIdx];
           if (!pal) {
@@ -8229,6 +8232,9 @@
         assembleAllocState = null;
         hideAssemblePresenceHint();
         setAssembleSaveStatus("");
+        if (assemblePalletsRoot) {
+          assemblePalletsRoot.innerHTML = "";
+        }
         if (assembleSummaryUnitToolbar) {
           assembleSummaryUnitToolbar.hidden = true;
         }

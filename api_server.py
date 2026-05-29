@@ -1904,29 +1904,31 @@ def _count_assemble_pallets(assemble_state) -> int:
 
 def _lab_sscc_pending_high_water(cur, exclude_order_id: int | None = None) -> int:
     """Верхняя граница SSCC по неотгруженным заказам ЛАБ (для резерва номеров)."""
-    sql = f"""
-        SELECT COALESCE(
-          MAX(
-            lab_sscc_seq_start + COALESCE(lab_sscc_pallet_count, 1) - 1
-          ),
-          0
-        )
+    rows = cur.execute(
+        f"""
+        SELECT id, lab_sscc_seq_start, lab_sscc_pallet_count, assemble_state
         FROM orders
         WHERE lab_sscc_seq_start IS NOT NULL
           AND COALESCE(lab_sscc_shipped, 0) = 0
           AND {_LAB_CLIENT_SQL}
-    """
-    params: list[int] = []
-    if exclude_order_id is not None:
-        sql += " AND id <> ?"
-        params.append(int(exclude_order_id))
-    row = cur.execute(sql, params).fetchone()
-    if not row or row[0] is None:
-        return 0
-    try:
-        return max(0, int(row[0]))
-    except (TypeError, ValueError):
-        return 0
+        """
+    ).fetchall()
+    high = 0
+    for row in rows:
+        oid = int(row["id"])
+        if exclude_order_id is not None and oid == int(exclude_order_id):
+            continue
+        start = max(1, int(row["lab_sscc_seq_start"]))
+        if row["lab_sscc_pallet_count"] is not None:
+            pallet_n = max(1, int(row["lab_sscc_pallet_count"]))
+        else:
+            pallet_n = _count_assemble_pallets(
+                _assemble_state_cell_to_api(row["assemble_state"])
+            )
+            if pallet_n <= 0:
+                pallet_n = 1
+        high = max(high, start + pallet_n - 1)
+    return high
 
 
 def _assign_lab_sscc_seq_start(cur, order_id: int) -> int:
@@ -1956,14 +1958,37 @@ def get_or_assign_lab_sscc_seq_start(order_id: int) -> int:
         if not row:
             con.close()
             return 1
+        st_row = cur.execute(
+            "SELECT assemble_state FROM orders WHERE id = ?",
+            (int(order_id),),
+        ).fetchone()
+        assemble_st = _assemble_state_cell_to_api(st_row[0] if st_row else None)
+        pallet_n = _count_assemble_pallets(assemble_st)
         if row[0] is not None:
             seq = max(1, int(row[0]))
+            if pallet_n > 0:
+                cur.execute(
+                    """
+                    UPDATE orders SET lab_sscc_pallet_count = ?
+                    WHERE id = ? AND COALESCE(lab_sscc_shipped, 0) = 0
+                    """,
+                    (pallet_n, int(order_id)),
+                )
+                con.commit()
             con.close()
             return seq
         if not _is_lab_industries_client(str(row["client"] or "")):
             con.close()
             return 1
         seq = _assign_lab_sscc_seq_start(cur, int(order_id))
+        if pallet_n > 0:
+            cur.execute(
+                """
+                UPDATE orders SET lab_sscc_pallet_count = ?
+                WHERE id = ? AND COALESCE(lab_sscc_shipped, 0) = 0
+                """,
+                (pallet_n, int(order_id)),
+            )
         con.commit()
         con.close()
         return seq

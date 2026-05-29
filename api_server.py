@@ -208,6 +208,10 @@ def _is_lab_industries_pallet_sheets_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/lab-industries-pallet-sheets-pdf"
 
 
+def _is_lab_sscc_reset_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/lab/sscc-reset"
+
+
 def _is_arnest_unirus_pallet_sheets_xlsx_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/arnest-unirus-pallet-sheets-xlsx"
 
@@ -1875,9 +1879,7 @@ def _lab_sscc_get_last_shipped(cur) -> int:
 
 
 def _lab_sscc_set_last_shipped(cur, value: int) -> None:
-    from packing_sheets_lab_industries import lab_sscc_wrap_seq
-
-    stored = lab_sscc_wrap_seq(max(1, int(value)))
+    stored = max(0, int(value))
     cur.execute(
         """
         INSERT INTO app_settings (key, value) VALUES (?, ?)
@@ -1885,6 +1887,43 @@ def _lab_sscc_set_last_shipped(cur, value: int) -> None:
         """,
         (_LAB_SSCC_LAST_SHIPPED_KEY, str(stored)),
     )
+
+
+def reset_lab_sscc_pallet_counter(
+    *,
+    last_shipped: int | None = None,
+    next_pallet: int | None = None,
+) -> dict:
+    """Сброс глобального счётчика SSCC и пересчёт неотгруженных заказов ЛАБ."""
+    from packing_sheets_lab_industries import lab_sscc_next_after
+
+    if next_pallet is not None:
+        last = max(0, int(next_pallet) - 1)
+    elif last_shipped is not None:
+        last = max(0, int(last_shipped))
+    else:
+        last = 11
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        _lab_sscc_set_last_shipped(cur, last)
+        for row in _lab_sscc_unshipped_lab_order_rows(cur):
+            cur.execute(
+                """
+                UPDATE orders
+                SET lab_sscc_seq_start = NULL, lab_sscc_pallet_count = NULL
+                WHERE id = ?
+                """,
+                (int(row["id"]),),
+            )
+        _lab_sscc_sync_all_unshipped_seq_starts(cur)
+        con.commit()
+        con.close()
+    return {
+        "ok": True,
+        "last_shipped": last,
+        "next_pallet_sscc": lab_sscc_next_after(last),
+    }
 
 
 def get_lab_sscc_last_shipped() -> int:
@@ -4187,6 +4226,40 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             self._respond_lab_industries_pallet_sheets_pdf(body)
+            return
+        if _is_lab_sscc_reset_path(path):
+            try:
+                body = self._read_json_body() or {}
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            if not isinstance(body, dict):
+                body = {}
+            try:
+                last_raw = body.get("last_shipped")
+                next_raw = body.get("next_pallet")
+                last_arg = int(last_raw) if last_raw is not None else None
+                next_arg = int(next_raw) if next_raw is not None else None
+            except (TypeError, ValueError):
+                self._send_json(
+                    400,
+                    {
+                        "error": "validation",
+                        "message": "last_shipped и next_pallet — целые числа.",
+                    },
+                )
+                return
+            if last_arg is None and next_arg is None:
+                next_arg = 12
+            try:
+                result = reset_lab_sscc_pallet_counter(
+                    last_shipped=last_arg,
+                    next_pallet=next_arg,
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            self._send_json(200, result)
             return
         if _is_orders_batches_export_pdf_path(path):
             try:

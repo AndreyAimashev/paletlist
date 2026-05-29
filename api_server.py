@@ -1875,12 +1875,15 @@ def _lab_sscc_get_last_shipped(cur) -> int:
 
 
 def _lab_sscc_set_last_shipped(cur, value: int) -> None:
+    from packing_sheets_lab_industries import lab_sscc_wrap_seq
+
+    stored = lab_sscc_wrap_seq(max(1, int(value)))
     cur.execute(
         """
         INSERT INTO app_settings (key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """,
-        (_LAB_SSCC_LAST_SHIPPED_KEY, str(max(0, int(value)))),
+        (_LAB_SSCC_LAST_SHIPPED_KEY, str(stored)),
     )
 
 
@@ -1904,6 +1907,8 @@ def _count_assemble_pallets(assemble_state) -> int:
 
 def _lab_sscc_pending_high_water(cur, exclude_order_id: int | None = None) -> int:
     """Верхняя граница SSCC по неотгруженным заказам ЛАБ (для резерва номеров)."""
+    from packing_sheets_lab_industries import lab_sscc_last_for_order
+
     rows = cur.execute(
         f"""
         SELECT id, lab_sscc_seq_start, lab_sscc_pallet_count, assemble_state
@@ -1927,15 +1932,17 @@ def _lab_sscc_pending_high_water(cur, exclude_order_id: int | None = None) -> in
             )
             if pallet_n <= 0:
                 pallet_n = 1
-        high = max(high, start + pallet_n - 1)
+        high = max(high, lab_sscc_last_for_order(start, pallet_n))
     return high
 
 
 def _assign_lab_sscc_seq_start(cur, order_id: int) -> int:
-    """Первый SSCC-номер паллеты для заказа ЛАБ = max(отгружено, резерв) + 1."""
+    """Первый SSCC-номер паллеты для заказа ЛАБ = max(отгружено, резерв) + 1 (с оборотом)."""
+    from packing_sheets_lab_industries import lab_sscc_next_after
+
     last = _lab_sscc_get_last_shipped(cur)
     pending = _lab_sscc_pending_high_water(cur, exclude_order_id=int(order_id))
-    start = max(last, pending) + 1
+    start = lab_sscc_next_after(max(last, pending))
     cur.execute(
         "UPDATE orders SET lab_sscc_seq_start = ? WHERE id = ?",
         (start, int(order_id)),
@@ -2034,7 +2041,9 @@ def confirm_lab_order_shipment(order_id: int) -> dict:
             seq_start = _assign_lab_sscc_seq_start(cur, int(order_id))
         else:
             seq_start = max(1, int(row["lab_sscc_seq_start"]))
-        last_used = seq_start + pallet_count - 1
+        from packing_sheets_lab_industries import lab_sscc_last_for_order
+
+        last_used = lab_sscc_last_for_order(seq_start, pallet_count)
         _lab_sscc_set_last_shipped(cur, last_used)
         cur.execute(
             """

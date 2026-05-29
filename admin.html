@@ -3818,6 +3818,27 @@
         return n === "лаб индастриз";
       }
 
+      const LAB_SSCC_MAX = 9999;
+      const LAB_SSCC_18_PREFIX = "15000000000000";
+
+      function labSsccWrapSeq(n) {
+        const v = Math.max(1, Number(n) || 1);
+        return ((v - 1) % LAB_SSCC_MAX) + 1;
+      }
+
+      function labSsccNextAfter(n) {
+        if (Number(n) < 1) {
+          return 1;
+        }
+        const w = labSsccWrapSeq(n);
+        return w >= LAB_SSCC_MAX ? 1 : w + 1;
+      }
+
+      function formatLabSsccHri(seq) {
+        const s = labSsccWrapSeq(seq);
+        return `(00)${LAB_SSCC_18_PREFIX}${String(s).padStart(4, "0")}`;
+      }
+
       function formatAssembleProductLabel(it, snapshot) {
         const art = String(it?.article || "").trim();
         const nam = String(it?.name || "").trim();
@@ -6383,9 +6404,7 @@
         }
         const lastHint =
           order.lab_sscc_seq_start != null
-            ? ` Первый SSCC: (00)150000000000000${String(
-                Number(order.lab_sscc_seq_start),
-              ).padStart(3, "0")}.`
+            ? ` Первый SSCC: ${formatLabSsccHri(order.lab_sscc_seq_start)}.`
             : "";
         if (
           !window.confirm(
@@ -6412,7 +6431,7 @@
           return;
         }
         window.alert(
-          `Отгрузка сохранена. Последний номер паллеты SSCC: ${data.last_shipped ?? "—"}. Следующий заказ начнётся с ${(Number(data.last_shipped) || 0) + 1}.`,
+          `Отгрузка сохранена. Последний номер паллеты SSCC: ${data.last_shipped ?? "—"}. Следующий заказ начнётся с ${labSsccNextAfter(data.last_shipped)} (${formatLabSsccHri(labSsccNextAfter(data.last_shipped))}).`,
         );
         await loadOrders();
       }

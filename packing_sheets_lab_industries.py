@@ -47,7 +47,40 @@ def _parse_pallet_number_int(pallet_number: str, fallback_index: int) -> int:
     return max(1, int(fallback_index))
 
 
-_LAB_SSCC_18_PREFIX = "150000000000000"
+_LAB_SSCC_MAX = 9999
+_LAB_SSCC_18_PREFIX = "15000000000000"
+
+
+def lab_sscc_wrap_seq(n: int) -> int:
+    """Номер паллеты в диапазоне 1…9999 (после 9999 — снова 1)."""
+    return ((max(1, int(n)) - 1) % _LAB_SSCC_MAX) + 1
+
+
+def lab_sscc_seq_for_pallet(seq_start: int, pallet_index: int) -> int:
+    """Сквозной номер паллеты с учётом оборота на 9999."""
+    s = max(1, int(seq_start))
+    p = max(1, int(pallet_index))
+    return lab_sscc_wrap_seq(s + p - 1)
+
+
+def lab_sscc_last_for_order(seq_start: int, pallet_count: int) -> int:
+    return lab_sscc_seq_for_pallet(seq_start, max(1, int(pallet_count)))
+
+
+def lab_sscc_next_after(n: int) -> int:
+    """Следующий номер после n; после 9999 — 1."""
+    if int(n) < 1:
+        return 1
+    w = lab_sscc_wrap_seq(int(n))
+    return 1 if w >= _LAB_SSCC_MAX else w + 1
+
+
+def lab_sscc_format_hri(global_seq: int) -> str:
+    seq = lab_sscc_wrap_seq(global_seq)
+    sscc18 = f"{_LAB_SSCC_18_PREFIX}{seq:04d}"
+    if len(sscc18) != 18:
+        sscc18 = (sscc18 + "0" * 18)[:18]
+    return f"(00){sscc18}"
 
 
 def build_lab_pallet_sscc_gs1(
@@ -55,10 +88,9 @@ def build_lab_pallet_sscc_gs1(
     *,
     seq_start: int = 1,
 ) -> tuple[str, str]:
-    """GS1-128 SSCC (AI 00): (00) + 18 цифр; суффикс — сквозной номер паллеты отгрузки."""
-    idx = max(1, int(pallet_index))
-    global_seq = max(1, int(seq_start)) + idx - 1
-    sscc18 = f"{_LAB_SSCC_18_PREFIX}{global_seq:03d}"
+    """GS1-128 SSCC (AI 00): (00) + 18 цифр; суффикс 4 цифры, оборот 9999→0001."""
+    global_seq = lab_sscc_seq_for_pallet(seq_start, pallet_index)
+    sscc18 = f"{_LAB_SSCC_18_PREFIX}{global_seq:04d}"
     if len(sscc18) != 18:
         sscc18 = (sscc18 + "0" * 18)[:18]
     encode = f"00{sscc18}"

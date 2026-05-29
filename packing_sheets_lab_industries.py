@@ -47,16 +47,18 @@ def _parse_pallet_number_int(pallet_number: str, fallback_index: int) -> int:
     return max(1, int(fallback_index))
 
 
+_LAB_SSCC_18_PREFIX = "150000000000000"
+
+
 def build_lab_pallet_sscc_gs1(
-    pallet_number: str,
-    fallback_index: int = 1,
+    pallet_index: int,
     *,
-    ai_seq: int = 0,
+    seq_start: int = 1,
 ) -> tuple[str, str]:
-    """GS1-128 SSCC (AI 00): подпись всегда (00) + 18 цифр; номер заказа — в цифрах SSCC."""
-    n = _parse_pallet_number_int(pallet_number, fallback_index)
-    order_seq = int(ai_seq) % 100
-    sscc18 = f"15{order_seq:02d}00000000000{n:03d}"
+    """GS1-128 SSCC (AI 00): (00) + 18 цифр; суффикс — сквозной номер паллеты отгрузки."""
+    idx = max(1, int(pallet_index))
+    global_seq = max(1, int(seq_start)) + idx - 1
+    sscc18 = f"{_LAB_SSCC_18_PREFIX}{global_seq:03d}"
     if len(sscc18) != 18:
         sscc18 = (sscc18 + "0" * 18)[:18]
     encode = f"00{sscc18}"
@@ -458,7 +460,7 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     totals = _pieces_by_line_index(items, pallets)
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
-    lab_sscc_ai_seq = int(detail.get("lab_sscc_ai_seq") or 0) % 100
+    lab_sscc_seq_start = max(1, int(detail.get("lab_sscc_seq_start") or 1))
     out: list[dict[str, Any]] = []
     pallet_total = len(pallets)
     for idx, pal in enumerate(pallets, start=1):
@@ -509,7 +511,8 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     "row10_batch_text": _format_lab_row10_batch(batch_raw),
                     "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
                     "row11_gs1_hri": gs1_hri or "",
-                    "lab_sscc_ai_seq": lab_sscc_ai_seq,
+                    "lab_sscc_seq_start": lab_sscc_seq_start,
+                    "lab_sscc_pallet_index": idx,
                 }
             )
             continue
@@ -554,7 +557,8 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
                     "row10_batch_text": _format_lab_row10_batch(batch_raw),
                     "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
                     "row11_gs1_hri": gs1_hri or "",
-                    "lab_sscc_ai_seq": lab_sscc_ai_seq,
+                    "lab_sscc_seq_start": lab_sscc_seq_start,
+                    "lab_sscc_pallet_index": idx,
                 }
             )
     return out
@@ -689,10 +693,10 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
             if not row4_text:
                 boxes_on_pal = float(row.get("boxes_on_pallet") or 0)
                 row4_text = _format_lab_row4_boxes(boxes_on_pal)
-            pallet_number = str(row.get("pallet_number") or "").strip()
-            ai_seq = int(row.get("lab_sscc_ai_seq") or 0) % 100
+            seq_start = max(1, int(row.get("lab_sscc_seq_start") or 1))
+            pallet_idx = max(1, int(row.get("lab_sscc_pallet_index") or idx))
             gs1_data, gs1_hri = build_lab_pallet_sscc_gs1(
-                pallet_number, idx, ai_seq=ai_seq
+                pallet_idx, seq_start=seq_start
             )
             try:
                 png = render_gs1_128_barcode_png(gs1_data, write_text=False)
@@ -1040,13 +1044,13 @@ def build_lab_industries_pallet_sheets_pdf_bytes(
 def build_lab_industries_pallet_sheets_pdf_from_order(
     detail: dict[str, Any],
     *,
-    lab_sscc_ai_seq: int | None = None,
+    lab_sscc_seq_start: int | None = None,
 ) -> tuple[bytes | None, str | None, str | None]:
     if not is_lab_industries_client(str(detail.get("client") or "")):
         return None, "lab_client", lab_pallet_pdf_error_message("lab_client")
-    if lab_sscc_ai_seq is None:
-        lab_sscc_ai_seq = int(detail.get("lab_sscc_ai_seq") or 0) % 100
-    detail_with_seq = {**detail, "lab_sscc_ai_seq": lab_sscc_ai_seq}
+    if lab_sscc_seq_start is None:
+        lab_sscc_seq_start = max(1, int(detail.get("lab_sscc_seq_start") or 1))
+    detail_with_seq = {**detail, "lab_sscc_seq_start": lab_sscc_seq_start}
     pallets = lab_pallets_from_order_detail(detail_with_seq)
     if not pallets:
         st = detail.get("assemble_state")

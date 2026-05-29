@@ -1145,6 +1145,29 @@
         min-width: 0;
       }
 
+      .orders-client-cell-main {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .orders-client-cell-main .orders-client-text {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .icon-btn.orders-lab-ship-btn {
+        flex: 0 0 auto;
+        color: rgba(140, 200, 255, 0.95);
+      }
+
+      .icon-btn.orders-lab-ship-btn:hover {
+        color: rgba(180, 220, 255, 1);
+      }
+
       .orders-table tbody .orders-client-text {
         display: block;
         overflow-wrap: anywhere;
@@ -3559,6 +3582,7 @@
       const ORDER_ROW_ICON_ASSEMBLE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7.7 12 12.5l8.7-4.8"/><path d="M12 22.5V12.5"/></svg>`;
       const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`;
       const ORDER_ROW_ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
+      const ORDER_ROW_ICON_SHIP = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><path d="M16 8h6v4"/><path d="M2 8h2"/><circle cx="7" cy="18" r="2"/><path d="M9 18h6"/><circle cx="17" cy="18" r="2"/></svg>`;
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -4196,13 +4220,13 @@
             ? {
                 buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
                 buyer_order: assembleOrderSnapshot.buyer_order,
-                lab_sscc_ai_seq: assembleOrderSnapshot.lab_sscc_ai_seq,
+                lab_sscc_seq_start: assembleOrderSnapshot.lab_sscc_seq_start,
               }
             : null);
-        const labSsccAiSeq =
-          ctx && ctx.lab_sscc_ai_seq != null && ctx.lab_sscc_ai_seq !== ""
-            ? Number(ctx.lab_sscc_ai_seq) % 100
-            : 0;
+        const labSsccSeqStart =
+          ctx && ctx.lab_sscc_seq_start != null && ctx.lab_sscc_seq_start !== ""
+            ? Math.max(1, Number(ctx.lab_sscc_seq_start))
+            : 1;
         const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
         const palletTotal = sortedPallets.length;
         const rows = [];
@@ -4211,6 +4235,7 @@
           if (!pallet_number) {
             pallet_number = String(idx + 1);
           }
+          const labSsccPalletIndex = idx + 1;
           const row7Pallet = formatLabRow7PalletSeq(idx + 1, palletTotal);
           const productive = labProductiveSlotsOnPallet(pal, items);
           const buildRow = (lineIdx, slot) => {
@@ -4247,7 +4272,8 @@
               article,
               name,
               pallet_number,
-              lab_sscc_ai_seq: labSsccAiSeq,
+              lab_sscc_seq_start: labSsccSeqStart,
+              lab_sscc_pallet_index: labSsccPalletIndex,
               total_pieces: slotPieces,
               volume_ml: Number.isFinite(volumeMl) ? volumeMl : 0,
               volume_unit: volumeUnit,
@@ -4694,7 +4720,7 @@
               {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
-                lab_sscc_ai_seq: order.lab_sscc_ai_seq,
+                lab_sscc_seq_start: order.lab_sscc_seq_start,
               },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({
@@ -5096,7 +5122,7 @@
               const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
-                lab_sscc_ai_seq: order.lab_sscc_ai_seq,
+                lab_sscc_seq_start: order.lab_sscc_seq_start,
               });
               blob = await fetchLabIndustriesPalletSheetsPdfBlob({
                 pallets: palletsPayload,
@@ -6323,6 +6349,74 @@
         }, 220);
       }
 
+      function countAssemblePalletsInOrder(order) {
+        const st = order && order.assemble_state;
+        if (!st || !Array.isArray(st.pallets)) {
+          return 0;
+        }
+        return st.pallets.filter((p) => p && typeof p === "object").length;
+      }
+
+      function renderLabShipButton(order) {
+        if (!order || !isLabIndustriesClient(order.client)) {
+          return "";
+        }
+        if (order.lab_sscc_shipped) {
+          return "";
+        }
+        const sid = Number.isFinite(Number(order.id)) ? String(order.id) : "";
+        return `<button type="button" class="icon-btn orders-lab-ship-btn" data-order-id="${sid}" data-order-action="lab-ship" title="Отгрузить: сохранить последний номер паллеты SSCC для следующих заказов">${ORDER_ROW_ICON_SHIP}</button>`;
+      }
+
+      async function confirmLabOrderShipment(orderId) {
+        const order = cachedOrdersListRows.find((o) => Number(o.id) === Number(orderId));
+        if (!order) {
+          window.alert("Заказ не найден в списке.");
+          return;
+        }
+        const palletCount = countAssemblePalletsInOrder(order);
+        if (palletCount <= 0) {
+          window.alert(
+            "В сборке заказа нет паллет. Добавьте паллеты в сборке, затем отметьте отгрузку.",
+          );
+          return;
+        }
+        const lastHint =
+          order.lab_sscc_seq_start != null
+            ? ` Первый SSCC: (00)150000000000000${String(
+                Number(order.lab_sscc_seq_start),
+              ).padStart(3, "0")}.`
+            : "";
+        if (
+          !window.confirm(
+            `Отгрузить заказ №${orderId} (${palletCount} палл.)? Будет сохранён последний номер SSCC для следующих заказов ЛАБ Индастриз.${lastHint}`,
+          )
+        ) {
+          return;
+        }
+        let res;
+        try {
+          res = await fetch(`/api/orders/${orderId}/lab-ship`, { method: "POST" });
+        } catch (err) {
+          window.alert("Нет связи с сервером.");
+          return;
+        }
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (e) {
+          /* ignore */
+        }
+        if (!res.ok) {
+          window.alert(data.message || "Не удалось сохранить отгрузку.");
+          return;
+        }
+        window.alert(
+          `Отгрузка сохранена. Последний номер паллеты SSCC: ${data.last_shipped ?? "—"}. Следующий заказ начнётся с ${(Number(data.last_shipped) || 0) + 1}.`,
+        );
+        await loadOrders();
+      }
+
       function renderOrderRowActions(orderId, variant) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
@@ -6375,6 +6469,7 @@
             const actionsHtml = renderOrderRowActions(o.id, "desktop");
             const actionsMobileDateHtml = renderOrderRowActions(o.id, "mobile-date");
             const actionsMobileClientHtml = renderOrderRowActions(o.id, "mobile-client");
+            const labShipBtn = renderLabShipButton(o);
             return `<tr>
                   <td class="col-date">
                     <div class="orders-date-cell">
@@ -6384,7 +6479,10 @@
                   </td>
                   <td class="col-client">
                     <div class="orders-client-cell">
-                      <span class="orders-client-text">${escapeXml(o.client || "—")}</span>
+                      <div class="orders-client-cell-main">
+                        <span class="orders-client-text">${escapeXml(o.client || "—")}</span>
+                        ${labShipBtn}
+                      </div>
                       ${actionsMobileClientHtml}
                     </div>
                   </td>
@@ -8373,10 +8471,11 @@
           buyer_order_mode: data.buyer_order_mode || "",
           buyer_order: data.buyer_order || "",
           total_order_quantity: data.total_order_quantity,
-          lab_sscc_ai_seq:
-            data.lab_sscc_ai_seq != null && data.lab_sscc_ai_seq !== ""
-              ? Number(data.lab_sscc_ai_seq) % 100
+          lab_sscc_seq_start:
+            data.lab_sscc_seq_start != null && data.lab_sscc_seq_start !== ""
+              ? Math.max(1, Number(data.lab_sscc_seq_start))
               : null,
+          lab_sscc_shipped: !!data.lab_sscc_shipped,
           items,
         };
         const localDraft = loadAssembleDraft(orderId, items.length);
@@ -9360,6 +9459,8 @@
           setStage("assemble", true, id);
         } else if (act === "pallet") {
           setStage("pallet", true, id);
+        } else if (act === "lab-ship") {
+          void confirmLabOrderShipment(id);
         } else if (act === "delete") {
           if (!window.confirm(`Удалить заказ №${id}? Действие нельзя отменить.`)) {
             return;

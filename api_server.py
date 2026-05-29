@@ -1435,6 +1435,22 @@ def _parse_orders_packing_sheets_pdf_id(path: str) -> int | None:
         return None
 
 
+def _parse_orders_lab_ship_id(path: str) -> int | None:
+    """Для POST /api/orders/12/lab-ship возвращает 12."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    suffix = "/lab-ship"
+    if not p.startswith(prefix) or not p.endswith(suffix):
+        return None
+    mid = p[len(prefix) : -len(suffix)]
+    if not mid or "/" in mid:
+        return None
+    try:
+        return int(mid)
+    except ValueError:
+        return None
+
+
 def _parse_orders_assemble_presence_id(path: str) -> int | None:
     """Для /api/orders/12/assemble-presence возвращает 12."""
     p = _norm_api_path(path)
@@ -1817,6 +1833,14 @@ def _init_orders_table(cur):
         )
     if "lab_sscc_ai_seq" not in order_cols:
         cur.execute("ALTER TABLE orders ADD COLUMN lab_sscc_ai_seq INTEGER")
+    if "lab_sscc_seq_start" not in order_cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN lab_sscc_seq_start INTEGER")
+    if "lab_sscc_shipped" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN lab_sscc_shipped INTEGER NOT NULL DEFAULT 0"
+        )
+    if "lab_sscc_pallet_count" not in order_cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN lab_sscc_pallet_count INTEGER")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -1826,71 +1850,185 @@ def _init_orders_table(cur):
         """
     )
     if not cur.execute(
-        "SELECT 1 FROM app_settings WHERE key = 'lab_sscc_next_ai' LIMIT 1"
+        "SELECT 1 FROM app_settings WHERE key = 'lab_sscc_last_shipped' LIMIT 1"
     ).fetchone():
         cur.execute(
-            "INSERT INTO app_settings (key, value) VALUES ('lab_sscc_next_ai', '1')"
+            "INSERT INTO app_settings (key, value) VALUES ('lab_sscc_last_shipped', '11')"
         )
 
 
-_LAB_SSCC_NEXT_AI_KEY = "lab_sscc_next_ai"
+_LAB_SSCC_LAST_SHIPPED_KEY = "lab_sscc_last_shipped"
+_LAB_CLIENT_SQL = "LOWER(TRIM(REPLACE(client, '  ', ' '))) = 'лаб индастриз'"
 
 
-def _lab_sscc_next_counter(cur) -> int:
+def _lab_sscc_get_last_shipped(cur) -> int:
     row = cur.execute(
         "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
-        (_LAB_SSCC_NEXT_AI_KEY,),
+        (_LAB_SSCC_LAST_SHIPPED_KEY,),
     ).fetchone()
     if not row:
-        return 1
+        return 0
     try:
-        return int(str(row[0]).strip()) % 100
+        return max(0, int(str(row[0]).strip()))
     except ValueError:
-        return 1
+        return 0
 
 
-def _lab_sscc_set_next_counter(cur, value: int) -> None:
+def _lab_sscc_set_last_shipped(cur, value: int) -> None:
     cur.execute(
         """
         INSERT INTO app_settings (key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """,
-        (_LAB_SSCC_NEXT_AI_KEY, str(int(value) % 100)),
+        (_LAB_SSCC_LAST_SHIPPED_KEY, str(max(0, int(value)))),
     )
 
 
-def _assign_lab_sscc_ai_seq(cur, order_id: int) -> int:
-    """Счётчик 0…99 для цифр SSCC (AI 00) штрих-кода паллеты ЛАБ; один на заказ."""
-    next_val = _lab_sscc_next_counter(cur)
-    seq = next_val % 100
+def get_lab_sscc_last_shipped() -> int:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        last = _lab_sscc_get_last_shipped(cur)
+        con.close()
+        return last
+
+
+def _count_assemble_pallets(assemble_state) -> int:
+    if not isinstance(assemble_state, dict):
+        return 0
+    pallets = assemble_state.get("pallets")
+    if not isinstance(pallets, list):
+        return 0
+    return sum(1 for p in pallets if isinstance(p, dict))
+
+
+def _lab_sscc_pending_high_water(cur, exclude_order_id: int | None = None) -> int:
+    """Верхняя граница SSCC по неотгруженным заказам ЛАБ (для резерва номеров)."""
+    sql = f"""
+        SELECT COALESCE(
+          MAX(
+            lab_sscc_seq_start + COALESCE(lab_sscc_pallet_count, 1) - 1
+          ),
+          0
+        )
+        FROM orders
+        WHERE lab_sscc_seq_start IS NOT NULL
+          AND COALESCE(lab_sscc_shipped, 0) = 0
+          AND {_LAB_CLIENT_SQL}
+    """
+    params: list[int] = []
+    if exclude_order_id is not None:
+        sql += " AND id <> ?"
+        params.append(int(exclude_order_id))
+    row = cur.execute(sql, params).fetchone()
+    if not row or row[0] is None:
+        return 0
+    try:
+        return max(0, int(row[0]))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _assign_lab_sscc_seq_start(cur, order_id: int) -> int:
+    """Первый SSCC-номер паллеты для заказа ЛАБ = max(отгружено, резерв) + 1."""
+    last = _lab_sscc_get_last_shipped(cur)
+    pending = _lab_sscc_pending_high_water(cur, exclude_order_id=int(order_id))
+    start = max(last, pending) + 1
     cur.execute(
-        "UPDATE orders SET lab_sscc_ai_seq = ? WHERE id = ?",
-        (seq, int(order_id)),
+        "UPDATE orders SET lab_sscc_seq_start = ? WHERE id = ?",
+        (start, int(order_id)),
     )
-    _lab_sscc_set_next_counter(cur, (next_val + 1) % 100)
-    return seq
+    return start
 
 
-def get_or_assign_lab_sscc_ai_seq(order_id: int) -> int:
-    """Возвращает сохранённый AI заказа или выдаёт следующий по счётчику."""
+def get_or_assign_lab_sscc_seq_start(order_id: int) -> int:
+    """Сквозной старт SSCC для заказа ЛАБ (фиксируется при первом запросе)."""
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         row = cur.execute(
-            "SELECT lab_sscc_ai_seq FROM orders WHERE id = ?",
+            """
+            SELECT lab_sscc_seq_start, client
+            FROM orders WHERE id = ?
+            """,
             (int(order_id),),
         ).fetchone()
         if not row:
             con.close()
-            return 0
+            return 1
         if row[0] is not None:
-            seq = int(row[0]) % 100
+            seq = max(1, int(row[0]))
             con.close()
             return seq
-        seq = _assign_lab_sscc_ai_seq(cur, int(order_id))
+        if not _is_lab_industries_client(str(row["client"] or "")):
+            con.close()
+            return 1
+        seq = _assign_lab_sscc_seq_start(cur, int(order_id))
         con.commit()
         con.close()
         return seq
+
+
+def confirm_lab_order_shipment(order_id: int) -> dict:
+    """Отгрузка заказа ЛАБ: сохранить последний SSCC-номер паллеты."""
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT client, assemble_state, lab_sscc_seq_start,
+                   COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
+            FROM orders WHERE id = ?
+            """,
+            (int(order_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        if not _is_lab_industries_client(str(row["client"] or "")):
+            con.close()
+            return {
+                "error": "lab_client",
+                "message": "Отгрузка SSCC только для клиента «ЛАБ Индастриз».",
+            }
+        if int(row["lab_sscc_shipped"] or 0):
+            con.close()
+            return {
+                "error": "already_shipped",
+                "message": "Заказ уже отмечен как отгруженный.",
+            }
+        st = _assemble_state_cell_to_api(row["assemble_state"])
+        pallet_count = _count_assemble_pallets(st)
+        if pallet_count <= 0:
+            con.close()
+            return {
+                "error": "no_pallets",
+                "message": "В сборке нет паллет — укажите паллеты перед отгрузкой.",
+            }
+        if row["lab_sscc_seq_start"] is None:
+            seq_start = _assign_lab_sscc_seq_start(cur, int(order_id))
+        else:
+            seq_start = max(1, int(row["lab_sscc_seq_start"]))
+        last_used = seq_start + pallet_count - 1
+        _lab_sscc_set_last_shipped(cur, last_used)
+        cur.execute(
+            """
+            UPDATE orders
+            SET lab_sscc_shipped = 1,
+                lab_sscc_pallet_count = ?,
+                lab_sscc_seq_start = ?
+            WHERE id = ?
+            """,
+            (pallet_count, seq_start, int(order_id)),
+        )
+        con.commit()
+        con.close()
+    return {
+        "ok": True,
+        "last_shipped": last_used,
+        "pallet_count": pallet_count,
+        "seq_start": seq_start,
+    }
 
 
 _MAX_ASSEMBLE_STATE_JSON_BYTES = 2 * 1024 * 1024
@@ -2353,7 +2491,6 @@ def insert_order_with_items(body: dict):
             (ship, client_n, names_summary, buyer_order_mode, order_buyer_order),
         )
         oid = cur.lastrowid
-        lab_sscc_ai_seq = _assign_lab_sscc_ai_seq(cur, int(oid))
         for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
             cur.execute(
                 """
@@ -2367,7 +2504,7 @@ def insert_order_with_items(body: dict):
             )
         con.commit()
         con.close()
-    return {"ok": True, "id": int(oid), "lab_sscc_ai_seq": lab_sscc_ai_seq}
+    return {"ok": True, "id": int(oid)}
 
 
 _IMPORT_SKIP_META_PREFIX = "__import_skip__:"
@@ -2883,7 +3020,6 @@ def import_orders_from_excel_bytes(data: bytes):
                     (ship, client_n, names_summary, extra_info),
                 )
                 oid = int(cur.lastrowid)
-                _assign_lab_sscc_ai_seq(cur, oid)
                 created_ids.append(oid)
                 if skipped_count > 0:
                     import_errors.append(
@@ -2927,7 +3063,6 @@ def import_orders_from_excel_bytes(data: bytes):
                 (ship, client_n, names_summary, extra_info),
             )
             oid = int(cur.lastrowid)
-            _assign_lab_sscc_ai_seq(cur, oid)
             for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
                 cur.execute(
                     """
@@ -3078,7 +3213,8 @@ def fetch_order_detail(order_id: int):
         row = con.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, total_order_quantity, lab_sscc_ai_seq,
+                   buyer_order_mode, buyer_order, total_order_quantity,
+                   lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
                    assemble_revision, assemble_state_updated_at
             FROM orders WHERE id = ?
             """,
@@ -3135,9 +3271,17 @@ def fetch_order_detail(order_id: int):
         if row["total_order_quantity"] is not None
         and "total_order_quantity" in row.keys()
         else None,
-        "lab_sscc_ai_seq": int(row["lab_sscc_ai_seq"]) % 100
-        if row["lab_sscc_ai_seq"] is not None and "lab_sscc_ai_seq" in row.keys()
+        "lab_sscc_seq_start": max(1, int(row["lab_sscc_seq_start"]))
+        if row["lab_sscc_seq_start"] is not None and "lab_sscc_seq_start" in row.keys()
         else None,
+        "lab_sscc_shipped": bool(int(row["lab_sscc_shipped"] or 0))
+        if "lab_sscc_shipped" in row.keys()
+        else False,
+        "lab_sscc_pallet_count": int(row["lab_sscc_pallet_count"])
+        if row["lab_sscc_pallet_count"] is not None
+        and "lab_sscc_pallet_count" in row.keys()
+        else None,
+        "lab_sscc_last_shipped": get_lab_sscc_last_shipped(),
         "items": items,
         **extra_fields,
     }
@@ -3162,6 +3306,7 @@ def fetch_orders():
         rows = con.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
+                   lab_sscc_seq_start, lab_sscc_shipped,
                    assemble_revision, assemble_state_updated_at
             FROM orders ORDER BY id DESC
             """
@@ -3216,6 +3361,13 @@ def fetch_orders():
                 "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip()
                 if "assemble_state_updated_at" in row.keys()
                 else "",
+                "lab_sscc_seq_start": max(1, int(row["lab_sscc_seq_start"]))
+                if row["lab_sscc_seq_start"] is not None
+                and "lab_sscc_seq_start" in row.keys()
+                else None,
+                "lab_sscc_shipped": bool(int(row["lab_sscc_shipped"] or 0))
+                if "lab_sscc_shipped" in row.keys()
+                else False,
                 "items": items,
                 **extra_fields,
             }
@@ -3506,19 +3658,21 @@ class ApiHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-        lab_sscc_ai_seq = 0
+        lab_sscc_seq_start = 1
         order_id_raw = body.get("order_id")
         if order_id_raw is not None and str(order_id_raw).strip() != "":
             try:
-                lab_sscc_ai_seq = get_or_assign_lab_sscc_ai_seq(int(order_id_raw))
+                lab_sscc_seq_start = get_or_assign_lab_sscc_seq_start(int(order_id_raw))
             except (TypeError, ValueError):
-                lab_sscc_ai_seq = 0
+                lab_sscc_seq_start = 1
         pallets_for_pdf = []
         for p in pallets_raw:
             if not isinstance(p, dict):
                 continue
             row = dict(p)
-            row["lab_sscc_ai_seq"] = lab_sscc_ai_seq
+            row["lab_sscc_seq_start"] = lab_sscc_seq_start
+            if "lab_sscc_pallet_index" not in row:
+                row["lab_sscc_pallet_index"] = len(pallets_for_pdf) + 1
             pallets_for_pdf.append(row)
         blob, err, err_detail = build_lab_industries_pallet_sheets_pdf_bytes(
             pallets_for_pdf
@@ -3707,11 +3861,11 @@ class ApiHandler(BaseHTTPRequestHandler):
                 build_lab_industries_pallet_sheets_pdf_from_order is not None
                 and is_lab_industries_client(str(detail.get("client") or ""))
             ):
-                lab_sscc_ai_seq = get_or_assign_lab_sscc_ai_seq(packing_oid)
-                detail["lab_sscc_ai_seq"] = lab_sscc_ai_seq
+                lab_sscc_seq_start = get_or_assign_lab_sscc_seq_start(packing_oid)
+                detail["lab_sscc_seq_start"] = lab_sscc_seq_start
                 pdf_blob, err, err_detail = (
                     build_lab_industries_pallet_sheets_pdf_from_order(
-                        detail, lab_sscc_ai_seq=lab_sscc_ai_seq
+                        detail, lab_sscc_seq_start=lab_sscc_seq_start
                     )
                 )
                 if err:
@@ -3899,6 +4053,22 @@ class ApiHandler(BaseHTTPRequestHandler):
             )
             err = result.get("error")
             if err == "validation":
+                self._send_json(400, result)
+                return
+            self._send_json(200, result)
+            return
+        lab_ship_oid = _parse_orders_lab_ship_id(path)
+        if lab_ship_oid is not None:
+            try:
+                result = confirm_lab_order_shipment(lab_ship_oid)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err in ("lab_client", "no_pallets", "already_shipped"):
                 self._send_json(400, result)
                 return
             self._send_json(200, result)

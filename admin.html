@@ -3839,6 +3839,33 @@
         return `(00)${LAB_SSCC_18_PREFIX}${String(s).padStart(4, "0")}`;
       }
 
+      function applyLabSsccSeqByOrderFromApi(seqByOrder) {
+        if (!seqByOrder || typeof seqByOrder !== "object") {
+          return;
+        }
+        Object.entries(seqByOrder).forEach(([idRaw, seqRaw]) => {
+          const oid = Number(idRaw);
+          const seq = Number(seqRaw);
+          if (!Number.isFinite(oid) || !Number.isFinite(seq)) {
+            return;
+          }
+          const row = cachedOrdersListRows.find((o) => Number(o.id) === oid);
+          if (row) {
+            row.lab_sscc_seq_start = seq;
+          }
+        });
+        if (assembleOrderSnapshot && seqByOrder[String(assembleOrderSnapshot.id)] != null) {
+          assembleOrderSnapshot.lab_sscc_seq_start = Number(
+            seqByOrder[String(assembleOrderSnapshot.id)],
+          );
+        }
+        if (palletSheetsCachedOrder && seqByOrder[String(palletSheetsCachedOrder.id)] != null) {
+          palletSheetsCachedOrder.lab_sscc_seq_start = Number(
+            seqByOrder[String(palletSheetsCachedOrder.id)],
+          );
+        }
+      }
+
       function formatAssembleProductLabel(it, snapshot) {
         const art = String(it?.article || "").trim();
         const nam = String(it?.name || "").trim();
@@ -7701,6 +7728,16 @@
             assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision + 1;
           } else {
             assembleKnownRevision += 1;
+          }
+          if (data && data.lab_sscc_seq_by_order) {
+            applyLabSsccSeqByOrderFromApi(data.lab_sscc_seq_by_order);
+          } else if (
+            data &&
+            data.lab_sscc_seq_start != null &&
+            assembleOrderSnapshot &&
+            isLabIndustriesClient(assembleOrderSnapshot.client)
+          ) {
+            assembleOrderSnapshot.lab_sscc_seq_start = Number(data.lab_sscc_seq_start);
           }
           assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
           assembleDirty = false;

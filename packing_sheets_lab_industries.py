@@ -53,15 +53,14 @@ def build_lab_pallet_sscc_gs1(
     *,
     ai_seq: int = 0,
 ) -> tuple[str, str]:
-    """GS1-128: префикс AI по заказу (01)…(99), затем (00); SSCC 18 цифр + суффикс паллеты."""
+    """GS1-128 SSCC (AI 00): подпись всегда (00) + 18 цифр; номер заказа — в цифрах SSCC."""
     n = _parse_pallet_number_int(pallet_number, fallback_index)
-    sscc18 = f"150000000000000{n:03d}"
+    order_seq = int(ai_seq) % 100
+    sscc18 = f"15{order_seq:02d}00000000000{n:03d}"
     if len(sscc18) != 18:
         sscc18 = (sscc18 + "0" * 18)[:18]
-    ai = int(ai_seq) % 100
-    ai_str = f"{ai:02d}"
-    encode = ai_str + sscc18
-    human = f"({ai_str}){sscc18}"
+    encode = f"00{sscc18}"
+    human = f"(00){sscc18}"
     return encode, human
 
 

@@ -1860,7 +1860,7 @@ def _lab_sscc_set_next_counter(cur, value: int) -> None:
 
 
 def _assign_lab_sscc_ai_seq(cur, order_id: int) -> int:
-    """Номер (01)…(99), (00) для штрих-кода паллеты ЛАБ; один на заказ."""
+    """Счётчик 0…99 для цифр SSCC (AI 00) штрих-кода паллеты ЛАБ; один на заказ."""
     next_val = _lab_sscc_next_counter(cur)
     seq = next_val % 100
     cur.execute(

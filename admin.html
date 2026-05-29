@@ -3814,8 +3814,12 @@
       }
 
       function isLabIndustriesClient(client) {
-        const n = String(client || "").trim().replace(/\s+/g, " ").toLowerCase();
-        return n === "лаб индастриз";
+        return (
+          String(client || "")
+            .trim()
+            .replace(/\s+/g, " ")
+            .toLowerCase() === "лаб индастриз"
+        );
       }
 
       const LAB_SSCC_MAX = 9999;

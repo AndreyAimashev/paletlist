@@ -1910,35 +1910,71 @@ def _lab_sscc_pallet_count_for_order_row(row) -> int:
     return _count_assemble_pallets(_assemble_state_cell_to_api(row["assemble_state"]))
 
 
+def _normalize_client_key(client: str) -> str:
+    return re.sub(r"\s+", " ", str(client or "").strip()).lower()
+
+
 def _lab_sscc_unshipped_lab_order_rows(cur):
-    return cur.execute(
-        f"""
-        SELECT id, assemble_state, lab_sscc_pallet_count
+    rows = cur.execute(
+        """
+        SELECT id, client, assemble_state, lab_sscc_pallet_count
         FROM orders
         WHERE COALESCE(lab_sscc_shipped, 0) = 0
-          AND {_LAB_CLIENT_SQL}
         ORDER BY id ASC
         """
     ).fetchall()
+    return [r for r in rows if _is_lab_industries_client(str(r["client"] or ""))]
+
+
+def _lab_sscc_pallet_count_for_order_id(
+    cur, order_id: int, pallet_overrides: dict[int, int] | None = None
+) -> int:
+    if pallet_overrides and int(order_id) in pallet_overrides:
+        return max(0, int(pallet_overrides[int(order_id)]))
+    row = cur.execute(
+        "SELECT assemble_state, lab_sscc_pallet_count FROM orders WHERE id = ?",
+        (int(order_id),),
+    ).fetchone()
+    if not row:
+        return 0
+    return _lab_sscc_pallet_count_for_order_row(row)
+
+
+def _lab_sscc_count_physical_pallets_from_pdf_rows(pallets_raw: list) -> int:
+    seen: set[int | str] = set()
+    for i, p in enumerate(pallets_raw):
+        if not isinstance(p, dict):
+            continue
+        pi = p.get("lab_sscc_pallet_index")
+        if pi is not None and str(pi).strip() != "":
+            try:
+                seen.add(int(pi))
+                continue
+            except (TypeError, ValueError):
+                pass
+        pn = str(p.get("pallet_number") or "").strip()
+        seen.add(pn if pn else f"__row_{i}")
+    return len(seen)
 
 
 def _lab_sscc_compute_seq_start(cur, order_id: int) -> int:
-    """Стартовый SSCC с учётом last_shipped и паллет во всех более ранних неотгруженных заказах."""
-    from packing_sheets_lab_industries import lab_sscc_last_for_order, lab_sscc_next_after
+    """Стартовый SSCC для одного заказа (после полного sync)."""
+    row = cur.execute(
+        "SELECT lab_sscc_seq_start FROM orders WHERE id = ?",
+        (int(order_id),),
+    ).fetchone()
+    if row and row[0] is not None:
+        return max(1, int(row[0]))
+    _lab_sscc_sync_all_unshipped_seq_starts(cur)
+    row = cur.execute(
+        "SELECT lab_sscc_seq_start FROM orders WHERE id = ?",
+        (int(order_id),),
+    ).fetchone()
+    if row and row[0] is not None:
+        return max(1, int(row[0]))
+    from packing_sheets_lab_industries import lab_sscc_next_after
 
-    last = _lab_sscc_get_last_shipped(cur)
-    pending_end = 0
-    for row in _lab_sscc_unshipped_lab_order_rows(cur):
-        oid = int(row["id"])
-        if oid == int(order_id):
-            break
-        pallet_n = _lab_sscc_pallet_count_for_order_row(row)
-        if pallet_n <= 0:
-            continue
-        base = last if pending_end <= 0 else pending_end
-        seq_start = lab_sscc_next_after(base)
-        pending_end = lab_sscc_last_for_order(seq_start, pallet_n)
-    return lab_sscc_next_after(max(last, pending_end))
+    return lab_sscc_next_after(_lab_sscc_get_last_shipped(cur))
 
 
 def _lab_sscc_persist_seq_start(cur, order_id: int, seq_start: int) -> None:
@@ -1962,28 +1998,41 @@ def _lab_sscc_persist_seq_start(cur, order_id: int, seq_start: int) -> None:
         )
 
 
-def _lab_sscc_sync_all_unshipped_seq_starts(cur) -> None:
-    """Пересчитать старт SSCC у всех неотгруженных заказов ЛАБ (по порядку id)."""
+def _lab_sscc_sync_all_unshipped_seq_starts(
+    cur, pallet_overrides: dict[int, int] | None = None
+) -> None:
+    """Распределить SSCC по цепочке неотгруженных заказов ЛАБ (id ASC), без дублей seq_start."""
+    from packing_sheets_lab_industries import lab_sscc_last_for_order, lab_sscc_next_after
+
+    overrides = {int(k): max(0, int(v)) for k, v in (pallet_overrides or {}).items()}
+    next_start = lab_sscc_next_after(_lab_sscc_get_last_shipped(cur))
     for row in _lab_sscc_unshipped_lab_order_rows(cur):
         oid = int(row["id"])
-        seq = _lab_sscc_compute_seq_start(cur, oid)
-        _lab_sscc_persist_seq_start(cur, oid, seq)
+        pallet_n = _lab_sscc_pallet_count_for_order_id(cur, oid, overrides)
+        if pallet_n <= 0:
+            cur.execute(
+                "UPDATE orders SET lab_sscc_seq_start = NULL WHERE id = ?",
+                (oid,),
+            )
+            continue
+        seq_start = next_start
+        _lab_sscc_persist_seq_start(cur, oid, seq_start)
+        next_start = lab_sscc_next_after(lab_sscc_last_for_order(seq_start, pallet_n))
 
 
-def _lab_sscc_unshipped_seq_start_map(cur) -> dict[int, int]:
-    _lab_sscc_sync_all_unshipped_seq_starts(cur)
-    rows = cur.execute(
-        f"""
-        SELECT id, lab_sscc_seq_start
-        FROM orders
-        WHERE COALESCE(lab_sscc_shipped, 0) = 0
-          AND {_LAB_CLIENT_SQL}
-          AND lab_sscc_seq_start IS NOT NULL
-        """
-    ).fetchall()
+def _lab_sscc_unshipped_seq_start_map(
+    cur, pallet_overrides: dict[int, int] | None = None
+) -> dict[int, int]:
+    _lab_sscc_sync_all_unshipped_seq_starts(cur, pallet_overrides)
     out: dict[int, int] = {}
-    for row in rows:
-        out[int(row["id"])] = max(1, int(row["lab_sscc_seq_start"]))
+    for row in _lab_sscc_unshipped_lab_order_rows(cur):
+        oid = int(row["id"])
+        r = cur.execute(
+            "SELECT lab_sscc_seq_start FROM orders WHERE id = ?",
+            (oid,),
+        ).fetchone()
+        if r and r[0] is not None:
+            out[oid] = max(1, int(r[0]))
     return out
 
 
@@ -2013,7 +2062,6 @@ def get_or_assign_lab_sscc_seq_start(order_id: int) -> int:
         seq = seq_map.get(int(order_id))
         if seq is None:
             seq = _lab_sscc_compute_seq_start(cur, int(order_id))
-            _lab_sscc_persist_seq_start(cur, int(order_id), seq)
         con.commit()
         con.close()
         return seq
@@ -2055,7 +2103,16 @@ def confirm_lab_order_shipment(order_id: int) -> dict:
                 "error": "no_pallets",
                 "message": "В сборке нет паллет — укажите паллеты перед отгрузкой.",
             }
-        seq_start = _lab_sscc_compute_seq_start(cur, int(order_id))
+        override = {int(order_id): pallet_count}
+        _lab_sscc_sync_all_unshipped_seq_starts(cur, override)
+        seq_row = cur.execute(
+            "SELECT lab_sscc_seq_start FROM orders WHERE id = ?",
+            (int(order_id),),
+        ).fetchone()
+        if seq_row and seq_row[0] is not None:
+            seq_start = max(1, int(seq_row[0]))
+        else:
+            seq_start = _lab_sscc_compute_seq_start(cur, int(order_id))
         from packing_sheets_lab_industries import lab_sscc_last_for_order
 
         last_used = lab_sscc_last_for_order(seq_start, pallet_count)
@@ -2238,7 +2295,12 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
         if has_state and _is_lab_industries_client(
             str(row["client"] or "")
         ) and not int(row["lab_sscc_shipped"] or 0):
-            lab_sscc_seq_by_order = _lab_sscc_unshipped_seq_start_map(cur)
+            override: dict[int, int] = {}
+            if new_state_pallets is not None:
+                override[int(order_id)] = len(
+                    [p for p in new_state_pallets if isinstance(p, dict)]
+                )
+            lab_sscc_seq_by_order = _lab_sscc_unshipped_seq_start_map(cur, override)
         con.commit()
         con.close()
     out = {
@@ -2374,7 +2436,7 @@ def _try_resolve_product_id(cur, article: str, name: str, name_lookup: dict[str,
 
 
 def _is_lab_industries_client(client: str) -> bool:
-    return _normalize_str(client).lower() == "лаб индастриз"
+    return _normalize_client_key(client) == "лаб индастриз"
 
 
 def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | None | dict:
@@ -3755,11 +3817,31 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         lab_sscc_seq_start = 1
         order_id_raw = body.get("order_id")
+        order_oid: int | None = None
         if order_id_raw is not None and str(order_id_raw).strip() != "":
             try:
-                lab_sscc_seq_start = get_or_assign_lab_sscc_seq_start(int(order_id_raw))
+                order_oid = int(order_id_raw)
             except (TypeError, ValueError):
-                lab_sscc_seq_start = 1
+                order_oid = None
+        if order_oid is not None:
+            with DB_LOCK:
+                con = get_connection()
+                cur = con.cursor()
+                override: dict[int, int] = {}
+                n_body = _lab_sscc_count_physical_pallets_from_pdf_rows(
+                    pallets_raw if isinstance(pallets_raw, list) else []
+                )
+                if n_body > 0:
+                    override[order_oid] = n_body
+                _lab_sscc_sync_all_unshipped_seq_starts(cur, override)
+                row = cur.execute(
+                    "SELECT lab_sscc_seq_start FROM orders WHERE id = ?",
+                    (order_oid,),
+                ).fetchone()
+                con.commit()
+                con.close()
+                if row and row[0] is not None:
+                    lab_sscc_seq_start = max(1, int(row[0]))
         pallets_for_pdf = []
         for p in pallets_raw:
             if not isinstance(p, dict):

@@ -4735,13 +4735,24 @@
           }
           try {
             setPalletSheetsSearchStatus(true, "Формирование предпросмотра PDF…");
+            let labOrder = order;
+            try {
+              const labFreshRes = await fetch(`/api/orders/${encodeURIComponent(oid)}`);
+              if (labFreshRes.ok) {
+                const labFresh = await labFreshRes.json();
+                labOrder = { ...order, ...labFresh };
+                palletSheetsCachedOrder = labOrder;
+              }
+            } catch (labFreshErr) {
+              /* preview uses cached order */
+            }
             const palletsPayload = buildLabPalletPdfPayloadFromDraft(
-              order.items || [],
+              labOrder.items || [],
               assemblePallets,
               {
-                buyer_order_mode: order.buyer_order_mode,
-                buyer_order: order.buyer_order,
-                lab_sscc_seq_start: order.lab_sscc_seq_start,
+                buyer_order_mode: labOrder.buyer_order_mode,
+                buyer_order: labOrder.buyer_order,
+                lab_sscc_seq_start: labOrder.lab_sscc_seq_start,
               },
             );
             const blob = await fetchLabIndustriesPalletSheetsPdfBlob({

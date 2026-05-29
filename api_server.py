@@ -1905,59 +1905,85 @@ def _count_assemble_pallets(assemble_state) -> int:
     return sum(1 for p in pallets if isinstance(p, dict))
 
 
-def _lab_sscc_pending_high_water(cur, exclude_order_id: int | None = None) -> int:
-    """Верхняя граница SSCC по неотгруженным заказам ЛАБ (для резерва номеров)."""
-    from packing_sheets_lab_industries import lab_sscc_last_for_order
+def _lab_sscc_pallet_count_for_order_row(row) -> int:
+    if row["lab_sscc_pallet_count"] is not None:
+        try:
+            n = int(row["lab_sscc_pallet_count"])
+            if n > 0:
+                return n
+        except (TypeError, ValueError):
+            pass
+    return _count_assemble_pallets(_assemble_state_cell_to_api(row["assemble_state"]))
 
-    rows = cur.execute(
+
+def _lab_sscc_unshipped_lab_order_rows(cur):
+    return cur.execute(
         f"""
-        SELECT id, lab_sscc_seq_start, lab_sscc_pallet_count, assemble_state
+        SELECT id, assemble_state, lab_sscc_pallet_count
         FROM orders
-        WHERE lab_sscc_seq_start IS NOT NULL
-          AND COALESCE(lab_sscc_shipped, 0) = 0
+        WHERE COALESCE(lab_sscc_shipped, 0) = 0
           AND {_LAB_CLIENT_SQL}
+        ORDER BY id ASC
         """
     ).fetchall()
-    high = 0
-    for row in rows:
-        oid = int(row["id"])
-        if exclude_order_id is not None and oid == int(exclude_order_id):
-            continue
-        start = max(1, int(row["lab_sscc_seq_start"]))
-        if row["lab_sscc_pallet_count"] is not None:
-            pallet_n = max(1, int(row["lab_sscc_pallet_count"]))
-        else:
-            pallet_n = _count_assemble_pallets(
-                _assemble_state_cell_to_api(row["assemble_state"])
-            )
-            if pallet_n <= 0:
-                pallet_n = 1
-        high = max(high, lab_sscc_last_for_order(start, pallet_n))
-    return high
 
 
-def _assign_lab_sscc_seq_start(cur, order_id: int) -> int:
-    """Первый SSCC-номер паллеты для заказа ЛАБ = max(отгружено, резерв) + 1 (с оборотом)."""
-    from packing_sheets_lab_industries import lab_sscc_next_after
+def _lab_sscc_compute_seq_start(cur, order_id: int) -> int:
+    """Стартовый SSCC с учётом last_shipped и паллет во всех более ранних неотгруженных заказах."""
+    from packing_sheets_lab_industries import lab_sscc_last_for_order, lab_sscc_next_after
 
     last = _lab_sscc_get_last_shipped(cur)
-    pending = _lab_sscc_pending_high_water(cur, exclude_order_id=int(order_id))
-    start = lab_sscc_next_after(max(last, pending))
-    cur.execute(
-        "UPDATE orders SET lab_sscc_seq_start = ? WHERE id = ?",
-        (start, int(order_id)),
-    )
-    return start
+    pending_end = 0
+    for row in _lab_sscc_unshipped_lab_order_rows(cur):
+        oid = int(row["id"])
+        if oid == int(order_id):
+            break
+        pallet_n = _lab_sscc_pallet_count_for_order_row(row)
+        if pallet_n <= 0:
+            continue
+        base = last if pending_end <= 0 else pending_end
+        seq_start = lab_sscc_next_after(base)
+        pending_end = lab_sscc_last_for_order(seq_start, pallet_n)
+    return lab_sscc_next_after(max(last, pending_end))
+
+
+def _lab_sscc_persist_seq_start(cur, order_id: int, seq_start: int) -> None:
+    row = cur.execute(
+        "SELECT assemble_state, lab_sscc_pallet_count FROM orders WHERE id = ?",
+        (int(order_id),),
+    ).fetchone()
+    pallet_n = _lab_sscc_pallet_count_for_order_row(row) if row else 0
+    if pallet_n > 0:
+        cur.execute(
+            """
+            UPDATE orders SET lab_sscc_seq_start = ?, lab_sscc_pallet_count = ?
+            WHERE id = ?
+            """,
+            (int(seq_start), pallet_n, int(order_id)),
+        )
+    else:
+        cur.execute(
+            "UPDATE orders SET lab_sscc_seq_start = ? WHERE id = ?",
+            (int(seq_start), int(order_id)),
+        )
+
+
+def _lab_sscc_sync_all_unshipped_seq_starts(cur) -> None:
+    """Пересчитать старт SSCC у всех неотгруженных заказов ЛАБ (после отгрузки/удаления)."""
+    for row in _lab_sscc_unshipped_lab_order_rows(cur):
+        oid = int(row["id"])
+        seq = _lab_sscc_compute_seq_start(cur, oid)
+        _lab_sscc_persist_seq_start(cur, oid, seq)
 
 
 def get_or_assign_lab_sscc_seq_start(order_id: int) -> int:
-    """Сквозной старт SSCC для заказа ЛАБ (фиксируется при первом запросе)."""
+    """Актуальный старт SSCC для заказа ЛАБ (пересчёт, пока заказ не отгружен)."""
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT lab_sscc_seq_start, client
+            SELECT lab_sscc_seq_start, client, COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
             FROM orders WHERE id = ?
             """,
             (int(order_id),),
@@ -1965,37 +1991,15 @@ def get_or_assign_lab_sscc_seq_start(order_id: int) -> int:
         if not row:
             con.close()
             return 1
-        st_row = cur.execute(
-            "SELECT assemble_state FROM orders WHERE id = ?",
-            (int(order_id),),
-        ).fetchone()
-        assemble_st = _assemble_state_cell_to_api(st_row[0] if st_row else None)
-        pallet_n = _count_assemble_pallets(assemble_st)
-        if row[0] is not None:
-            seq = max(1, int(row[0]))
-            if pallet_n > 0:
-                cur.execute(
-                    """
-                    UPDATE orders SET lab_sscc_pallet_count = ?
-                    WHERE id = ? AND COALESCE(lab_sscc_shipped, 0) = 0
-                    """,
-                    (pallet_n, int(order_id)),
-                )
-                con.commit()
-            con.close()
-            return seq
         if not _is_lab_industries_client(str(row["client"] or "")):
             con.close()
             return 1
-        seq = _assign_lab_sscc_seq_start(cur, int(order_id))
-        if pallet_n > 0:
-            cur.execute(
-                """
-                UPDATE orders SET lab_sscc_pallet_count = ?
-                WHERE id = ? AND COALESCE(lab_sscc_shipped, 0) = 0
-                """,
-                (pallet_n, int(order_id)),
-            )
+        if int(row["lab_sscc_shipped"] or 0):
+            seq = max(1, int(row["lab_sscc_seq_start"] or 1))
+            con.close()
+            return seq
+        seq = _lab_sscc_compute_seq_start(cur, int(order_id))
+        _lab_sscc_persist_seq_start(cur, int(order_id), seq)
         con.commit()
         con.close()
         return seq
@@ -2037,10 +2041,7 @@ def confirm_lab_order_shipment(order_id: int) -> dict:
                 "error": "no_pallets",
                 "message": "В сборке нет паллет — укажите паллеты перед отгрузкой.",
             }
-        if row["lab_sscc_seq_start"] is None:
-            seq_start = _assign_lab_sscc_seq_start(cur, int(order_id))
-        else:
-            seq_start = max(1, int(row["lab_sscc_seq_start"]))
+        seq_start = _lab_sscc_compute_seq_start(cur, int(order_id))
         from packing_sheets_lab_industries import lab_sscc_last_for_order
 
         last_used = lab_sscc_last_for_order(seq_start, pallet_count)
@@ -2055,6 +2056,7 @@ def confirm_lab_order_shipment(order_id: int) -> dict:
             """,
             (pallet_count, seq_start, int(order_id)),
         )
+        _lab_sscc_sync_all_unshipped_seq_starts(cur)
         con.commit()
         con.close()
     return {
@@ -2175,7 +2177,8 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
         row = cur.execute(
             """
             SELECT id, assembled_percent, assemble_state, assemble_revision,
-                   assemble_state_updated_at
+                   assemble_state_updated_at, client,
+                   COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -2217,6 +2220,10 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
             """,
             (apct, ajson, new_rev, updated_at, order_id),
         )
+        if has_state and _is_lab_industries_client(
+            str(row["client"] or "")
+        ) and not int(row["lab_sscc_shipped"] or 0):
+            _lab_sscc_sync_all_unshipped_seq_starts(cur)
         con.commit()
         con.close()
     return {
@@ -3244,7 +3251,8 @@ def _normalize_volume_unit(value) -> str:
 def fetch_order_detail(order_id: int):
     with DB_LOCK:
         con = get_connection()
-        row = con.execute(
+        cur = con.cursor()
+        row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    buyer_order_mode, buyer_order, total_order_quantity,
@@ -3257,7 +3265,21 @@ def fetch_order_detail(order_id: int):
         if not row:
             con.close()
             return None
-        item_rows = con.execute(
+        if _is_lab_industries_client(str(row["client"] or "")) and not int(
+            row["lab_sscc_shipped"] or 0
+        ):
+            _lab_sscc_sync_all_unshipped_seq_starts(cur)
+            row = cur.execute(
+                """
+                SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
+                       buyer_order_mode, buyer_order, total_order_quantity,
+                       lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
+                       assemble_revision, assemble_state_updated_at
+                FROM orders WHERE id = ?
+                """,
+                (order_id,),
+            ).fetchone()
+        item_rows = cur.execute(
             """
             SELECT oi.product_id AS product_id, oi.article AS article, oi.name AS name,
                    oi.quantity AS quantity, oi.unit AS unit, oi.buyer_order AS buyer_order,
@@ -3327,8 +3349,22 @@ def delete_order(order_id: int) -> bool:
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT client, COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        resync_lab = bool(
+            row
+            and _is_lab_industries_client(str(row["client"] or ""))
+            and not int(row["lab_sscc_shipped"] or 0)
+        )
         cur.execute("DELETE FROM orders WHERE id = ?", (order_id,))
         n = cur.rowcount
+        if n > 0 and resync_lab:
+            _lab_sscc_sync_all_unshipped_seq_starts(cur)
         con.commit()
         con.close()
     return n > 0
@@ -3337,7 +3373,9 @@ def delete_order(order_id: int) -> bool:
 def fetch_orders():
     with DB_LOCK:
         con = get_connection()
-        rows = con.execute(
+        cur = con.cursor()
+        _lab_sscc_sync_all_unshipped_seq_starts(cur)
+        rows = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    lab_sscc_seq_start, lab_sscc_shipped,

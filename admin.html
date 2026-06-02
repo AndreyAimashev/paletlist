@@ -863,6 +863,29 @@
         color: #ff9b7a;
       }
 
+      .assemble-sync-banner {
+        margin: 0 0 10px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.35;
+        color: rgba(200, 210, 220, 0.9);
+        background: rgba(30, 40, 52, 0.65);
+        border: 1px solid rgba(120, 140, 160, 0.35);
+      }
+
+      .assemble-sync-banner.is-saving {
+        color: #b8d4ff;
+        border-color: rgba(100, 150, 220, 0.45);
+        background: rgba(20, 36, 58, 0.7);
+      }
+
+      .assemble-sync-banner.is-error {
+        color: #ff9b7a;
+        border-color: rgba(255, 120, 80, 0.45);
+        background: rgba(48, 22, 18, 0.65);
+      }
+
       .orders-import-toolbar {
         display: none;
         flex-wrap: wrap;
@@ -2809,6 +2832,7 @@
       <main class="main-area">
         <section class="panel">
           <h1 id="menu-title">Главное меню</h1>
+          <p id="assemble-sync-banner" class="assemble-sync-banner" hidden aria-live="polite"></p>
           <p id="assemble-presence-hint" class="assemble-presence-hint" hidden aria-live="polite"></p>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
@@ -3547,6 +3571,7 @@
       const adminLoginNote = document.getElementById("admin-login-note");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
+      const assembleSyncBannerEl = document.getElementById("assemble-sync-banner");
       const assemblePresenceHint = document.getElementById("assemble-presence-hint");
       const assembleLinesSummaryBody = document.getElementById("assemble-lines-summary-body");
       const assembleSummaryUnitToolbar = document.getElementById("assemble-summary-unit-toolbar");
@@ -4984,11 +5009,10 @@
           if (assembleAllocState && assembleOrderSnapshot) {
             syncAssembleStateFromDom();
             clearTimeout(assembleSaveTimer);
-            void persistAssembleDraftToServer();
+            void flushAssembleSaveNow();
             void leaveAssemblePresence(assembleOrderSnapshot.id);
           }
           hideAssemblePresenceHint();
-          markAssembleSaveSucceeded();
         }
         const wasAssembleOrPallet = currentStage === "assemble" || currentStage === "pallet";
         const isAssembleOrPallet = stage === "assemble" || stage === "pallet";
@@ -6602,6 +6626,10 @@
       let assembleSaveInFlight = false;
       let assembleSavePending = false;
       let assembleSaveRetryTimer = null;
+      let assembleQueuedPayload = null;
+      let assembleSaveDrainPromise = null;
+      let assembleSaveAbortController = null;
+      let assembleSaveBannerHideTimer = null;
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
@@ -7191,20 +7219,14 @@
           return;
         }
         assembleSaveRetryTimer = setInterval(() => {
-          if (
-            currentStage !== "assemble" ||
-            !assembleOrderSnapshot ||
-            !assembleAllocState
-          ) {
-            assembleSavePending = false;
-            stopAssembleSaveRetry();
-            return;
-          }
           if (!assembleSavePending) {
             stopAssembleSaveRetry();
             return;
           }
-          void persistAssembleDraftToServer();
+          if (!assembleQueuedPayload && !captureAssembleSavePayload()) {
+            return;
+          }
+          void queueAssembleServerSave();
         }, ASSEMBLE_SAVE_RETRY_MS);
       }
 
@@ -7286,6 +7308,337 @@
         assembleSaveStatusEl.hidden = false;
         assembleSaveStatusEl.textContent = text;
         assembleSaveStatusEl.classList.toggle("is-error", !!isError);
+      }
+
+      function formatAssembleSaveOrderLabel(orderId) {
+        return orderId != null && Number.isFinite(Number(orderId))
+          ? `заказа №${orderId}`
+          : "заказа";
+      }
+
+      function scheduleAssembleSaveBannerIdle() {
+        if (assembleSaveBannerHideTimer) {
+          clearTimeout(assembleSaveBannerHideTimer);
+        }
+        assembleSaveBannerHideTimer = setTimeout(() => {
+          assembleSaveBannerHideTimer = null;
+          if (
+            !assembleSavePending &&
+            !assembleQueuedPayload &&
+            !assembleSaveInFlight
+          ) {
+            setAssembleSaveUiState("idle");
+          }
+        }, 4000);
+      }
+
+      function setAssembleSaveUiState(state, opts) {
+        const options = opts || {};
+        const orderId =
+          options.orderId != null
+            ? options.orderId
+            : assembleOrderSnapshot?.id ?? assembleQueuedPayload?.orderId;
+        let text = "";
+        let isError = false;
+        let showBanner = false;
+        if (state === "debouncing") {
+          text = `Есть несохранённые изменения (${formatAssembleSaveOrderLabel(orderId)})…`;
+          showBanner = true;
+        } else if (state === "saving") {
+          text = `Сохранение сборки ${formatAssembleSaveOrderLabel(orderId)}…`;
+          showBanner = true;
+        } else if (state === "saved") {
+          text = `Сборка ${formatAssembleSaveOrderLabel(orderId)} сохранена на сервере.`;
+          showBanner = true;
+        } else if (state === "error") {
+          text =
+            options.message ||
+            `Не удалось сохранить сборку ${formatAssembleSaveOrderLabel(orderId)}. Повтор…`;
+          isError = true;
+          showBanner = true;
+        }
+        if (assembleSyncBannerEl) {
+          assembleSyncBannerEl.hidden = !showBanner;
+          assembleSyncBannerEl.textContent = showBanner ? text : "";
+          assembleSyncBannerEl.classList.toggle("is-error", isError);
+          assembleSyncBannerEl.classList.toggle(
+            "is-saving",
+            state === "saving" || state === "debouncing",
+          );
+        }
+        const showInline =
+          currentStage === "assemble" &&
+          assembleOrderSnapshot &&
+          orderId != null &&
+          assembleOrderSnapshot.id === orderId;
+        if (showInline) {
+          setAssembleSaveStatus(showBanner ? text : "", isError);
+        } else if (state === "idle") {
+          setAssembleSaveStatus("", false);
+        }
+        if (state === "saved") {
+          scheduleAssembleSaveBannerIdle();
+        } else if (state === "idle" && assembleSaveBannerHideTimer) {
+          clearTimeout(assembleSaveBannerHideTimer);
+          assembleSaveBannerHideTimer = null;
+        }
+      }
+
+      function assembleSaveBusy() {
+        return (
+          !!assembleSaveInFlight ||
+          !!assembleQueuedPayload ||
+          !!assembleSavePending
+        );
+      }
+
+      function captureAssembleSavePayload() {
+        if (!assembleOrderSnapshot || !assembleAllocState) {
+          return null;
+        }
+        syncAssembleStateFromDom();
+        const pallets = assembleAllocState.pallets.map((p) => ({
+          id: p.id,
+          palletNumber: p.palletNumber,
+          slots: (p.slots || []).map((s) => ({ ...normalizeSlot(s) })),
+        }));
+        return {
+          orderId: assembleOrderSnapshot.id,
+          client: assembleOrderSnapshot.client || "",
+          items: assembleOrderSnapshot.items,
+          pallets,
+          revision: assembleKnownRevision,
+          optional_batch_enabled: !!assembleOptionalBatchEnabled,
+        };
+      }
+
+      function mirrorAssembleDraftForPayload(payload, revision) {
+        if (!payload || payload.orderId == null) {
+          return;
+        }
+        try {
+          localStorage.setItem(
+            assembleStorageKey(payload.orderId),
+            JSON.stringify({
+              version: 2,
+              pallets: payload.pallets,
+              assemble_revision:
+                revision != null ? revision : payload.revision,
+              optional_batch_enabled: !!payload.optional_batch_enabled,
+            }),
+          );
+        } catch (e) {
+          /* ignore quota */
+        }
+      }
+
+      async function patchAssemblePayload(payload) {
+        if (!payload || payload.orderId == null) {
+          return false;
+        }
+        if (assembleSaveAbortController) {
+          assembleSaveAbortController.abort();
+        }
+        assembleSaveAbortController = new AbortController();
+        const signal = assembleSaveAbortController.signal;
+        const oid = payload.orderId;
+        const items = payload.items || [];
+        const pallets = payload.pallets;
+        const assembled_percent = computeAssembledPercentFromDraftItems(
+          items,
+          pallets,
+        );
+        const assemble_state = {
+          version: 2,
+          pallets,
+          optional_batch_enabled: !!payload.optional_batch_enabled,
+        };
+        try {
+          const res = await fetch(`/api/orders/${oid}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              assembled_percent,
+              assemble_state,
+              expected_assemble_revision: payload.revision,
+            }),
+            signal,
+          });
+          if (res.status === 409) {
+            let conflict = null;
+            try {
+              conflict = await res.json();
+            } catch (e) {
+              /* ignore */
+            }
+            if (
+              conflict &&
+              assembleOrderSnapshot?.id === oid &&
+              !assembleDirty
+            ) {
+              assembleKnownRevision =
+                Number(conflict.assemble_revision) || payload.revision;
+              const cp =
+                conflict.assemble_state &&
+                Array.isArray(conflict.assemble_state.pallets)
+                  ? conflict.assemble_state.pallets
+                  : null;
+              assembleServerHadContent = assembleStateHasMeaningfulData(
+                items,
+                cp,
+              );
+              applyRemoteAssemblePayload({ ...conflict, id: oid });
+            }
+            setAssembleSaveUiState("error", {
+              orderId: oid,
+              message:
+                "Конфликт: сборка изменена на другом устройстве. Повторная попытка…",
+            });
+            markAssembleSaveFailed();
+            return false;
+          }
+          if (res.status === 400) {
+            let errBody = null;
+            try {
+              errBody = await res.json();
+            } catch (e) {
+              /* ignore */
+            }
+            const msg =
+              (errBody && (errBody.message || errBody.error)) ||
+              "Не удалось сохранить сборку на сервер.";
+            setAssembleSaveUiState("error", {
+              orderId: oid,
+              message: `${String(msg)} Повтор…`,
+            });
+            markAssembleSaveFailed();
+            return false;
+          }
+          if (!res.ok) {
+            setAssembleSaveUiState("error", {
+              orderId: oid,
+              message:
+                "Не удалось сохранить сборку на сервер. Повторная попытка…",
+            });
+            markAssembleSaveFailed();
+            return false;
+          }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (e) {
+            /* ignore */
+          }
+          const newRev =
+            data && data.assemble_revision != null
+              ? Number(data.assemble_revision) || payload.revision + 1
+              : payload.revision + 1;
+          payload.revision = newRev;
+          if (assembleOrderSnapshot?.id === oid) {
+            assembleKnownRevision = newRev;
+            if (data && data.lab_sscc_seq_by_order) {
+              applyLabSsccSeqByOrderFromApi(data.lab_sscc_seq_by_order);
+            } else if (
+              data &&
+              data.lab_sscc_seq_start != null &&
+              isLabIndustriesClient(assembleOrderSnapshot.client)
+            ) {
+              assembleOrderSnapshot.lab_sscc_seq_start = Number(
+                data.lab_sscc_seq_start,
+              );
+            }
+            assembleServerHadContent = assembleStateHasMeaningfulData(
+              items,
+              pallets,
+            );
+            assembleDirty = false;
+          }
+          mirrorAssembleDraftForPayload(payload, newRev);
+          markAssembleSaveSucceeded();
+          setAssembleSaveUiState("saved", { orderId: oid });
+          notifyAssembleSavedToOtherTabs(oid, newRev);
+          return true;
+        } catch (e) {
+          if (e && e.name === "AbortError") {
+            return "aborted";
+          }
+          setAssembleSaveUiState("error", {
+            orderId: oid,
+            message:
+              "Нет связи с сервером — повторная попытка сохранения каждую секунду…",
+          });
+          markAssembleSaveFailed();
+          return false;
+        } finally {
+          if (assembleSaveAbortController?.signal === signal) {
+            assembleSaveAbortController = null;
+          }
+        }
+      }
+
+      async function drainAssembleSaveQueue() {
+        let lastOk = true;
+        while (assembleQueuedPayload) {
+          const payload = assembleQueuedPayload;
+          assembleQueuedPayload = null;
+          setAssembleSaveUiState("saving", { orderId: payload.orderId });
+          assembleSaveInFlight = true;
+          const ok = await patchAssemblePayload(payload);
+          assembleSaveInFlight = false;
+          if (ok === "aborted") {
+            if (!assembleQueuedPayload) {
+              assembleQueuedPayload = payload;
+            }
+            continue;
+          }
+          if (!ok) {
+            if (!assembleQueuedPayload) {
+              assembleQueuedPayload = payload;
+            }
+            lastOk = false;
+            break;
+          }
+          if (assembleQueuedPayload) {
+            lastOk = true;
+          }
+        }
+        if (
+          lastOk &&
+          !assembleQueuedPayload &&
+          !assembleSavePending &&
+          !assembleSaveInFlight
+        ) {
+          setAssembleSaveUiState("idle");
+        }
+        return lastOk;
+      }
+
+      function queueAssembleServerSave() {
+        const payload = captureAssembleSavePayload();
+        if (!payload) {
+          return assembleSaveDrainPromise || Promise.resolve(false);
+        }
+        assembleQueuedPayload = payload;
+        const run = () => drainAssembleSaveQueue();
+        assembleSaveDrainPromise = assembleSaveDrainPromise
+          ? assembleSaveDrainPromise.then(run, run)
+          : run();
+        return assembleSaveDrainPromise;
+      }
+
+      function flushAssembleSaveNow() {
+        clearTimeout(assembleSaveTimer);
+        const payload = captureAssembleSavePayload();
+        if (!payload) {
+          return assembleSaveDrainPromise || Promise.resolve(true);
+        }
+        assembleQueuedPayload = payload;
+        setAssembleSaveUiState("saving", { orderId: payload.orderId });
+        const run = () => drainAssembleSaveQueue();
+        assembleSaveDrainPromise = assembleSaveDrainPromise
+          ? assembleSaveDrainPromise.then(run, run)
+          : run();
+        return assembleSaveDrainPromise;
       }
 
       function getAssembleClientId() {
@@ -7396,14 +7749,16 @@
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();
         mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
-        setAssembleSaveStatus("Загружены данные с сервера.", false);
+        if (!assembleSaveBusy()) {
+          setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
+        }
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
       }
 
       async function pollAssembleOrderSync() {
-        if (!assembleOrderSnapshot || assembleSaveInFlight) {
+        if (!assembleOrderSnapshot || assembleSaveBusy()) {
           return;
         }
         const oid = assembleOrderSnapshot.id;
@@ -7686,119 +8041,17 @@
       }
 
       async function persistAssembleDraftToServer() {
-        if (!assembleOrderSnapshot || !assembleAllocState || assembleSaveInFlight) {
-          return false;
-        }
-        const oid = assembleOrderSnapshot.id;
-        const items = assembleOrderSnapshot.items;
-        syncAssembleStateFromDom();
-        const pallets = assembleAllocState.pallets;
-        const assembled_percent = computeAssembledPercentFromDraftItems(items, pallets);
-        const assemble_state = buildAssembleStateForSave(pallets);
-        assembleSaveInFlight = true;
-        try {
-          const res = await fetch(`/api/orders/${oid}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              assembled_percent,
-              assemble_state,
-              expected_assemble_revision: assembleKnownRevision,
-            }),
-          });
-          if (res.status === 409) {
-            let conflict = null;
-            try {
-              conflict = await res.json();
-            } catch (e) {
-              /* ignore */
-            }
-            if (conflict) {
-              assembleKnownRevision = Number(conflict.assemble_revision) || assembleKnownRevision;
-              const cp =
-                conflict.assemble_state && Array.isArray(conflict.assemble_state.pallets)
-                  ? conflict.assemble_state.pallets
-                  : null;
-              assembleServerHadContent = assembleStateHasMeaningfulData(items, cp);
-              if (!assembleDirty) {
-                applyRemoteAssemblePayload({ ...conflict, id: oid });
-              }
-            }
-            setAssembleSaveStatus(
-              "Конфликт: сборка изменена на другом устройстве. Повторная попытка сохранения…",
-              true,
-            );
-            markAssembleSaveFailed();
-            return false;
-          }
-          if (res.status === 400) {
-            let errBody = null;
-            try {
-              errBody = await res.json();
-            } catch (e) {
-              /* ignore */
-            }
-            const msg =
-              (errBody && (errBody.message || errBody.error)) ||
-              "Не удалось сохранить сборку на сервер.";
-            setAssembleSaveStatus(`${String(msg)} Повторная попытка…`, true);
-            markAssembleSaveFailed();
-            return false;
-          }
-          if (!res.ok) {
-            setAssembleSaveStatus(
-              "Не удалось сохранить сборку на сервер. Повторная попытка…",
-              true,
-            );
-            markAssembleSaveFailed();
-            return false;
-          }
-          let data = null;
-          try {
-            data = await res.json();
-          } catch (e) {
-            /* ignore */
-          }
-          if (data && data.assemble_revision != null) {
-            assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision + 1;
-          } else {
-            assembleKnownRevision += 1;
-          }
-          if (data && data.lab_sscc_seq_by_order) {
-            applyLabSsccSeqByOrderFromApi(data.lab_sscc_seq_by_order);
-          } else if (
-            data &&
-            data.lab_sscc_seq_start != null &&
-            assembleOrderSnapshot &&
-            isLabIndustriesClient(assembleOrderSnapshot.client)
-          ) {
-            assembleOrderSnapshot.lab_sscc_seq_start = Number(data.lab_sscc_seq_start);
-          }
-          assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
-          assembleDirty = false;
-          mirrorAssembleDraftLocal();
-          markAssembleSaveSucceeded();
-          setAssembleSaveStatus("Сохранено на сервере.", false);
-          notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
-          return true;
-        } catch (e) {
-          setAssembleSaveStatus(
-            "Нет связи с сервером — повторная попытка сохранения каждую секунду…",
-            true,
-          );
-          markAssembleSaveFailed();
-          return false;
-        } finally {
-          assembleSaveInFlight = false;
-        }
+        return queueAssembleServerSave();
       }
 
       function saveAssembleDraft() {
         assembleDirty = true;
         mirrorAssembleDraftLocal();
+        const oid = assembleOrderSnapshot?.id;
+        setAssembleSaveUiState("debouncing", { orderId: oid });
         clearTimeout(assembleSaveTimer);
         assembleSaveTimer = setTimeout(() => {
-          void persistAssembleDraftToServer();
+          void queueAssembleServerSave();
         }, 450);
       }
 
@@ -8528,6 +8781,16 @@
       }
 
       async function loadAssembleOrderWorkspace(orderId) {
+        const prevOrderId = assembleOrderSnapshot?.id;
+        if (
+          prevOrderId != null &&
+          prevOrderId !== orderId &&
+          assembleAllocState
+        ) {
+          syncAssembleStateFromDom();
+          clearTimeout(assembleSaveTimer);
+          await flushAssembleSaveNow();
+        }
         assembleOrderSnapshot = null;
         assembleAllocState = null;
         if (!assembleLoadedEl || !assembleEmptyEl) {
@@ -8632,15 +8895,18 @@
           return;
         }
         const leavingOrderId = assembleOrderSnapshot?.id;
+        clearTimeout(assembleSaveTimer);
+        if (assembleAllocState && assembleOrderSnapshot) {
+          syncAssembleStateFromDom();
+          void flushAssembleSaveNow();
+        }
         stopAssembleSyncPoll();
-        markAssembleSaveSucceeded();
         if (leavingOrderId != null) {
           void leaveAssemblePresence(leavingOrderId);
         }
         assembleOrderSnapshot = null;
         assembleAllocState = null;
         hideAssemblePresenceHint();
-        setAssembleSaveStatus("");
         if (assemblePalletsRoot) {
           assemblePalletsRoot.innerHTML = "";
         }
@@ -8748,7 +9014,7 @@
           if (currentStage === "assemble" && assembleAllocState && assembleOrderSnapshot) {
             syncAssembleStateFromDom();
             clearTimeout(assembleSaveTimer);
-            void persistAssembleDraftToServer();
+            void flushAssembleSaveNow();
           }
           return;
         }

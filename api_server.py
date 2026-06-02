@@ -2500,13 +2500,18 @@ def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | Non
     return val
 
 
-def _resolve_normalized_product_ids(normalized, cur):
+def _resolve_normalized_product_ids(normalized, cur, *, allow_unresolved: bool = False):
     """Подставляет product_id и канонические article/name из БД, если id не был передан."""
     out = []
     for pid, article, name, qty, unit, buyer_order, line_total_qty in normalized:
         if pid is None:
             rid = _try_resolve_product_id(cur, article, name)
             if rid is None:
+                if allow_unresolved and name:
+                    out.append(
+                        (None, article, name, qty, unit, buyer_order, line_total_qty)
+                    )
+                    continue
                 return None, {
                     "error": "validation",
                     "message": "Для позиций без привязки к номенклатуре выберите товар в поле «Наименование» из подсказки или приведите название к точному совпадению с номенклатурой.",
@@ -2962,6 +2967,8 @@ def parse_orders_from_excel_worksheet(ws):
     orders: list[dict] = []
     current: dict | None = None
     last_ship_iso = ""
+    last_qty = 0.0
+    last_qty_recognized = False
 
     def flush_current():
         nonlocal current
@@ -3021,6 +3028,8 @@ def parse_orders_from_excel_worksheet(ws):
         )
         if client_s:
             flush_current()
+            last_qty = 0.0
+            last_qty_recognized = False
             current = {
                 "client": client_s,
                 "ship_date": last_ship_iso,
@@ -3049,10 +3058,27 @@ def parse_orders_from_excel_worksheet(ws):
         if not current.get("ship_date") and last_ship_iso:
             current["ship_date"] = last_ship_iso
         qty, qty_recognized = _parse_excel_quantity(qty_raw)
+        if qty_recognized:
+            last_qty = qty
+            last_qty_recognized = True
+        elif qty_raw is None or str(qty_raw).strip() == "":
+            if last_qty_recognized:
+                qty = last_qty
+                qty_recognized = True
+            else:
+                q_unit, ok_unit = _parse_excel_quantity(unit_raw)
+                if ok_unit:
+                    qty = q_unit
+                    qty_recognized = True
+                    last_qty = qty
+                    last_qty_recognized = True
         if not qty_recognized:
+            hint = ""
+            if qty_raw is not None and str(qty_raw).strip().startswith("="):
+                hint = " Сохраните файл в Excel перед загрузкой (формула без значения)."
             errors.append(
                 f"Строка {row}: количество в колонке J не распознано "
-                f"(«{product_s}») — позиция добавлена с количеством 0."
+                f"(«{product_s}») — позиция добавлена с количеством 0.{hint}"
             )
             qty = 0.0
         unit = _parse_excel_unit(unit_raw)
@@ -3103,7 +3129,7 @@ def merge_parsed_excel_orders(orders: list[dict]) -> list[dict]:
                 qty = float(it.get("quantity") or 0)
             except (TypeError, ValueError):
                 qty = 0
-            if not name or qty <= 0:
+            if not name:
                 continue
             ik = (name, unit)
             if ik in item_map:
@@ -3128,21 +3154,24 @@ def merge_parsed_excel_orders(orders: list[dict]) -> list[dict]:
 
 
 def _merge_import_items_payload(items: list[dict]) -> list[dict]:
-    """Суммирует количество по product_id и единице (после привязки к номенклатуре)."""
-    merged: dict[tuple[int, str], dict] = {}
+    """Суммирует количество по product_id (или наименованию) и единице."""
+    merged: dict[tuple, dict] = {}
     for it in items:
-        pid = int(it["product_id"])
         unit = (it.get("unit") or "piece").strip().lower()
         if unit not in ("box", "set", "piece"):
             unit = "piece"
-        key = (pid, unit)
+        pid_raw = it.get("product_id")
+        if pid_raw is not None and str(pid_raw).strip() != "":
+            key = ("id", int(pid_raw), unit)
+        else:
+            key = ("name", _normalize_str(it.get("name", "")), unit)
         if key in merged:
             merged[key]["quantity"] = float(merged[key]["quantity"]) + float(
                 it.get("quantity") or 0
             )
         else:
             merged[key] = {
-                "product_id": pid,
+                "product_id": int(pid_raw) if pid_raw is not None else None,
                 "article": it.get("article", ""),
                 "name": it.get("name", ""),
                 "quantity": float(it.get("quantity") or 0),
@@ -3240,9 +3269,19 @@ def import_orders_from_excel_bytes(data: bytes):
                 pid, article, pname = _resolve_product_id_for_excel_import(
                     cur, it["name"], name_lookup=name_lookup
                 )
+                excel_name = _normalize_str(it.get("name", ""))
                 if pid is None:
                     skipped_count += 1
-                    skipped_names.append(_normalize_str(it.get("name", "")))
+                    skipped_names.append(excel_name)
+                    items_payload.append(
+                        {
+                            "product_id": None,
+                            "article": "",
+                            "name": excel_name,
+                            "quantity": float(it.get("quantity") or 0),
+                            "unit": it.get("unit") or "piece",
+                        }
+                    )
                     continue
                 items_payload.append(
                     {
@@ -3297,7 +3336,9 @@ def import_orders_from_excel_bytes(data: bytes):
                 )
                 continue
             normalized = pack["normalized"]
-            normalized, res_err = _resolve_normalized_product_ids(normalized, cur)
+            normalized, res_err = _resolve_normalized_product_ids(
+                normalized, cur, allow_unresolved=True
+            )
             if res_err:
                 import_errors.append(
                     f"Заказ «{order['client']}»: {res_err.get('message', 'ошибка')}"

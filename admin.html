@@ -6798,6 +6798,23 @@
         });
       }
 
+      /** Первый паллет: «1», если номер не задан и в сборке ещё нет данных. */
+      function applyDefaultFirstAssemblePalletNumber(pallets, items) {
+        if (!Array.isArray(pallets) || !pallets.length) {
+          return pallets;
+        }
+        const pal = pallets[0];
+        if (String(pal.palletNumber ?? pal.pallet_number ?? "").trim()) {
+          return pallets;
+        }
+        if (assembleStateHasMeaningfulData(items, pallets)) {
+          return pallets;
+        }
+        return pallets.map((p, i) =>
+          i === 0 ? { ...p, palletNumber: "1" } : p,
+        );
+      }
+
       /** Следующий номер: сначала «дыра» в ряду (1,3 → 2), иначе max+1. */
       function suggestNextAssemblePalletNumber(pallets) {
         const used = new Set();
@@ -7155,7 +7172,7 @@
           };
         }
         return {
-          pallets: [{ id: 1, palletNumber: "", slots: [] }],
+          pallets: [{ id: 1, palletNumber: "1", slots: [] }],
           revision: serverRev,
           pushToServer: false,
           serverHadContent: false,
@@ -7362,10 +7379,11 @@
           return;
         }
         const items = assembleOrderSnapshot.items;
-        const pallets =
+        let pallets =
           data.assemble_state && Array.isArray(data.assemble_state.pallets)
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
-            : [{ id: 1, palletNumber: "", slots: [] }];
+            : [{ id: 1, palletNumber: "1", slots: [] }];
+        pallets = applyDefaultFirstAssemblePalletNumber(pallets, items);
         assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision;
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         const obRemote = optionalBatchFromAssembleState(data.assemble_state);
@@ -8576,7 +8594,9 @@
         if (assemblePalletsRoot) {
           assemblePalletsRoot.innerHTML = "";
         }
-        assembleAllocState = { pallets: picked.pallets };
+        assembleAllocState = {
+          pallets: applyDefaultFirstAssemblePalletNumber(picked.pallets, items),
+        };
         finalizeAssembleSlots();
         const obServer = optionalBatchFromAssembleState(data.assemble_state);
         if (obServer !== null) {

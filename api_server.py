@@ -2798,24 +2798,38 @@ def _excel_row_is_empty(ws, row: int) -> bool:
 
 
 def _excel_value_to_ship_iso(value) -> str:
+    """Дата отгрузки из ячейки M: число/дата Excel или фрагмент в тексте («Отгрузка 15.03.2026»)."""
     if value is None or str(value).strip() == "":
         return ""
     if isinstance(value, datetime.datetime):
         return value.date().isoformat()
     if isinstance(value, datetime.date):
         return value.isoformat()
-    s = str(value).strip()
-    m = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$", s)
-    if m:
-        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if y < 100:
-            y += 2000
+    s = re.sub(r"\s+", " ", str(value).strip().replace("\n", " ").replace("\r", " "))
+    if not s:
+        return ""
+
+    def _iso_from_ymd(y: int, mo: int, d: int) -> str:
         try:
             return datetime.date(y, mo, d).isoformat()
         except ValueError:
             return ""
-    if len(s) == 10 and s[4] == "-" and s[7] == "-":
-        return s
+
+    m_iso = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m_iso:
+        found = _iso_from_ymd(
+            int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        )
+        if found:
+            return found
+
+    m_dmy = re.search(r"(\d{1,2})[./](\d{1,2})[./](\d{2,4})", s)
+    if m_dmy:
+        d, mo, y = int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3))
+        if y < 100:
+            y += 2000
+        return _iso_from_ymd(y, mo, d)
+
     return ""
 
 

@@ -2023,6 +2023,34 @@
         padding: 16px 10px;
       }
 
+      /* Сборка на ПК: сайдбар на всю высоту окна, блок паллетов всегда внизу */
+      .sidebar.has-assemble-pallet-nav {
+        position: sticky;
+        top: 0;
+        align-self: flex-start;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100dvh;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+
+      .sidebar.has-assemble-pallet-nav .quick-nav {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+
+      .sidebar.has-assemble-pallet-nav .assemble-sidebar-nav {
+        margin-top: auto;
+        flex-shrink: 0;
+        z-index: 2;
+        padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        background: rgba(12, 16, 28, 0.98);
+        box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.4);
+      }
+
       .sidebar.collapsed {
         width: 0 !important;
         min-width: 0;
@@ -5441,6 +5469,7 @@
           adminLoginNote.hidden = hideNote;
         }
 
+        syncAssemblePalletNavVisibility();
         closeMobileNavDrawer();
       }
 
@@ -7111,20 +7140,33 @@
         );
       }
 
+      function assembleSidebarPalletNavIsActive() {
+        return (
+          currentStage === "assemble" &&
+          assembleLoadedEl &&
+          !assembleLoadedEl.hidden &&
+          !isMobileLayout()
+        );
+      }
+
       function syncAssemblePalletNavVisibility() {
-        const active = assemblePalletNavIsActive();
-        const showMobile = active && isMobileLayout();
-        const showSidebar = active && !isMobileLayout();
+        const activeMobile = assemblePalletNavIsActive();
+        const showMobile = activeMobile && isMobileLayout();
+        const showSidebar = assembleSidebarPalletNavIsActive();
         if (assembleMobileNav) {
           assembleMobileNav.hidden = !showMobile;
         }
         if (assembleSidebarNav) {
           assembleSidebarNav.hidden = !showSidebar;
         }
+        if (sidebar) {
+          sidebar.classList.toggle("has-assemble-pallet-nav", showSidebar);
+        }
         document.body.classList.toggle("assemble-stage-active", showMobile);
-        if (active) {
+        if (activeMobile || showSidebar) {
           updateAssemblePalletDatalists();
-        } else {
+        }
+        if (!showMobile && !showSidebar) {
           setAssemblePalletNavMessage("");
         }
       }

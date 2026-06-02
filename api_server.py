@@ -102,6 +102,100 @@ def _is_users_list_path(path: str) -> bool:
 
 ADMIN_LOGIN = "admin"
 _LOGIN_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
+_PUBLIC_API_PATHS = frozenset({"/api/auth/login"})
+_AUTH_SESSION_TTL_SEC = 24 * 3600
+_AUTH_SESSIONS: dict[str, dict] = {}
+_AUTH_SESSIONS_LOCK = threading.Lock()
+
+
+def _admin_password() -> str:
+    return os.environ.get("PALETLIST_ADMIN_PASSWORD", "1241")
+
+
+def _is_public_api_path(path: str) -> bool:
+    return _norm_api_path(path) in _PUBLIC_API_PATHS
+
+
+def _is_auth_me_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/auth/me"
+
+
+def _is_auth_login_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/auth/login"
+
+
+def authenticate_app_login(login: str, password: str) -> dict | None:
+    login_norm = (login or "").strip()
+    pwd = str(password or "")
+    if not login_norm or not pwd:
+        return None
+    if _is_reserved_admin_login(login_norm):
+        if pwd == _admin_password():
+            return {
+                "user_id": 0,
+                "login": ADMIN_LOGIN,
+                "display_name": "Администратор",
+                "is_admin": True,
+            }
+        return None
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT id, login, password_hash, display_name
+            FROM app_users
+            WHERE login = ? COLLATE NOCASE
+            """,
+            (login_norm,),
+        ).fetchone()
+        con.close()
+    if not row:
+        return None
+    if not _verify_app_password(pwd, row["password_hash"]):
+        return None
+    return {
+        "user_id": int(row["id"]),
+        "login": row["login"] or login_norm,
+        "display_name": row["display_name"] or "",
+        "is_admin": False,
+    }
+
+
+def create_auth_session(user: dict) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + _AUTH_SESSION_TTL_SEC
+    payload = {
+        "user_id": int(user.get("user_id", 0)),
+        "login": user.get("login") or "",
+        "display_name": user.get("display_name") or "",
+        "is_admin": bool(user.get("is_admin")),
+        "expires_at": expires_at,
+    }
+    with _AUTH_SESSIONS_LOCK:
+        _AUTH_SESSIONS[token] = payload
+    return token
+
+
+def resolve_auth_session(token: str | None) -> dict | None:
+    if not token:
+        return None
+    now = time.time()
+    with _AUTH_SESSIONS_LOCK:
+        session = _AUTH_SESSIONS.get(token)
+        if not session:
+            return None
+        if now >= float(session.get("expires_at") or 0):
+            _AUTH_SESSIONS.pop(token, None)
+            return None
+        return dict(session)
+
+
+def revoke_auth_session(token: str | None) -> None:
+    if not token:
+        return
+    with _AUTH_SESSIONS_LOCK:
+        _AUTH_SESSIONS.pop(token, None)
 
 
 def _is_reserved_admin_login(login: str) -> bool:
@@ -4138,6 +4232,70 @@ def insert_nomenclature_row(
 
 
 class ApiHandler(BaseHTTPRequestHandler):
+    _auth_session: dict | None = None
+
+    def _bearer_token(self) -> str | None:
+        auth = self.headers.get("Authorization", "") or ""
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            return token or None
+        return None
+
+    def _ensure_authenticated(self) -> bool:
+        path = urlparse(self.path).path
+        if _is_public_api_path(path):
+            return True
+        session = resolve_auth_session(self._bearer_token())
+        if not session:
+            self._send_json(
+                401,
+                {"error": "unauthorized", "message": "Требуется вход в систему."},
+            )
+            return False
+        self._auth_session = session
+        return True
+
+    def _handle_auth_login(self) -> None:
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+        user = authenticate_app_login(body.get("login", ""), body.get("password", ""))
+        if not user:
+            self._send_json(
+                401,
+                {"error": "invalid_credentials", "message": "Неверный логин или пароль."},
+            )
+            return
+        token = create_auth_session(user)
+        self._send_json(
+            200,
+            {
+                "token": token,
+                "user": {
+                    "login": user["login"],
+                    "display_name": user.get("display_name") or "",
+                    "is_admin": bool(user.get("is_admin")),
+                },
+            },
+        )
+
+    def _handle_auth_me(self) -> None:
+        session = self._auth_session or {}
+        self._send_json(
+            200,
+            {
+                "login": session.get("login") or "",
+                "display_name": session.get("display_name") or "",
+                "is_admin": bool(session.get("is_admin")),
+            },
+        )
+
+    def _handle_auth_logout(self) -> None:
+        revoke_auth_session(self._bearer_token())
+        self._send_json(200, {"ok": True})
+
     def _send_json(self, status: int, data):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -4392,6 +4550,13 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_auth_me_path(path):
+            if not self._ensure_authenticated():
+                return
+            self._handle_auth_me()
+            return
+        if not self._ensure_authenticated():
+            return
         packing_html_oid = _parse_orders_packing_sheets_html_id(path)
         if packing_html_oid is not None:
             detail = fetch_order_detail(packing_html_oid)
@@ -4568,6 +4733,11 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_auth_login_path(path):
+            self._handle_auth_login()
+            return
+        if not self._ensure_authenticated():
+            return
         if _is_print_arnest_unirus_pallet_sheets_raw_path(path):
             try:
                 body = self._read_json_body()
@@ -4804,6 +4974,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(201, result)
 
     def do_PUT(self):
+        if not self._ensure_authenticated():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         user_id = _parse_user_id_path(path)
@@ -4916,6 +5088,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True})
 
     def do_PATCH(self):
+        if not self._ensure_authenticated():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         oid = _parse_orders_detail_id(path)
@@ -4945,6 +5119,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def do_DELETE(self):
+        if not self._ensure_authenticated():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         user_id = _parse_user_id_path(path)

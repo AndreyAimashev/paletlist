@@ -112,6 +112,12 @@
         box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
       }
 
+      button:disabled {
+        opacity: 0.65;
+        cursor: wait;
+        transform: none;
+      }
+
       .error-message {
         margin-top: 14px;
         min-height: 20px;
@@ -150,10 +156,17 @@
     <main class="login-card">
       <h1 class="logo">Paletlist</h1>
       <p class="subtitle">Вход в личный кабинет</p>
-      <form id="login-form" action="admin.html" method="get">
+      <form id="login-form" method="post" action="#" autocomplete="on">
         <div class="field">
           <label for="login">Логин</label>
-          <input id="login" name="login" type="text" placeholder="Введите логин" required />
+          <input
+            id="login"
+            name="login"
+            type="text"
+            placeholder="Введите логин"
+            autocomplete="username"
+            required
+          />
         </div>
         <div class="field">
           <label for="password">Пароль</label>
@@ -162,27 +175,67 @@
             name="password"
             type="password"
             placeholder="Введите пароль"
+            autocomplete="current-password"
             required
           />
         </div>
-        <button type="submit">Войти</button>
+        <button id="login-submit" type="submit">Войти</button>
         <p id="error-message" class="error-message"></p>
       </form>
     </main>
     <script>
-      const form = document.getElementById("login-form");
-      const errorMessage = document.getElementById("error-message");
-      form.addEventListener("submit", (event) => {
-        const login = document.getElementById("login").value.trim();
-        const password = document.getElementById("password").value.trim();
+      (function () {
+        const AUTH_STORAGE_KEY = "paletlist_auth_token";
+        const form = document.getElementById("login-form");
+        const errorMessage = document.getElementById("error-message");
+        const submitBtn = document.getElementById("login-submit");
 
-        if (login === "admin" && password === "1241") {
-          return;
+        try {
+          sessionStorage.removeItem(AUTH_STORAGE_KEY);
+        } catch (e) {
+          /* ignore */
         }
 
-        event.preventDefault();
-        errorMessage.textContent = "Неверный логин или пароль";
-      });
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          errorMessage.textContent = "";
+          const login = document.getElementById("login").value.trim();
+          const password = document.getElementById("password").value;
+          if (!login || !password) {
+            errorMessage.textContent = "Введите логин и пароль";
+            return;
+          }
+          submitBtn.disabled = true;
+          try {
+            const res = await fetch("/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ login, password }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              errorMessage.textContent = data.message || "Неверный логин или пароль";
+              return;
+            }
+            const token = data.token;
+            if (!token) {
+              errorMessage.textContent = "Ошибка входа. Попробуйте снова.";
+              return;
+            }
+            try {
+              sessionStorage.setItem(AUTH_STORAGE_KEY, token);
+            } catch (e) {
+              errorMessage.textContent = "Не удалось сохранить сессию браузера.";
+              return;
+            }
+            window.location.href = "admin.html";
+          } catch (e) {
+            errorMessage.textContent = "Нет связи с сервером.";
+          } finally {
+            submitBtn.disabled = false;
+          }
+        });
+      })();
     </script>
   </body>
 </html>

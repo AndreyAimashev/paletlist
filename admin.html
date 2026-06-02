@@ -3943,13 +3943,10 @@
     </template>
 
     <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="admin-auth.js"></script>
     <script>
-      const params = new URLSearchParams(window.location.search);
-      const login = params.get("login");
-      const password = params.get("password");
-
-      if (!(login === "admin" && password === "1241")) {
-        window.location.replace("index.html");
+      if (!window.__PALETLIST_AUTH) {
+        throw new Error("Unauthorized");
       }
 
       const ordersButton = document.getElementById("orders-button");
@@ -4007,6 +4004,23 @@
       const assembleEmptyEl = document.getElementById("assemble-empty");
       const assembleLoadedEl = document.getElementById("assemble-loaded");
       const adminLoginNote = document.getElementById("admin-login-note");
+      if (adminLoginNote && window.__PALETLIST_AUTH) {
+        const authUser = window.__PALETLIST_AUTH;
+        if (authUser.is_admin) {
+          adminLoginNote.textContent = "Вы вошли как администратор.";
+        } else {
+          const label = authUser.display_name || authUser.login || "пользователь";
+          adminLoginNote.textContent = `Вы вошли как ${label}.`;
+        }
+      }
+      if (window.__PALETLIST_AUTH && !window.__PALETLIST_AUTH.is_admin) {
+        if (usersButton) {
+          usersButton.style.display = "none";
+        }
+        if (navUsers) {
+          navUsers.hidden = true;
+        }
+      }
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
       const assembleSyncBannerEl = document.getElementById("assemble-sync-banner");

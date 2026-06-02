@@ -2532,7 +2532,7 @@ def _resolve_normalized_product_ids(normalized, cur):
     return out, None
 
 
-def _normalize_order_items_body(body: dict):
+def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False):
     """Общая валидация позиций для создания и обновления заказа."""
     ship_raw = body.get("ship_date", "")
     client_raw = body.get("client", "")
@@ -2583,7 +2583,7 @@ def _normalize_order_items_body(body: dict):
                 pid = int(pid_raw)
             except (TypeError, ValueError):
                 pid = None
-        if qty <= 0:
+        if qty <= 0 and not allow_zero_quantity:
             return {
                 "error": "validation",
                 "message": "Укажите количество больше нуля по каждой позиции.",
@@ -2833,20 +2833,94 @@ def _excel_value_to_ship_iso(value) -> str:
     return ""
 
 
-def _parse_excel_quantity(value):
-    if value is None or str(value).strip() == "":
+def _parse_localized_number_string(raw: str) -> float | None:
+    """Число из текста ячейки: 1500, 1 500, 1.500,5, 1,500.25, «10 шт»."""
+    s = str(raw or "").strip()
+    if not s:
         return None
+    s = (
+        s.replace("\u00a0", " ")
+        .replace("\u202f", " ")
+        .replace("\u2212", "-")
+    )
+    s = re.sub(r"\s+", " ", s)
+    # убрать валюту/единицы, оставить цифры и разделители
+    s = re.sub(r"[^\d,.\-+\s]", "", s).strip()
+    if not s or s in ("-", "+"):
+        return None
+
+    def _to_float(token: str) -> float | None:
+        token = token.strip().replace(" ", "")
+        if not token or token in ("-", "+"):
+            return None
+        if "," in token and "." in token:
+            if token.rfind(",") > token.rfind("."):
+                token = token.replace(".", "").replace(",", ".")
+            else:
+                token = token.replace(",", "")
+        elif "," in token:
+            parts = token.split(",")
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                token = parts[0].replace(".", "") + "." + parts[1]
+            else:
+                token = token.replace(",", "")
+        elif "." in token:
+            parts = token.split(".")
+            if len(parts) > 2 and all(len(p) == 3 for p in parts[1:-1]):
+                token = "".join(parts[:-1]) + "." + parts[-1]
+            elif len(parts) == 2 and len(parts[1]) == 3 and len(parts[0]) <= 4:
+                token = parts[0] + parts[1]
+        try:
+            return float(token)
+        except (TypeError, ValueError):
+            return None
+
+    direct = _to_float(s)
+    if direct is not None and math.isfinite(direct):
+        return direct
+
+    for chunk in re.findall(
+        r"-?\d{1,3}(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?",
+        s,
+    ):
+        parsed = _to_float(chunk)
+        if parsed is not None and math.isfinite(parsed):
+            return parsed
+    return None
+
+
+def _parse_excel_quantity(value) -> tuple[float, bool]:
+    """Количество из колонки J: (значение ≥ 0, распознано ли число)."""
+    if value is None:
+        return 0.0, False
+    if isinstance(value, bool):
+        return 0.0, False
     if isinstance(value, (int, float)):
         try:
             q = float(value)
         except (TypeError, ValueError):
-            return None
-        return q if q > 0 else None
+            return 0.0, False
+        if not math.isfinite(q):
+            return 0.0, False
+        return max(0.0, q), True
     try:
-        q = float(str(value).strip().replace(",", ".").replace(" ", ""))
-    except (TypeError, ValueError):
-        return None
-    return q if q > 0 else None
+        from decimal import Decimal
+
+        if isinstance(value, Decimal):
+            q = float(value)
+            if not math.isfinite(q):
+                return 0.0, False
+            return max(0.0, q), True
+    except ImportError:
+        pass
+
+    s = str(value).strip()
+    if not s:
+        return 0.0, False
+    parsed = _parse_localized_number_string(s)
+    if parsed is None or not math.isfinite(parsed):
+        return 0.0, False
+    return max(0.0, parsed), True
 
 
 def _parse_excel_unit(value) -> str:
@@ -2974,10 +3048,13 @@ def parse_orders_from_excel_worksheet(ws):
             continue
         if not current.get("ship_date") and last_ship_iso:
             current["ship_date"] = last_ship_iso
-        qty = _parse_excel_quantity(qty_raw)
-        if qty is None:
-            errors.append(f"Строка {row}: укажите количество больше нуля (колонка J).")
-            continue
+        qty, qty_recognized = _parse_excel_quantity(qty_raw)
+        if not qty_recognized:
+            errors.append(
+                f"Строка {row}: количество в колонке J не распознано "
+                f"(«{product_s}») — позиция добавлена с количеством 0."
+            )
+            qty = 0.0
         unit = _parse_excel_unit(unit_raw)
         current["items"].append(
             {"name": product_s, "quantity": qty, "unit": unit}
@@ -3213,7 +3290,7 @@ def import_orders_from_excel_bytes(data: bytes):
                 "client": order["client"],
                 "items": items_payload,
             }
-            pack = _normalize_order_items_body(body)
+            pack = _normalize_order_items_body(body, allow_zero_quantity=True)
             if pack.get("error"):
                 import_errors.append(
                     f"Заказ «{order['client']}»: {pack.get('message', 'ошибка валидации')}"

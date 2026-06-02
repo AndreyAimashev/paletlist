@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import datetime
+import hashlib
 import io
 import json
 import math
 import os
 import re
+import secrets
 import socket
 import sqlite3
 import threading
@@ -92,6 +94,241 @@ def _norm_api_path(path: str) -> str:
 
 def _is_nomenclature_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/nomenclature"
+
+
+def _is_users_list_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/users"
+
+
+ADMIN_LOGIN = "admin"
+_LOGIN_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
+
+
+def _is_reserved_admin_login(login: str) -> bool:
+    return (login or "").strip().lower() == ADMIN_LOGIN
+
+
+def _hash_app_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), 120_000
+    )
+    return f"pbkdf2:{salt}:{digest.hex()}"
+
+
+def _verify_app_password(password: str, stored: str) -> bool:
+    parts = str(stored or "").split(":")
+    if len(parts) != 3 or parts[0] != "pbkdf2":
+        return False
+    try:
+        salt = bytes.fromhex(parts[1])
+        expected = bytes.fromhex(parts[2])
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000)
+    return secrets.compare_digest(digest, expected)
+
+
+def _init_app_users_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          login TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          password_hash TEXT NOT NULL DEFAULT '',
+          display_name TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
+def _user_row_to_api(row) -> dict:
+    return {
+        "id": int(row["id"]),
+        "login": row["login"] or "",
+        "display_name": row["display_name"] or "",
+        "created_at": row["created_at"] or "",
+    }
+
+
+def fetch_app_users() -> list[dict]:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        rows = cur.execute(
+            """
+            SELECT id, login, display_name, created_at
+            FROM app_users
+            WHERE lower(trim(login)) != lower(?)
+            ORDER BY login COLLATE NOCASE ASC
+            """,
+            (ADMIN_LOGIN,),
+        ).fetchall()
+        con.close()
+    return [_user_row_to_api(r) for r in rows]
+
+
+def create_app_user(body: dict) -> dict:
+    login = _normalize_str(body.get("login", ""))
+    password = str(body.get("password") or "")
+    display_name = _normalize_str(body.get("display_name", ""))
+    if not login:
+        return {"error": "validation", "message": "Укажите логин."}
+    if _is_reserved_admin_login(login):
+        return {
+            "error": "validation",
+            "message": "Логин «admin» зарезервирован для администратора.",
+        }
+    if not _LOGIN_RE.match(login):
+        return {
+            "error": "validation",
+            "message": "Логин: 2–64 символа (латиница, цифры, . _ -).",
+        }
+    if len(password) < 4:
+        return {
+            "error": "validation",
+            "message": "Пароль не короче 4 символов.",
+        }
+    created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pwd_hash = _hash_app_password(password)
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO app_users (login, password_hash, display_name, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (login, pwd_hash, display_name, created_at),
+            )
+            uid = int(cur.lastrowid)
+            row = cur.execute(
+                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                (uid,),
+            ).fetchone()
+            con.commit()
+        except sqlite3.IntegrityError:
+            con.close()
+            return {
+                "error": "duplicate",
+                "message": "Пользователь с таким логином уже существует.",
+            }
+        con.close()
+    return {"ok": True, "user": _user_row_to_api(row)}
+
+
+def update_app_user(user_id: int, body: dict) -> dict:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+            (int(user_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Пользователь не найден."}
+        if _is_reserved_admin_login(row["login"]):
+            con.close()
+            return {
+                "error": "forbidden",
+                "message": "Учётную запись администратора нельзя изменить здесь.",
+            }
+        login = _normalize_str(body.get("login", row["login"]))
+        display_name = _normalize_str(
+            body.get("display_name", row["display_name"] or "")
+        )
+        password = body.get("password")
+        if _is_reserved_admin_login(login):
+            con.close()
+            return {
+                "error": "validation",
+                "message": "Логин «admin» зарезервирован для администратора.",
+            }
+        if login and not _LOGIN_RE.match(login):
+            con.close()
+            return {
+                "error": "validation",
+                "message": "Логин: 2–64 символа (латиница, цифры, . _ -).",
+            }
+        if password is not None and str(password) != "" and len(str(password)) < 4:
+            con.close()
+            return {
+                "error": "validation",
+                "message": "Пароль не короче 4 символов.",
+            }
+        pwd_hash = None
+        if password is not None and str(password) != "":
+            pwd_hash = _hash_app_password(str(password))
+        try:
+            if pwd_hash is not None:
+                cur.execute(
+                    """
+                    UPDATE app_users
+                    SET login = ?, display_name = ?, password_hash = ?
+                    WHERE id = ?
+                    """,
+                    (login, display_name, pwd_hash, int(user_id)),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE app_users SET login = ?, display_name = ? WHERE id = ?
+                    """,
+                    (login, display_name, int(user_id)),
+                )
+            row = cur.execute(
+                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                (int(user_id),),
+            ).fetchone()
+            con.commit()
+        except sqlite3.IntegrityError:
+            con.close()
+            return {
+                "error": "duplicate",
+                "message": "Пользователь с таким логином уже существует.",
+            }
+        con.close()
+    return {"ok": True, "user": _user_row_to_api(row)}
+
+
+def delete_app_user(user_id: int) -> dict:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT login FROM app_users WHERE id = ?",
+            (int(user_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Пользователь не найден."}
+        if _is_reserved_admin_login(row["login"]):
+            con.close()
+            return {
+                "error": "forbidden",
+                "message": "Учётную запись администратора нельзя удалить.",
+            }
+        cur.execute("DELETE FROM app_users WHERE id = ?", (int(user_id),))
+        con.commit()
+        con.close()
+    return {"ok": True}
+
+
+def _parse_user_id_path(path: str) -> int | None:
+    prefix = "/api/users/"
+    norm = _norm_api_path(path)
+    if not norm.startswith(prefix):
+        return None
+    tail = norm[len(prefix) :].strip("/")
+    if not tail or "/" in tail:
+        return None
+    try:
+        return int(tail)
+    except ValueError:
+        return None
 
 
 def _normalize_nomenclature_search_text(value: str) -> str:
@@ -1736,6 +1973,7 @@ def init_db():
                     rows,
                 )
         _init_orders_table(cur)
+        _init_app_users_table(cur)
         _migrate_strip_trailing_name_suffixes(cur)
         con.commit()
         con.close()
@@ -4300,6 +4538,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         if _is_orders_list_path(path):
             self._send_json(200, fetch_orders())
             return
+        if _is_users_list_path(path):
+            self._send_json(200, {"users": fetch_app_users()})
+            return
         if _is_pallet_printer_raw_ping_path(path):
             ok, addr, msg = check_raw_pallet_printer_reachable()
             self._send_json(
@@ -4455,6 +4696,26 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, result)
             return
+        if _is_users_list_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = create_app_user(body)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "duplicate":
+                self._send_json(409, result)
+                return
+            self._send_json(201, result)
+            return
         if _is_orders_list_path(path):
             try:
                 body = self._read_json_body()
@@ -4545,6 +4806,33 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_PUT(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        user_id = _parse_user_id_path(path)
+        if user_id is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = update_app_user(user_id, body)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "duplicate":
+                self._send_json(409, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            self._send_json(200, result)
+            return
         oid = _parse_orders_detail_id(path)
         if oid is not None:
             try:
@@ -4659,6 +4947,22 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        user_id = _parse_user_id_path(path)
+        if user_id is not None:
+            try:
+                result = delete_app_user(user_id)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            self._send_json(200, result)
+            return
         presence_oid = _parse_orders_assemble_presence_id(path)
         if presence_oid is not None:
             try:

@@ -103,6 +103,10 @@
         animation: fxNomenclature 360ms ease;
       }
 
+      .panel.fx-users {
+        animation: fxNomenclature 360ms ease;
+      }
+
       h1 {
         margin: 0 0 10px;
         font-family: "Orbitron", sans-serif;
@@ -1489,6 +1493,74 @@
       .nomenclature-workspace.visible {
         display: block;
         animation: workspaceReveal 260ms ease;
+      }
+
+      .users-workspace {
+        display: none;
+        margin-top: 20px;
+        padding-top: 4px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .users-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .users-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .users-table-wrap {
+        overflow-x: auto;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 10px;
+      }
+
+      .users-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .users-table th,
+      .users-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .users-table th {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.85);
+      }
+
+      .users-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .users-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      .users-row-actions .assemble-btn {
+        font-size: 11px;
+        padding: 6px 10px;
+      }
+
+      #users-status.users-status-error {
+        color: #ff8a8a;
       }
 
       .nomenclature-workspace-scroll {
@@ -3030,6 +3102,7 @@
           <div class="menu-items">
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
+            <button id="users-button" class="menu-button" type="button">Управление пользователями</button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
             </button>
@@ -3050,6 +3123,9 @@
               Создать товар
             </button>
             <button id="back-to-main-nomenclature-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button id="back-to-main-users-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
           </div>
@@ -3417,6 +3493,30 @@
             <div id="arnest-output" class="arnest-output"></div>
           </section>
 
+          <section id="users-workspace" class="users-workspace" aria-label="Управление пользователями">
+            <div class="users-toolbar">
+              <button type="button" id="users-add-btn" class="assemble-btn">Добавить пользователя</button>
+            </div>
+            <p id="users-status" class="muted" hidden aria-live="polite"></p>
+            <div class="users-table-wrap">
+              <table class="users-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Логин</th>
+                    <th scope="col">Имя</th>
+                    <th scope="col">Создан</th>
+                    <th scope="col" style="text-align: right">Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body">
+                  <tr>
+                    <td colspan="4" class="muted">Загрузка…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <section id="nomenclature-workspace" class="nomenclature-workspace">
             <div class="nomenclature-workspace-scroll">
               <div class="nomenclature-sticky-head">
@@ -3457,6 +3557,7 @@
           <button id="nav-orders" type="button">Заказы</button>
           <button id="nav-assemble" type="button">Сборка заказа</button>
           <button id="nav-nomenclature" type="button">Номенклатура</button>
+          <button id="nav-users" type="button">Пользователи</button>
         </nav>
         <div
           id="assemble-sidebar-nav"
@@ -3503,6 +3604,56 @@
           <p id="assemble-sidebar-nav-msg" class="assemble-sidebar-nav__msg" hidden aria-live="polite"></p>
         </div>
       </aside>
+    </div>
+
+    <div id="user-edit-overlay" class="modal-overlay" hidden>
+      <div
+        id="user-edit-dialog"
+        class="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-edit-title"
+      >
+        <h3 id="user-edit-title">Пользователь</h3>
+        <p id="user-edit-error" class="modal-error" hidden></p>
+        <form id="user-edit-form" class="arnest-grid">
+          <div class="arnest-field">
+            <label for="user-edit-login">Логин</label>
+            <input
+              id="user-edit-login"
+              name="login"
+              type="text"
+              autocomplete="username"
+              required
+              pattern="[a-zA-Z0-9._-]{2,64}"
+              title="2–64 символа: латиница, цифры, . _ -"
+            />
+          </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="user-edit-display-name">Отображаемое имя</label>
+            <input
+              id="user-edit-display-name"
+              name="display_name"
+              type="text"
+              autocomplete="name"
+            />
+          </div>
+          <div class="arnest-field" style="grid-column: 1 / -1">
+            <label for="user-edit-password" id="user-edit-password-label">Пароль</label>
+            <input
+              id="user-edit-password"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+            />
+            <p id="user-edit-password-hint" class="muted" style="margin-top: 6px; font-size: 12px"></p>
+          </div>
+        </form>
+        <div class="modal-actions">
+          <button class="menu-button" type="submit" form="user-edit-form">Сохранить</button>
+          <button id="user-edit-cancel" class="menu-button" type="button">Отмена</button>
+        </div>
+      </div>
     </div>
 
     <div id="nomenclature-edit-overlay" class="modal-overlay" hidden>
@@ -3803,6 +3954,7 @@
 
       const ordersButton = document.getElementById("orders-button");
       const nomenclatureButton = document.getElementById("nomenclature-button");
+      const usersButton = document.getElementById("users-button");
       const menuTitle = document.getElementById("menu-title");
       const createPalletButton = document.getElementById("create-pallet-button");
       const backToMainButton = document.getElementById("back-to-main-button");
@@ -3811,6 +3963,7 @@
       const assembleOrderButton = document.getElementById("assemble-order-button");
       const backToMainOrdersButton = document.getElementById("back-to-main-orders-button");
       const backToMainNomenclatureButton = document.getElementById("back-to-main-nomenclature-button");
+      const backToMainUsersButton = document.getElementById("back-to-main-users-button");
       const nomenclatureCreateProductButton = document.getElementById("nomenclature-create-product-button");
       const nomenclatureCreateOverlay = document.getElementById("nomenclature-create-overlay");
       const nomenclatureCreateForm = document.getElementById("nomenclature-create-form");
@@ -3836,6 +3989,7 @@
       const navOrders = document.getElementById("nav-orders");
       const navAssemble = document.getElementById("nav-assemble");
       const navNomenclature = document.getElementById("nav-nomenclature");
+      const navUsers = document.getElementById("nav-users");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
       const palletSheetsWorkspace = document.getElementById("pallet-sheets-workspace");
@@ -3913,6 +4067,23 @@
       const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`;
       const ORDER_ROW_ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
       const ORDER_ROW_ICON_SHIP = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><path d="M16 8h6v4"/><path d="M2 8h2"/><circle cx="7" cy="18" r="2"/><path d="M9 18h6"/><circle cx="17" cy="18" r="2"/></svg>`;
+      const usersWorkspace = document.getElementById("users-workspace");
+      const usersTableBody = document.getElementById("users-table-body");
+      const usersStatusEl = document.getElementById("users-status");
+      const usersAddBtn = document.getElementById("users-add-btn");
+      const userEditOverlay = document.getElementById("user-edit-overlay");
+      const userEditForm = document.getElementById("user-edit-form");
+      const userEditTitle = document.getElementById("user-edit-title");
+      const userEditError = document.getElementById("user-edit-error");
+      const userEditCancel = document.getElementById("user-edit-cancel");
+      const userEditLoginInput = document.getElementById("user-edit-login");
+      const userEditDisplayNameInput = document.getElementById("user-edit-display-name");
+      const userEditPasswordInput = document.getElementById("user-edit-password");
+      const userEditPasswordLabel = document.getElementById("user-edit-password-label");
+      const userEditPasswordHint = document.getElementById("user-edit-password-hint");
+      let usersListCache = [];
+      let userEditId = null;
+
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
       const nomenclatureList = document.getElementById("nomenclature-list");
       const nomenclatureSearch = document.getElementById("nomenclature-search");
@@ -3949,8 +4120,18 @@
         orders: navOrders,
         assemble: navAssemble,
         nomenclature: navNomenclature,
+        users: navUsers,
       };
-      const defaultNavOrder = ["main", "pallet", "create", "arnest", "orders", "assemble", "nomenclature"];
+      const defaultNavOrder = [
+        "main",
+        "pallet",
+        "create",
+        "arnest",
+        "orders",
+        "assemble",
+        "nomenclature",
+        "users",
+      ];
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
@@ -5292,6 +5473,7 @@
           "fx-orders",
           "fx-assemble",
           "fx-nomenclature",
+          "fx-users",
         ];
         panel.classList.remove("transitioning");
         effectClasses.forEach((className) => panel.classList.remove(className));
@@ -5344,6 +5526,7 @@
         menuTitle.textContent = "Главное меню";
         ordersButton.style.display = "";
         nomenclatureButton.style.display = "";
+        usersButton.style.display = "";
         createPalletButton.classList.remove("visible");
         backToMainButton.classList.remove("visible");
         arnestButton.classList.remove("visible");
@@ -5351,17 +5534,20 @@
         assembleOrderButton.classList.remove("visible");
         backToMainOrdersButton.classList.remove("visible");
         backToMainNomenclatureButton.classList.remove("visible");
+        backToMainUsersButton.classList.remove("visible");
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         ordersWorkspace.classList.remove("visible");
         palletSheetsWorkspace.classList.remove("visible");
         assembleWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
+        usersWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
           const hasOrderCtx =
             activeStageOrderId != null && Number.isFinite(activeStageOrderId);
           if (hasOrderCtx) {
@@ -5390,6 +5576,7 @@
           menuTitle.textContent = "Заказы";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
           ordersWorkspace.classList.add("visible");
@@ -5400,6 +5587,7 @@
           menuTitle.textContent = "Сборка заказа";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
           if (activeStageOrderId != null && Number.isFinite(activeStageOrderId)) {
             assembleOrderButton.classList.remove("visible");
           } else {
@@ -5413,10 +5601,21 @@
           menuTitle.textContent = "Номенклатура";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
           nomenclatureCreateProductButton.classList.add("visible");
           backToMainNomenclatureButton.classList.add("visible");
           nomenclatureWorkspace.classList.add("visible");
           loadNomenclature();
+        }
+
+        if (stage === "users") {
+          menuTitle.textContent = "Управление пользователями";
+          ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
+          backToMainUsersButton.classList.add("visible");
+          usersWorkspace.classList.add("visible");
+          void loadUsers();
         }
 
         navMain.classList.toggle("active", stage === "main");
@@ -5426,6 +5625,7 @@
         navOrders.classList.toggle("active", stage === "orders");
         navAssemble.classList.toggle("active", stage === "assemble");
         navNomenclature.classList.toggle("active", stage === "nomenclature");
+        navUsers.classList.toggle("active", stage === "users");
 
         if (recordVisit) {
           updateVisitedOrder(stage);
@@ -5613,6 +5813,7 @@
 
       ordersButton.addEventListener("click", () => setStage("orders"));
       nomenclatureButton.addEventListener("click", () => setStage("nomenclature"));
+      usersButton.addEventListener("click", () => setStage("users"));
       createPalletButton.addEventListener("click", () => setStage("create"));
       backToMainButton.addEventListener("click", () => setStage("main"));
       backToPalletButton.addEventListener("click", () => setStage("pallet"));
@@ -5623,6 +5824,7 @@
       });
       backToMainOrdersButton.addEventListener("click", () => setStage("main"));
       backToMainNomenclatureButton.addEventListener("click", () => setStage("main"));
+      backToMainUsersButton.addEventListener("click", () => setStage("main"));
       nomenclatureCreateProductButton.addEventListener("click", () => {
         openNomenclatureCreate();
       });
@@ -5633,6 +5835,258 @@
       navOrders.addEventListener("click", () => setStage("orders"));
       navAssemble.addEventListener("click", () => setStage("assemble"));
       navNomenclature.addEventListener("click", () => setStage("nomenclature"));
+      navUsers.addEventListener("click", () => setStage("users"));
+
+      function setUsersStatus(message, isError) {
+        if (!usersStatusEl) {
+          return;
+        }
+        if (!message) {
+          usersStatusEl.hidden = true;
+          usersStatusEl.textContent = "";
+          usersStatusEl.classList.remove("users-status-error");
+          return;
+        }
+        usersStatusEl.hidden = false;
+        usersStatusEl.textContent = message;
+        usersStatusEl.classList.toggle("users-status-error", !!isError);
+      }
+
+      function formatUserCreatedAt(iso) {
+        const raw = String(iso || "").trim();
+        if (!raw) {
+          return "—";
+        }
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) {
+          return raw;
+        }
+        return d.toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function renderUsersTable() {
+        if (!usersTableBody) {
+          return;
+        }
+        if (!usersListCache.length) {
+          usersTableBody.innerHTML =
+            '<tr><td colspan="4" class="muted">Пользователей пока нет. Нажмите «Добавить пользователя».</td></tr>';
+          return;
+        }
+        usersTableBody.innerHTML = usersListCache
+          .map((user) => {
+            const login = escapeXml(user.login || "");
+            const name = escapeXml(user.display_name || "—");
+            const created = escapeXml(formatUserCreatedAt(user.created_at));
+            const id = Number(user.id);
+            return `<tr data-user-id="${id}">
+              <td>${login}</td>
+              <td>${name}</td>
+              <td>${created}</td>
+              <td>
+                <div class="users-row-actions">
+                  <button type="button" class="assemble-btn users-edit-btn" data-user-id="${id}">Редактировать</button>
+                  <button type="button" class="assemble-btn users-delete-btn" data-user-id="${id}">Удалить</button>
+                </div>
+              </td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      async function loadUsers() {
+        if (!usersTableBody) {
+          return;
+        }
+        usersTableBody.innerHTML = '<tr><td colspan="4" class="muted">Загрузка…</td></tr>';
+        setUsersStatus("");
+        try {
+          const res = await fetch("/api/users", { cache: "no-store" });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.message || "Не удалось загрузить список пользователей.");
+          }
+          usersListCache = Array.isArray(data.users) ? data.users : [];
+          if (currentStage === "users") {
+            renderUsersTable();
+          }
+        } catch (error) {
+          usersListCache = [];
+          usersTableBody.innerHTML =
+            '<tr><td colspan="4" class="muted">Не удалось загрузить пользователей.</td></tr>';
+          setUsersStatus(
+            error && error.message ? String(error.message) : "Ошибка загрузки.",
+            true,
+          );
+        }
+      }
+
+      function closeUserEditModal() {
+        if (userEditOverlay) {
+          userEditOverlay.hidden = true;
+        }
+        userEditId = null;
+        if (userEditForm) {
+          userEditForm.reset();
+        }
+        if (userEditError) {
+          userEditError.hidden = true;
+          userEditError.textContent = "";
+        }
+      }
+
+      function openUserEditModal(user) {
+        if (!userEditOverlay || !userEditForm) {
+          return;
+        }
+        userEditId = user && user.id != null ? Number(user.id) : null;
+        const isEdit = userEditId != null && Number.isFinite(userEditId);
+        if (userEditTitle) {
+          userEditTitle.textContent = isEdit ? "Редактировать пользователя" : "Новый пользователь";
+        }
+        if (userEditLoginInput) {
+          userEditLoginInput.value = isEdit ? user.login || "" : "";
+        }
+        if (userEditDisplayNameInput) {
+          userEditDisplayNameInput.value = isEdit ? user.display_name || "" : "";
+        }
+        if (userEditPasswordInput) {
+          userEditPasswordInput.value = "";
+          userEditPasswordInput.required = !isEdit;
+        }
+        if (userEditPasswordLabel) {
+          userEditPasswordLabel.textContent = isEdit ? "Новый пароль" : "Пароль";
+        }
+        if (userEditPasswordHint) {
+          userEditPasswordHint.textContent = isEdit
+            ? "Оставьте пустым, если пароль менять не нужно."
+            : "Не короче 4 символов.";
+        }
+        if (userEditError) {
+          userEditError.hidden = true;
+          userEditError.textContent = "";
+        }
+        userEditOverlay.hidden = false;
+        if (userEditLoginInput) {
+          userEditLoginInput.focus();
+        }
+      }
+
+      async function saveUserFromModal(event) {
+        event.preventDefault();
+        if (!userEditForm) {
+          return;
+        }
+        const login = (userEditLoginInput && userEditLoginInput.value.trim()) || "";
+        const display_name =
+          (userEditDisplayNameInput && userEditDisplayNameInput.value.trim()) || "";
+        const password = userEditPasswordInput ? userEditPasswordInput.value : "";
+        const isEdit = userEditId != null && Number.isFinite(userEditId);
+        const body = { login, display_name };
+        if (!isEdit || password !== "") {
+          body.password = password;
+        }
+        if (userEditError) {
+          userEditError.hidden = true;
+          userEditError.textContent = "";
+        }
+        try {
+          const url = isEdit ? `/api/users/${userEditId}` : "/api/users";
+          const res = await fetch(url, {
+            method: isEdit ? "PUT" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            const msg = data.message || "Не удалось сохранить пользователя.";
+            if (userEditError) {
+              userEditError.hidden = false;
+              userEditError.textContent = msg;
+            }
+            return;
+          }
+          closeUserEditModal();
+          setUsersStatus(isEdit ? "Пользователь обновлён." : "Пользователь создан.");
+          await loadUsers();
+        } catch (error) {
+          if (userEditError) {
+            userEditError.hidden = false;
+            userEditError.textContent =
+              error && error.message ? String(error.message) : "Ошибка сети.";
+          }
+        }
+      }
+
+      async function deleteAppUser(userId) {
+        const row = usersListCache.find((u) => Number(u.id) === Number(userId));
+        const label = row && row.login ? row.login : `№${userId}`;
+        if (
+          !window.confirm(
+            `Удалить пользователя «${label}»? Это действие нельзя отменить.`,
+          )
+        ) {
+          return;
+        }
+        setUsersStatus("");
+        try {
+          const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            throw new Error(data.message || "Не удалось удалить пользователя.");
+          }
+          setUsersStatus("Пользователь удалён.");
+          await loadUsers();
+        } catch (error) {
+          setUsersStatus(
+            error && error.message ? String(error.message) : "Ошибка удаления.",
+            true,
+          );
+        }
+      }
+
+      if (usersAddBtn) {
+        usersAddBtn.addEventListener("click", () => openUserEditModal(null));
+      }
+      if (userEditForm) {
+        userEditForm.addEventListener("submit", saveUserFromModal);
+      }
+      if (userEditCancel) {
+        userEditCancel.addEventListener("click", closeUserEditModal);
+      }
+      if (userEditOverlay) {
+        userEditOverlay.addEventListener("click", (event) => {
+          if (event.target === userEditOverlay) {
+            closeUserEditModal();
+          }
+        });
+      }
+      if (usersTableBody) {
+        usersTableBody.addEventListener("click", (event) => {
+          const editBtn = event.target.closest(".users-edit-btn");
+          if (editBtn) {
+            const id = Number(editBtn.getAttribute("data-user-id"));
+            const user = usersListCache.find((u) => Number(u.id) === id);
+            if (user) {
+              openUserEditModal(user);
+            }
+            return;
+          }
+          const deleteBtn = event.target.closest(".users-delete-btn");
+          if (deleteBtn) {
+            const id = Number(deleteBtn.getAttribute("data-user-id"));
+            if (Number.isFinite(id)) {
+              void deleteAppUser(id);
+            }
+          }
+        });
+      }
 
       const NOMENCLATURE_PACK_ICONS = {
         pieces: `<svg class="pack-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h3M13 9h3M8 13h3M13 13h3"/></svg>`,

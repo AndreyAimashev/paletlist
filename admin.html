@@ -601,6 +601,17 @@
         padding: 14px 16px;
         margin-bottom: 14px;
         background: rgba(14, 20, 32, 0.55);
+        scroll-margin-top: 72px;
+        scroll-margin-bottom: 88px;
+      }
+
+      .assemble-pallet-card--jump-target {
+        outline: 2px solid rgba(0, 220, 175, 0.9);
+        box-shadow: 0 0 0 4px rgba(0, 200, 160, 0.22);
+      }
+
+      .assemble-mobile-nav {
+        display: none;
       }
 
       .assemble-pallet-head {
@@ -2393,6 +2404,88 @@
           grid-template-columns: 1fr;
         }
 
+        body.is-mobile-layout.assemble-stage-active {
+          padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+        }
+
+        .assemble-mobile-nav {
+          display: block;
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 850;
+          padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+          background: rgba(14, 20, 28, 0.96);
+          border-top: 1px solid rgba(0, 200, 160, 0.35);
+          box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
+          backdrop-filter: blur(8px);
+        }
+
+        .assemble-mobile-nav[hidden] {
+          display: none !important;
+        }
+
+        .assemble-mobile-nav__inner {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 8px;
+          align-items: center;
+          max-width: 520px;
+          margin: 0 auto;
+        }
+
+        .assemble-mobile-nav__jump {
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          min-width: 0;
+        }
+
+        .assemble-mobile-nav__input {
+          flex: 1;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid rgba(120, 150, 170, 0.45);
+          background: rgba(8, 14, 20, 0.9);
+          color: #e8eef4;
+          font-size: 16px;
+        }
+
+        .assemble-mobile-nav__btn {
+          flex-shrink: 0;
+          min-width: 44px;
+          min-height: 44px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          border: 1px solid rgba(0, 200, 160, 0.45);
+          background: rgba(0, 80, 65, 0.35);
+          color: #b8f0e0;
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .assemble-mobile-nav__btn--go {
+          font-size: 13px;
+          font-weight: 600;
+          padding: 10px 12px;
+        }
+
+        .assemble-mobile-nav__msg {
+          margin: 6px 0 0;
+          font-size: 12px;
+          text-align: center;
+          color: #ff9b7a;
+        }
+
+        .assemble-mobile-nav__msg[hidden] {
+          display: none;
+        }
+
         .orders-names-toolbar {
           flex-direction: column;
           align-items: stretch;
@@ -3153,6 +3246,55 @@
                 <span class="assemble-btn-add-pallet-icon" aria-hidden="true">+</span>
                 <span>Добавить паллет</span>
               </button>
+              <nav
+                id="assemble-mobile-nav"
+                class="assemble-mobile-nav"
+                hidden
+                aria-label="Быстрая навигация по паллетам"
+              >
+                <div class="assemble-mobile-nav__inner">
+                  <button
+                    type="button"
+                    id="assemble-mobile-scroll-top"
+                    class="assemble-mobile-nav__btn"
+                    title="В начало сборки"
+                    aria-label="В начало сборки"
+                  >
+                    ↑
+                  </button>
+                  <div class="assemble-mobile-nav__jump">
+                    <input
+                      type="search"
+                      id="assemble-mobile-pallet-jump"
+                      class="assemble-mobile-nav__input"
+                      inputmode="numeric"
+                      enterkeyhint="go"
+                      placeholder="№ паллета"
+                      list="assemble-mobile-pallet-datalist"
+                      autocomplete="off"
+                      aria-label="Номер паллета для перехода"
+                    />
+                    <datalist id="assemble-mobile-pallet-datalist"></datalist>
+                    <button
+                      type="button"
+                      id="assemble-mobile-pallet-go"
+                      class="assemble-mobile-nav__btn assemble-mobile-nav__btn--go"
+                    >
+                      Перейти
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    id="assemble-mobile-scroll-bottom"
+                    class="assemble-mobile-nav__btn"
+                    title="В конец сборки"
+                    aria-label="В конец сборки"
+                  >
+                    ↓
+                  </button>
+                </div>
+                <p id="assemble-mobile-nav-msg" class="assemble-mobile-nav__msg" hidden aria-live="polite"></p>
+              </nav>
             </div>
           </section>
 
@@ -3580,6 +3722,14 @@
       const assembleSummaryThRest = document.getElementById("assemble-summary-th-rest");
       const assemblePalletsRoot = document.getElementById("assemble-pallets");
       const assembleAddPalletBtn = document.getElementById("assemble-add-pallet");
+      const assembleMobileNav = document.getElementById("assemble-mobile-nav");
+      const assembleMobileScrollTopBtn = document.getElementById("assemble-mobile-scroll-top");
+      const assembleMobileScrollBottomBtn = document.getElementById("assemble-mobile-scroll-bottom");
+      const assembleMobilePalletJumpInput = document.getElementById("assemble-mobile-pallet-jump");
+      const assembleMobilePalletGoBtn = document.getElementById("assemble-mobile-pallet-go");
+      const assembleMobilePalletDatalist = document.getElementById("assemble-mobile-pallet-datalist");
+      const assembleMobileNavMsg = document.getElementById("assemble-mobile-nav-msg");
+      let assembleMobileNavMsgTimer = null;
       const assembleOptionalBatchRoot = document.getElementById("assemble-optional-batch-root");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
@@ -3687,6 +3837,7 @@
 
       function syncMobileLayoutState() {
         document.body.classList.toggle("is-mobile-layout", isMobileLayout());
+        syncAssembleMobileNavVisibility();
         closeMobileNavDrawer();
         if (!isMobileLayout()) {
           sidebar.style.width = "";
@@ -6757,6 +6908,170 @@
         return Math.trunc(n);
       }
 
+      function setAssembleMobileNavMessage(text) {
+        if (!assembleMobileNavMsg) {
+          return;
+        }
+        if (assembleMobileNavMsgTimer) {
+          clearTimeout(assembleMobileNavMsgTimer);
+          assembleMobileNavMsgTimer = null;
+        }
+        if (!text) {
+          assembleMobileNavMsg.hidden = true;
+          assembleMobileNavMsg.textContent = "";
+          return;
+        }
+        assembleMobileNavMsg.hidden = false;
+        assembleMobileNavMsg.textContent = text;
+        assembleMobileNavMsgTimer = setTimeout(() => {
+          assembleMobileNavMsgTimer = null;
+          if (assembleMobileNavMsg) {
+            assembleMobileNavMsg.hidden = true;
+            assembleMobileNavMsg.textContent = "";
+          }
+        }, 3500);
+      }
+
+      function getAssemblePalletNumbersForNav() {
+        const nums = new Set();
+        if (!assemblePalletsRoot) {
+          return [];
+        }
+        assemblePalletsRoot.querySelectorAll("[data-assemble-pallet-number]").forEach((el) => {
+          const raw = String(el.value ?? "").trim();
+          if (!raw) {
+            return;
+          }
+          const n = Math.trunc(Number(String(raw).replace(",", ".")));
+          if (Number.isFinite(n) && n >= 0) {
+            nums.add(n);
+          }
+        });
+        return Array.from(nums).sort((a, b) => a - b);
+      }
+
+      function updateAssembleMobilePalletDatalist() {
+        if (!assembleMobilePalletDatalist) {
+          return;
+        }
+        assembleMobilePalletDatalist.innerHTML = "";
+        getAssemblePalletNumbersForNav().forEach((n) => {
+          const opt = document.createElement("option");
+          opt.value = String(n);
+          assembleMobilePalletDatalist.appendChild(opt);
+        });
+      }
+
+      function syncAssembleMobileNavVisibility() {
+        const show =
+          isMobileLayout() &&
+          currentStage === "assemble" &&
+          assembleLoadedEl &&
+          !assembleLoadedEl.hidden &&
+          assembleAllocState &&
+          assembleAllocState.pallets &&
+          assembleAllocState.pallets.length > 0;
+        if (assembleMobileNav) {
+          assembleMobileNav.hidden = !show;
+        }
+        document.body.classList.toggle("assemble-stage-active", !!show);
+        if (show) {
+          updateAssembleMobilePalletDatalist();
+        } else {
+          setAssembleMobileNavMessage("");
+        }
+      }
+
+      function scrollAssembleViewportTo(el) {
+        if (!el) {
+          return;
+        }
+        const navPad =
+          assembleMobileNav && !assembleMobileNav.hidden
+            ? assembleMobileNav.offsetHeight + 12
+            : 12;
+        const top = el.getBoundingClientRect().top + window.scrollY - navPad;
+        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      }
+
+      function scrollAssembleToTop() {
+        const target =
+          document.getElementById("assemble-lines-summary-wrap") ||
+          assembleLoadedEl ||
+          assembleWorkspace;
+        scrollAssembleViewportTo(target);
+      }
+
+      function scrollAssembleToBottom() {
+        let target = assembleAddPalletBtn;
+        if (assemblePalletsRoot) {
+          const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
+          if (cards.length) {
+            target = cards[cards.length - 1];
+          }
+        }
+        scrollAssembleViewportTo(target);
+      }
+
+      function findAssemblePalletCardByNumber(targetNum) {
+        const target = Math.trunc(Number(targetNum));
+        if (!Number.isFinite(target) || target < 0 || !assemblePalletsRoot) {
+          return null;
+        }
+        let found = null;
+        assemblePalletsRoot.querySelectorAll("[data-pallet-card]").forEach((card) => {
+          if (found) {
+            return;
+          }
+          const numEl = card.querySelector("[data-assemble-pallet-number]");
+          if (!numEl) {
+            return;
+          }
+          const raw = String(numEl.value ?? "").trim();
+          if (!raw) {
+            return;
+          }
+          const n = Math.trunc(Number(String(raw).replace(",", ".")));
+          if (Number.isFinite(n) && n === target) {
+            found = card;
+          }
+        });
+        return found;
+      }
+
+      function jumpToAssemblePalletByNumber(raw) {
+        const rawS = String(raw ?? "").trim();
+        if (!rawS) {
+          setAssembleMobileNavMessage("Введите номер паллета.");
+          return;
+        }
+        const card = findAssemblePalletCardByNumber(rawS);
+        if (!card) {
+          const nums = getAssemblePalletNumbersForNav();
+          const hint = nums.length ? ` Есть: ${nums.join(", ")}.` : "";
+          setAssembleMobileNavMessage(`Паллет №${rawS} не найден.${hint}`);
+          return;
+        }
+        setAssembleMobileNavMessage("");
+        card.classList.remove("assemble-pallet-card--jump-target");
+        void card.offsetWidth;
+        card.classList.add("assemble-pallet-card--jump-target");
+        scrollAssembleViewportTo(card);
+        window.setTimeout(() => {
+          card.classList.remove("assemble-pallet-card--jump-target");
+        }, 2600);
+        const numEl = card.querySelector("[data-assemble-pallet-number]");
+        if (numEl && typeof numEl.focus === "function") {
+          window.setTimeout(() => {
+            try {
+              numEl.focus({ preventScroll: true });
+            } catch (e) {
+              numEl.focus();
+            }
+          }, 400);
+        }
+      }
+
       function assembleDuplicatePalletNumberIndices(pallets) {
         const byNum = new Map();
         (pallets || []).forEach((pal, idx) => {
@@ -8512,6 +8827,7 @@
         if (!assembleAllocState.pallets.length) {
           assemblePalletsRoot.innerHTML =
             '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу страницы.</p>';
+          syncAssembleMobileNavVisibility();
           return;
         }
         const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
@@ -8550,6 +8866,7 @@
         refreshAllAssembleUnirusDateValidations();
         refreshAllAssembleLabBatchValidations();
         refreshAssemblePalletNumberDuplicateStyles();
+        syncAssembleMobileNavVisibility();
       }
 
       function syncAssembleStateFromDom() {
@@ -8921,6 +9238,7 @@
         if (assembleOptionalBatchRoot) {
           assembleOptionalBatchRoot.innerHTML = "";
         }
+        syncAssembleMobileNavVisibility();
       }
 
       function refreshAssembleStage() {
@@ -8986,6 +9304,31 @@
       }
       if (assembleAddPalletBtn) {
         assembleAddPalletBtn.addEventListener("click", () => addAssemblePallet());
+      }
+      if (assembleMobileScrollTopBtn) {
+        assembleMobileScrollTopBtn.addEventListener("click", () => scrollAssembleToTop());
+      }
+      if (assembleMobileScrollBottomBtn) {
+        assembleMobileScrollBottomBtn.addEventListener("click", () => scrollAssembleToBottom());
+      }
+      if (assembleMobilePalletGoBtn && assembleMobilePalletJumpInput) {
+        assembleMobilePalletGoBtn.addEventListener("click", () => {
+          jumpToAssemblePalletByNumber(assembleMobilePalletJumpInput.value);
+        });
+        assembleMobilePalletJumpInput.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            jumpToAssemblePalletByNumber(assembleMobilePalletJumpInput.value);
+          }
+        });
+      }
+      if (assemblePalletsRoot) {
+        assemblePalletsRoot.addEventListener("change", (ev) => {
+          const t = ev.target;
+          if (t && t.matches && t.matches('[data-field="palletNumber"]')) {
+            updateAssembleMobilePalletDatalist();
+          }
+        });
       }
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));

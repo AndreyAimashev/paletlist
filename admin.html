@@ -4436,11 +4436,24 @@
         return `${ASSEMBLE_OPTIONAL_BATCH_KEY}_${orderId}`;
       }
 
-      function readAssembleOptionalBatchFlagForOrder(orderId) {
+      function defaultAssembleOptionalBatchForClient(client) {
+        return (
+          isArnestUnirusClient(client || "") || isLabIndustriesClient(client || "")
+        );
+      }
+
+      function readAssembleOptionalBatchFlagForOrder(orderId, client) {
         try {
-          return window.localStorage.getItem(assembleOptionalBatchStorageKey(orderId)) === "1";
+          const raw = window.localStorage.getItem(assembleOptionalBatchStorageKey(orderId));
+          if (raw === "1") {
+            return true;
+          }
+          if (raw === "0") {
+            return false;
+          }
+          return defaultAssembleOptionalBatchForClient(client);
         } catch (e) {
-          return false;
+          return defaultAssembleOptionalBatchForClient(client);
         }
       }
 
@@ -8571,7 +8584,10 @@
         } else if (localDraft && typeof localDraft.optional_batch_enabled === "boolean") {
           assembleOptionalBatchEnabled = localDraft.optional_batch_enabled;
         } else {
-          assembleOptionalBatchEnabled = readAssembleOptionalBatchFlagForOrder(orderId);
+          assembleOptionalBatchEnabled = readAssembleOptionalBatchFlagForOrder(
+            orderId,
+            data.client,
+          );
         }
         writeAssembleOptionalBatchFlagForOrder(orderId, assembleOptionalBatchEnabled);
         mirrorAssembleDraftLocal();

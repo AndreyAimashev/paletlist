@@ -2630,10 +2630,74 @@
           bottom: 0;
           z-index: 850;
           padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-          background: rgba(14, 20, 28, 0.96);
-          border-top: 1px solid rgba(0, 200, 160, 0.35);
+          background: rgba(14, 32, 28, 0.96);
+          border-top: 2px solid rgba(0, 200, 160, 0.55);
           box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
           backdrop-filter: blur(8px);
+          transition:
+            background 0.25s ease,
+            border-color 0.25s ease,
+            box-shadow 0.25s ease;
+        }
+
+        .assemble-mobile-nav.is-idle,
+        .assemble-mobile-nav.is-saved {
+          background: rgba(10, 44, 36, 0.96);
+          border-top-color: rgba(0, 200, 160, 0.7);
+          box-shadow:
+            0 -6px 24px rgba(0, 0, 0, 0.35),
+            0 -2px 12px rgba(0, 200, 160, 0.12);
+        }
+
+        .assemble-mobile-nav.is-pending,
+        .assemble-mobile-nav.is-saving {
+          background: rgba(42, 34, 14, 0.96);
+          border-top-color: rgba(210, 170, 60, 0.75);
+          box-shadow:
+            0 -6px 24px rgba(0, 0, 0, 0.35),
+            0 -2px 12px rgba(210, 170, 60, 0.15);
+        }
+
+        .assemble-mobile-nav.is-error {
+          background: rgba(48, 22, 18, 0.96);
+          border-top-color: rgba(255, 120, 80, 0.8);
+          box-shadow:
+            0 -6px 24px rgba(0, 0, 0, 0.35),
+            0 -2px 12px rgba(255, 100, 80, 0.18);
+        }
+
+        .assemble-mobile-nav.is-idle .assemble-mobile-nav__btn,
+        .assemble-mobile-nav.is-saved .assemble-mobile-nav__btn {
+          border-color: rgba(0, 200, 160, 0.5);
+          background: rgba(0, 80, 65, 0.4);
+          color: #b8f0e0;
+        }
+
+        .assemble-mobile-nav.is-pending .assemble-mobile-nav__btn,
+        .assemble-mobile-nav.is-saving .assemble-mobile-nav__btn {
+          border-color: rgba(210, 170, 60, 0.55);
+          background: rgba(80, 60, 16, 0.45);
+          color: #f0e6b0;
+        }
+
+        .assemble-mobile-nav.is-error .assemble-mobile-nav__btn {
+          border-color: rgba(255, 120, 80, 0.55);
+          background: rgba(90, 28, 20, 0.5);
+          color: #ffc8b8;
+        }
+
+        .assemble-mobile-nav.is-idle .assemble-mobile-nav__input,
+        .assemble-mobile-nav.is-saved .assemble-mobile-nav__input {
+          border-color: rgba(0, 200, 160, 0.35);
+        }
+
+        .assemble-mobile-nav.is-pending .assemble-mobile-nav__input,
+        .assemble-mobile-nav.is-saving .assemble-mobile-nav__input {
+          border-color: rgba(210, 170, 60, 0.45);
+        }
+
+        .assemble-mobile-nav.is-error .assemble-mobile-nav__input {
+          border-color: rgba(255, 120, 80, 0.45);
         }
 
         .assemble-mobile-nav[hidden] {

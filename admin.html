@@ -6551,13 +6551,6 @@
       if (userEditCancel) {
         userEditCancel.addEventListener("click", closeUserEditModal);
       }
-      if (userEditOverlay) {
-        userEditOverlay.addEventListener("click", (event) => {
-          if (event.target === userEditOverlay) {
-            closeUserEditModal();
-          }
-        });
-      }
       if (usersTableBody) {
         usersTableBody.addEventListener("click", (event) => {
           const permBtn = event.target.closest(".users-perm-btn");

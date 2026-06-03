@@ -1603,6 +1603,18 @@
         padding: 6px 10px;
       }
 
+      .account-self-panel {
+        max-width: 440px;
+      }
+
+      .account-self-form .arnest-field {
+        margin-bottom: 4px;
+      }
+
+      #account-self-status.account-self-status-error {
+        color: #ff8a8a;
+      }
+
       #users-status.users-status-error {
         color: #ff8a8a;
       }
@@ -3565,27 +3577,82 @@
             <div id="arnest-output" class="arnest-output"></div>
           </section>
 
-          <section id="users-workspace" class="users-workspace" aria-label="Управление пользователями">
-            <div class="users-toolbar">
-              <button type="button" id="users-add-btn" class="assemble-btn">Добавить пользователя</button>
+          <section id="users-workspace" class="users-workspace" aria-label="Пользователи и аккаунт">
+            <div id="users-admin-panel">
+              <div class="users-toolbar">
+                <button type="button" id="users-add-btn" class="assemble-btn">Добавить пользователя</button>
+              </div>
+              <p id="users-status" class="muted" hidden aria-live="polite"></p>
+              <div class="users-table-wrap">
+                <table class="users-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Логин</th>
+                      <th scope="col">Имя</th>
+                      <th scope="col">Создан</th>
+                      <th scope="col" style="text-align: right">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody id="users-table-body">
+                    <tr>
+                      <td colspan="4" class="muted">Загрузка…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <p id="users-status" class="muted" hidden aria-live="polite"></p>
-            <div class="users-table-wrap">
-              <table class="users-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Логин</th>
-                    <th scope="col">Имя</th>
-                    <th scope="col">Создан</th>
-                    <th scope="col" style="text-align: right">Действия</th>
-                  </tr>
-                </thead>
-                <tbody id="users-table-body">
-                  <tr>
-                    <td colspan="4" class="muted">Загрузка…</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div id="account-self-panel" class="account-self-panel" hidden>
+              <p class="muted" style="margin: 0 0 14px">
+                Измените логин и пароль для входа в систему.
+              </p>
+              <form id="account-self-form" class="account-self-form arnest-grid">
+                <div class="arnest-field" style="grid-column: 1 / -1">
+                  <label for="account-login">Логин</label>
+                  <input
+                    id="account-login"
+                    name="login"
+                    type="text"
+                    autocomplete="username"
+                    required
+                    pattern="[a-zA-Z0-9._-]{2,64}"
+                    title="2–64 символа: латиница, цифры, . _ -"
+                  />
+                </div>
+                <div class="arnest-field" style="grid-column: 1 / -1">
+                  <label for="account-current-password">Текущий пароль</label>
+                  <input
+                    id="account-current-password"
+                    name="current_password"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                  />
+                </div>
+                <div class="arnest-field" style="grid-column: 1 / -1">
+                  <label for="account-new-password">Новый пароль</label>
+                  <input
+                    id="account-new-password"
+                    name="password"
+                    type="password"
+                    autocomplete="new-password"
+                  />
+                  <p class="muted" style="margin: 6px 0 0; font-size: 12px">
+                    Оставьте пустым, если пароль менять не нужно. Не короче 4 символов.
+                  </p>
+                </div>
+                <div class="arnest-field" style="grid-column: 1 / -1">
+                  <label for="account-new-password2">Повтор нового пароля</label>
+                  <input
+                    id="account-new-password2"
+                    type="password"
+                    autocomplete="new-password"
+                  />
+                </div>
+                <div style="grid-column: 1 / -1">
+                  <button type="submit" class="assemble-btn">Сохранить</button>
+                </div>
+              </form>
+              <p id="account-self-status" class="muted" hidden aria-live="polite"></p>
             </div>
           </section>
 
@@ -4078,14 +4145,33 @@
           adminLoginNote.textContent = `Вы вошли как ${label}.`;
         }
       }
-      if (window.__PALETLIST_AUTH && !window.__PALETLIST_AUTH.is_admin) {
+      const usersAdminPanel = document.getElementById("users-admin-panel");
+      const accountSelfPanel = document.getElementById("account-self-panel");
+      const accountSelfForm = document.getElementById("account-self-form");
+      const accountLoginInput = document.getElementById("account-login");
+      const accountCurrentPasswordInput = document.getElementById("account-current-password");
+      const accountNewPasswordInput = document.getElementById("account-new-password");
+      const accountNewPassword2Input = document.getElementById("account-new-password2");
+      const accountSelfStatusEl = document.getElementById("account-self-status");
+
+      function isAdminUser() {
+        return !!(window.__PALETLIST_AUTH && window.__PALETLIST_AUTH.is_admin);
+      }
+
+      function applyUsersMenuForRole() {
         if (usersButton) {
-          usersButton.style.display = "none";
+          usersButton.textContent = isAdminUser()
+            ? "Управление пользователями"
+            : "Управление аккаунтом";
+          usersButton.style.display = "";
         }
         if (navUsers) {
-          navUsers.hidden = true;
+          navUsers.hidden = false;
+          navUsers.textContent = isAdminUser() ? "Пользователи" : "Аккаунт";
         }
       }
+
+      applyUsersMenuForRole();
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
       const assembleSyncBannerEl = document.getElementById("assemble-sync-banner");
@@ -5685,13 +5771,15 @@
         }
 
         if (stage === "users") {
-          menuTitle.textContent = "Управление пользователями";
+          menuTitle.textContent = isAdminUser()
+            ? "Управление пользователями"
+            : "Управление аккаунтом";
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           usersButton.style.display = "none";
           backToMainUsersButton.classList.add("visible");
           usersWorkspace.classList.add("visible");
-          void loadUsers();
+          syncUsersWorkspaceView();
         }
 
         if (navMain) {
@@ -5921,6 +6009,120 @@
         navUsers.addEventListener("click", () => setStage("users"));
       }
 
+      function syncUsersWorkspaceView() {
+        const admin = isAdminUser();
+        if (usersAdminPanel) {
+          usersAdminPanel.hidden = !admin;
+        }
+        if (accountSelfPanel) {
+          accountSelfPanel.hidden = admin;
+        }
+        if (admin) {
+          void loadUsers();
+        } else {
+          initAccountSelfForm();
+        }
+      }
+
+      function setAccountSelfStatus(message, isError) {
+        if (!accountSelfStatusEl) {
+          return;
+        }
+        if (!message) {
+          accountSelfStatusEl.hidden = true;
+          accountSelfStatusEl.textContent = "";
+          accountSelfStatusEl.classList.remove("account-self-status-error");
+          return;
+        }
+        accountSelfStatusEl.hidden = false;
+        accountSelfStatusEl.textContent = message;
+        accountSelfStatusEl.classList.toggle("account-self-status-error", !!isError);
+      }
+
+      function initAccountSelfForm() {
+        if (!accountSelfForm || !window.__PALETLIST_AUTH) {
+          return;
+        }
+        setAccountSelfStatus("");
+        if (accountLoginInput) {
+          accountLoginInput.value = window.__PALETLIST_AUTH.login || "";
+        }
+        if (accountCurrentPasswordInput) {
+          accountCurrentPasswordInput.value = "";
+        }
+        if (accountNewPasswordInput) {
+          accountNewPasswordInput.value = "";
+        }
+        if (accountNewPassword2Input) {
+          accountNewPassword2Input.value = "";
+        }
+      }
+
+      async function saveAccountSelfForm(event) {
+        event.preventDefault();
+        setAccountSelfStatus("");
+        const login = (accountLoginInput && accountLoginInput.value.trim()) || "";
+        const current_password =
+          accountCurrentPasswordInput ? accountCurrentPasswordInput.value : "";
+        const password =
+          accountNewPasswordInput && accountNewPasswordInput.value
+            ? accountNewPasswordInput.value
+            : "";
+        const password2 =
+          accountNewPassword2Input && accountNewPassword2Input.value
+            ? accountNewPassword2Input.value
+            : "";
+        if (!login) {
+          setAccountSelfStatus("Укажите логин.", true);
+          return;
+        }
+        if (!current_password) {
+          setAccountSelfStatus("Укажите текущий пароль.", true);
+          return;
+        }
+        if (password !== password2) {
+          setAccountSelfStatus("Новый пароль и повтор не совпадают.", true);
+          return;
+        }
+        const body = { login, current_password };
+        if (password) {
+          body.password = password;
+        }
+        try {
+          const res = await fetch("/api/auth/account", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            setAccountSelfStatus(
+              data.message || "Не удалось сохранить изменения.",
+              true,
+            );
+            return;
+          }
+          const user = data.user || {};
+          if (window.__PALETLIST_AUTH) {
+            window.__PALETLIST_AUTH.login = user.login || login;
+            window.__PALETLIST_AUTH.display_name = user.display_name || "";
+          }
+          if (adminLoginNote) {
+            const label =
+              user.display_name || user.login || window.__PALETLIST_AUTH.login;
+            adminLoginNote.textContent = `Вы вошли как ${label}.`;
+          }
+          accountSelfForm.reset();
+          initAccountSelfForm();
+          setAccountSelfStatus("Данные аккаунта сохранены.");
+        } catch (error) {
+          setAccountSelfStatus(
+            error && error.message ? String(error.message) : "Ошибка сети.",
+            true,
+          );
+        }
+      }
+
       function setUsersStatus(message, isError) {
         if (!usersStatusEl) {
           return;
@@ -6135,6 +6337,9 @@
         }
       }
 
+      if (accountSelfForm) {
+        accountSelfForm.addEventListener("submit", saveAccountSelfForm);
+      }
       if (usersAddBtn) {
         usersAddBtn.addEventListener("click", () => openUserEditModal(null));
       }

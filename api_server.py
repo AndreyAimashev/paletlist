@@ -124,6 +124,10 @@ def _is_auth_login_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/auth/login"
 
 
+def _is_auth_account_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/auth/account"
+
+
 def authenticate_app_login(login: str, password: str) -> dict | None:
     login_norm = (login or "").strip()
     pwd = str(password or "")
@@ -196,6 +200,98 @@ def revoke_auth_session(token: str | None) -> None:
         return
     with _AUTH_SESSIONS_LOCK:
         _AUTH_SESSIONS.pop(token, None)
+
+
+def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
+    """Смена логина/пароля текущим пользователем (не admin)."""
+    if session.get("is_admin"):
+        return {
+            "error": "forbidden",
+            "message": "Для администратора используйте раздел «Управление пользователями».",
+        }
+    user_id = int(session.get("user_id") or 0)
+    if user_id <= 0:
+        return {"error": "forbidden", "message": "Учётная запись не найдена."}
+    current_password = str(body.get("current_password") or "")
+    if not current_password:
+        return {"error": "validation", "message": "Укажите текущий пароль."}
+    new_login = _normalize_str(body.get("login", session.get("login") or ""))
+    if not new_login:
+        return {"error": "validation", "message": "Укажите логин."}
+    if _is_reserved_admin_login(new_login):
+        return {
+            "error": "validation",
+            "message": "Логин «admin» зарезервирован для администратора.",
+        }
+    if not _LOGIN_RE.match(new_login):
+        return {
+            "error": "validation",
+            "message": "Логин: 2–64 символа (латиница, цифры, . _ -).",
+        }
+    password_raw = body.get("password")
+    new_password = (
+        str(password_raw).strip() if password_raw is not None else ""
+    )
+    if new_password and len(new_password) < 4:
+        return {
+            "error": "validation",
+            "message": "Новый пароль не короче 4 символов.",
+        }
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT id, login, password_hash, display_name
+            FROM app_users WHERE id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Пользователь не найден."}
+        if not _verify_app_password(current_password, row["password_hash"]):
+            con.close()
+            return {
+                "error": "invalid_credentials",
+                "message": "Неверный текущий пароль.",
+            }
+        try:
+            if new_password:
+                pwd_hash = _hash_app_password(new_password)
+                cur.execute(
+                    """
+                    UPDATE app_users
+                    SET login = ?, password_hash = ?
+                    WHERE id = ?
+                    """,
+                    (new_login, pwd_hash, user_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE app_users SET login = ? WHERE id = ?",
+                    (new_login, user_id),
+                )
+            row = cur.execute(
+                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            con.commit()
+        except sqlite3.IntegrityError:
+            con.close()
+            return {
+                "error": "duplicate",
+                "message": "Пользователь с таким логином уже существует.",
+            }
+        con.close()
+    user_api = _user_row_to_api(row)
+    if token:
+        with _AUTH_SESSIONS_LOCK:
+            stored = _AUTH_SESSIONS.get(token)
+            if stored:
+                stored["login"] = user_api["login"]
+                stored["display_name"] = user_api.get("display_name") or ""
+    return {"ok": True, "user": user_api}
 
 
 def _is_reserved_admin_login(login: str) -> bool:
@@ -4280,6 +4376,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             {
                 "token": token,
                 "user": {
+                    "user_id": int(user.get("user_id", 0)),
                     "login": user["login"],
                     "display_name": user.get("display_name") or "",
                     "is_admin": bool(user.get("is_admin")),
@@ -4287,11 +4384,24 @@ class ApiHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _require_admin(self) -> bool:
+        if (self._auth_session or {}).get("is_admin"):
+            return True
+        self._send_json(
+            403,
+            {
+                "error": "forbidden",
+                "message": "Доступ только для администратора.",
+            },
+        )
+        return False
+
     def _handle_auth_me(self) -> None:
         session = self._auth_session or {}
         self._send_json(
             200,
             {
+                "user_id": int(session.get("user_id") or 0),
                 "login": session.get("login") or "",
                 "display_name": session.get("display_name") or "",
                 "is_admin": bool(session.get("is_admin")),
@@ -4710,6 +4820,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, fetch_orders())
             return
         if _is_users_list_path(path):
+            if not self._require_admin():
+                return
             self._send_json(200, {"users": fetch_app_users()})
             return
         if _is_pallet_printer_raw_ping_path(path):
@@ -4873,6 +4985,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
         if _is_users_list_path(path):
+            if not self._require_admin():
+                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:
@@ -4984,8 +5098,40 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_auth_account_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = update_auth_account(
+                    self._auth_session or {},
+                    body,
+                    self._bearer_token(),
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "duplicate":
+                self._send_json(409, result)
+                return
+            if err in ("forbidden", "invalid_credentials"):
+                self._send_json(403 if err == "forbidden" else 401, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            self._send_json(200, result)
+            return
         user_id = _parse_user_id_path(path)
         if user_id is not None:
+            if not self._require_admin():
+                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:
@@ -5131,6 +5277,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         path = parsed.path
         user_id = _parse_user_id_path(path)
         if user_id is not None:
+            if not self._require_admin():
+                return
             try:
                 result = delete_app_user(user_id)
             except sqlite3.Error as exc:

@@ -69,6 +69,7 @@
 
   window.__PALETLIST_AUTH = {
     token: token,
+    user_id: user.user_id != null ? Number(user.user_id) : 0,
     login: user.login || "",
     display_name: user.display_name || "",
     is_admin: !!user.is_admin,

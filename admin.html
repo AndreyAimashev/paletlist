@@ -1591,6 +1591,74 @@
         border-bottom: none;
       }
 
+      .users-btn {
+        box-sizing: border-box;
+        margin: 0;
+        cursor: pointer;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        line-height: 1.25;
+        border-radius: 8px;
+        padding: 7px 12px;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .users-btn:focus-visible {
+        outline: 2px solid rgba(0, 200, 160, 0.55);
+        outline-offset: 2px;
+      }
+
+      .users-btn--primary {
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: #09111e;
+        background: linear-gradient(45deg, var(--accent-teal), rgba(0, 168, 140, 0.95));
+        border: none;
+        border-radius: 24px;
+        padding: 10px 18px;
+        box-shadow: 0 4px 14px rgba(0, 200, 160, 0.22);
+      }
+
+      .users-btn--primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(0, 200, 160, 0.35);
+      }
+
+      .users-btn--secondary {
+        color: var(--text-muted);
+        background: rgba(12, 18, 28, 0.8);
+        border: 1px solid rgba(0, 200, 160, 0.28);
+      }
+
+      .users-btn--secondary:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.48);
+        background: rgba(0, 200, 160, 0.08);
+      }
+
+      .users-btn--danger {
+        color: rgba(255, 190, 190, 0.95);
+        background: rgba(36, 16, 22, 0.7);
+        border: 1px solid rgba(255, 100, 100, 0.38);
+      }
+
+      .users-btn--danger:hover {
+        color: #ffd0d0;
+        border-color: rgba(255, 130, 130, 0.62);
+        background: rgba(52, 20, 28, 0.85);
+      }
+
       .users-row-actions {
         display: flex;
         flex-wrap: wrap;
@@ -1598,9 +1666,10 @@
         justify-content: flex-end;
       }
 
-      .users-row-actions .assemble-btn {
+      .users-row-actions .users-btn {
         font-size: 11px;
-        padding: 6px 10px;
+        padding: 6px 11px;
+        border-radius: 8px;
       }
 
       .users-perm-toggle {
@@ -3626,7 +3695,9 @@
           <section id="users-workspace" class="users-workspace" aria-label="Пользователи и аккаунт">
             <div id="users-admin-panel">
               <div class="users-toolbar">
-                <button type="button" id="users-add-btn" class="assemble-btn">Добавить пользователя</button>
+                <button type="button" id="users-add-btn" class="users-btn users-btn--primary">
+                  Добавить пользователя
+                </button>
               </div>
               <p id="users-status" class="muted" hidden aria-live="polite"></p>
               <div class="users-table-wrap">
@@ -6259,8 +6330,8 @@
               <td>${created}</td>
               <td>
                 <div class="users-row-actions">
-                  <button type="button" class="assemble-btn users-edit-btn" data-user-id="${id}">Редактировать</button>
-                  <button type="button" class="assemble-btn users-delete-btn" data-user-id="${id}">Удалить</button>
+                  <button type="button" class="users-btn users-btn--secondary users-edit-btn" data-user-id="${id}">Редактировать</button>
+                  <button type="button" class="users-btn users-btn--danger users-delete-btn" data-user-id="${id}">Удалить</button>
                 </div>
               </td>
             </tr>`;

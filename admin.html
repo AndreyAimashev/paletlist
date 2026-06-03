@@ -7694,6 +7694,20 @@
         }
       }
 
+      function pageScrollMaxY() {
+        const root = document.documentElement;
+        return Math.max(
+          0,
+          root.scrollHeight - root.clientHeight,
+          document.body.scrollHeight - window.innerHeight,
+        );
+      }
+
+      function scrollPageToEdge(edge) {
+        const top = edge === "bottom" ? pageScrollMaxY() : 0;
+        window.scrollTo({ top, left: 0, behavior: "smooth" });
+      }
+
       function scrollAssembleViewportTo(el) {
         if (!el) {
           return;
@@ -7707,22 +7721,11 @@
       }
 
       function scrollAssembleToTop() {
-        const target =
-          document.getElementById("assemble-lines-summary-wrap") ||
-          assembleLoadedEl ||
-          assembleWorkspace;
-        scrollAssembleViewportTo(target);
+        scrollPageToEdge("top");
       }
 
       function scrollAssembleToBottom() {
-        let target = assembleAddPalletBtn;
-        if (assemblePalletsRoot) {
-          const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
-          if (cards.length) {
-            target = cards[cards.length - 1];
-          }
-        }
-        scrollAssembleViewportTo(target);
+        scrollPageToEdge("bottom");
       }
 
       function findAssemblePalletCardByNumber(targetNum) {

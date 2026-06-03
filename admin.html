@@ -415,13 +415,18 @@
 
       .assemble-head {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
         justify-content: flex-start;
         gap: 12px;
         margin-bottom: 18px;
         padding-bottom: 14px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+        min-height: 42px;
+      }
+
+      .assemble-head .assemble-btn--nav {
+        flex-shrink: 0;
       }
 
       /* Кнопки сборки: разные роли, без «одинаковых» градиентов подряд */
@@ -879,14 +884,21 @@
       }
 
       .assemble-sync-banner {
-        margin: 0 0 10px;
-        padding: 8px 12px;
+        margin: 0 0 0 auto;
+        padding: 6px 10px;
         border-radius: 8px;
-        font-size: 13px;
-        line-height: 1.35;
+        font-size: 12px;
+        line-height: 1.3;
         color: rgba(200, 210, 220, 0.9);
         background: rgba(30, 40, 52, 0.65);
         border: 1px solid rgba(120, 140, 160, 0.35);
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: right;
+      }
+
+      .assemble-sync-banner[hidden] {
+        display: none !important;
       }
 
       .assemble-sync-banner.is-saving {
@@ -2508,10 +2520,14 @@
           max-width: none;
         }
 
-        .assemble-head,
         .pallet-sheets-toolbar {
           flex-direction: column;
           align-items: stretch;
+        }
+
+        .assemble-sync-banner {
+          font-size: 11px;
+          padding: 5px 8px;
         }
 
         .pallet-sheets-toolbar-right {
@@ -3095,7 +3111,6 @@
       <main class="main-area">
         <section class="panel">
           <h1 id="menu-title">Главное меню</h1>
-          <p id="assemble-sync-banner" class="assemble-sync-banner" hidden aria-live="polite"></p>
           <p id="assemble-presence-hint" class="assemble-presence-hint" hidden aria-live="polite"></p>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
@@ -3379,6 +3394,7 @@
                 <button type="button" id="assemble-back-orders" class="assemble-btn assemble-btn--nav">
                   ← К списку заказов
                 </button>
+                <p id="assemble-sync-banner" class="assemble-sync-banner" hidden aria-live="polite"></p>
               </div>
               <p id="assemble-save-status" class="assemble-save-status" hidden aria-live="polite"></p>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>

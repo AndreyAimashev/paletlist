@@ -3196,11 +3196,17 @@ def _parse_localized_number_string(raw: str) -> float | None:
             else:
                 token = token.replace(",", "")
         elif "," in token:
-            parts = token.split(",")
-            if len(parts) == 2 and len(parts[1]) <= 2:
-                token = parts[0].replace(".", "") + "." + parts[1]
+            parts = [p.strip() for p in token.split(",")]
+            if len(parts) == 2:
+                # Одна запятая — десятичный разделитель (800,000 → 800; 10,5 → 10.5).
+                int_part = parts[0].replace(" ", "").replace(".", "")
+                frac_part = parts[1].replace(" ", "")
+                if not int_part:
+                    int_part = "0"
+                token = f"{int_part}.{frac_part}" if frac_part else int_part
             else:
-                token = token.replace(",", "")
+                # Несколько запятых — группировка тысяч (1,234,567).
+                token = "".join(p.replace(" ", "") for p in parts)
         elif "." in token:
             parts = token.split(".")
             if len(parts) > 2 and all(len(p) == 3 for p in parts[1:-1]):

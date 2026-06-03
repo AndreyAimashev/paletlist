@@ -4256,7 +4256,6 @@
         return stage;
       }
 
-      applyMainMenuPermissions("main");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
       const assembleSyncBannerEl = document.getElementById("assemble-sync-banner");
@@ -12146,6 +12145,7 @@
       syncSetsInBoxField(editSetsInBoxMode, editSetsInBoxInput);
 
       renderNavOrder();
+      applyMainMenuPermissions("main");
       syncMobileLayoutState();
       applyAssembleMobileNavSyncVisual("is-idle");
       setStage("main", false);

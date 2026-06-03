@@ -1603,6 +1603,52 @@
         padding: 6px 10px;
       }
 
+      .users-perm-toggle {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .users-perm-btn {
+        margin: 0;
+        padding: 4px 8px;
+        font-family: "Roboto", sans-serif;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 6px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .users-perm-toggle {
+        max-width: 280px;
+      }
+
+      .users-perm-btn:hover:not(:disabled) {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.4);
+      }
+
+      .users-perm-btn.active {
+        color: #09111e;
+        background: linear-gradient(45deg, rgba(0, 200, 160, 0.85), rgba(0, 168, 140, 0.9));
+        border-color: transparent;
+        font-weight: 600;
+      }
+
+      .users-perm-btn:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+
       .account-self-panel {
         max-width: 440px;
       }
@@ -3589,13 +3635,14 @@
                     <tr>
                       <th scope="col">Логин</th>
                       <th scope="col">Имя</th>
+                      <th scope="col">Доступ</th>
                       <th scope="col">Создан</th>
                       <th scope="col" style="text-align: right">Действия</th>
                     </tr>
                   </thead>
                   <tbody id="users-table-body">
                     <tr>
-                      <td colspan="4" class="muted">Загрузка…</td>
+                      <td colspan="5" class="muted">Загрузка…</td>
                     </tr>
                   </tbody>
                 </table>
@@ -4139,20 +4186,77 @@
         return !!(window.__PALETLIST_AUTH && window.__PALETLIST_AUTH.is_admin);
       }
 
-      function applyUsersMenuForRole() {
+      const USER_PERM_LABELS = {
+        orders: "Заказы",
+        nomenclature: "Номенклатура",
+        manage_users: "Управление пользователями",
+      };
+
+      function getAuthPermissions() {
+        const auth = window.__PALETLIST_AUTH;
+        if (!auth) {
+          return { orders: false, nomenclature: false, manage_users: false };
+        }
+        if (auth.is_admin) {
+          return { orders: true, nomenclature: true, manage_users: true };
+        }
+        const p = auth.permissions || {};
+        return {
+          orders: !!p.orders,
+          nomenclature: !!p.nomenclature,
+          manage_users: !!p.manage_users,
+        };
+      }
+
+      function canManageUsersPanel() {
+        return isAdminUser() || getAuthPermissions().manage_users;
+      }
+
+      function applyMainMenuPermissions(stage) {
+        const perms = getAuthPermissions();
+        const mgr = canManageUsersPanel();
+        const st = stage != null ? stage : currentStage;
         if (usersButton) {
-          usersButton.textContent = isAdminUser()
+          usersButton.textContent = mgr
             ? "Управление пользователями"
             : "Управление аккаунтом";
-          usersButton.style.display = "";
+          if (st === "main") {
+            usersButton.style.display = "";
+          }
+        }
+        if (st === "main") {
+          if (ordersButton) {
+            ordersButton.style.display = perms.orders ? "" : "none";
+          }
+          if (nomenclatureButton) {
+            nomenclatureButton.style.display = perms.nomenclature ? "" : "none";
+          }
+        }
+        if (navOrders) {
+          navOrders.hidden = !perms.orders;
+        }
+        if (navNomenclature) {
+          navNomenclature.hidden = !perms.nomenclature;
         }
         if (navUsers) {
           navUsers.hidden = false;
-          navUsers.textContent = isAdminUser() ? "Пользователи" : "Аккаунт";
+          navUsers.textContent = mgr ? "Пользователи" : "Аккаунт";
         }
+        renderNavOrder();
       }
 
-      applyUsersMenuForRole();
+      function guardStagePermission(stage) {
+        const perms = getAuthPermissions();
+        if (stage === "orders" && !perms.orders) {
+          return "main";
+        }
+        if (stage === "nomenclature" && !perms.nomenclature) {
+          return "main";
+        }
+        return stage;
+      }
+
+      applyMainMenuPermissions("main");
       const assembleAllocAlert = document.getElementById("assemble-alloc-alert");
       const assembleSaveStatusEl = document.getElementById("assemble-save-status");
       const assembleSyncBannerEl = document.getElementById("assemble-sync-banner");
@@ -5587,9 +5691,12 @@
       }
 
       function renderNavOrder() {
+        if (!quickNav) {
+          return;
+        }
         navOrder.forEach((stage) => {
           const btn = navButtons[stage];
-          if (btn) {
+          if (btn && !btn.hidden) {
             quickNav.appendChild(btn);
           }
         });
@@ -5633,6 +5740,7 @@
       }
 
       function setStage(stage, recordVisit = true, orderContextForStage = undefined) {
+        stage = guardStagePermission(stage);
         if (currentStage === "assemble" && stage !== "assemble") {
           if (assembleAllocState && assembleOrderSnapshot) {
             syncAssembleStateFromDom();
@@ -5752,7 +5860,7 @@
         }
 
         if (stage === "users") {
-          menuTitle.textContent = isAdminUser()
+          menuTitle.textContent = canManageUsersPanel()
             ? "Управление пользователями"
             : "Управление аккаунтом";
           ordersButton.style.display = "none";
@@ -5819,6 +5927,7 @@
         }
 
         syncAssemblePalletNavVisibility();
+        applyMainMenuPermissions(stage);
         closeMobileNavDrawer();
       }
 
@@ -5991,14 +6100,14 @@
       }
 
       function syncUsersWorkspaceView() {
-        const admin = isAdminUser();
+        const mgr = canManageUsersPanel();
         if (usersAdminPanel) {
-          usersAdminPanel.hidden = !admin;
+          usersAdminPanel.hidden = !mgr;
         }
         if (accountSelfPanel) {
-          accountSelfPanel.hidden = admin;
+          accountSelfPanel.hidden = mgr;
         }
-        if (admin) {
+        if (mgr) {
           void loadUsers();
         } else {
           initAccountSelfForm();
@@ -6117,13 +6226,19 @@
         });
       }
 
+      function renderUserPermToggle(userId, key, enabled) {
+        const label = USER_PERM_LABELS[key] || key;
+        const active = enabled ? " active" : "";
+        return `<button type="button" class="users-perm-btn${active}" data-user-id="${userId}" data-perm-key="${key}" aria-pressed="${enabled ? "true" : "false"}" title="${escapeXml(label)}">${escapeXml(label)}</button>`;
+      }
+
       function renderUsersTable() {
         if (!usersTableBody) {
           return;
         }
         if (!usersListCache.length) {
           usersTableBody.innerHTML =
-            '<tr><td colspan="4" class="muted">Пользователей пока нет. Нажмите «Добавить пользователя».</td></tr>';
+            '<tr><td colspan="5" class="muted">Пользователей пока нет. Нажмите «Добавить пользователя».</td></tr>';
           return;
         }
         usersTableBody.innerHTML = usersListCache
@@ -6132,9 +6247,16 @@
             const name = escapeXml(user.display_name || "—");
             const created = escapeXml(formatUserCreatedAt(user.created_at));
             const id = Number(user.id);
+            const perms = user.permissions || {};
+            const permCell = `<div class="users-perm-toggle" role="group" aria-label="Доступ для ${login}">
+              ${renderUserPermToggle(id, "orders", !!perms.orders)}
+              ${renderUserPermToggle(id, "nomenclature", !!perms.nomenclature)}
+              ${renderUserPermToggle(id, "manage_users", !!perms.manage_users)}
+            </div>`;
             return `<tr data-user-id="${id}">
               <td>${login}</td>
               <td>${name}</td>
+              <td>${permCell}</td>
               <td>${created}</td>
               <td>
                 <div class="users-row-actions">
@@ -6147,11 +6269,60 @@
           .join("");
       }
 
+      async function toggleUserPermission(userId, permKey, nextEnabled) {
+        const row = usersListCache.find((u) => Number(u.id) === Number(userId));
+        if (!row) {
+          return;
+        }
+        const prev = { ...(row.permissions || {}) };
+        const nextPerms = { ...prev, [permKey]: nextEnabled };
+        row.permissions = nextPerms;
+        renderUsersTable();
+        setUsersStatus("");
+        try {
+          const res = await fetch(`/api/users/${userId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ permissions: nextPerms }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            throw new Error(data.message || "Не удалось сохранить доступ.");
+          }
+          if (data.user) {
+            const idx = usersListCache.findIndex((u) => Number(u.id) === Number(userId));
+            if (idx >= 0) {
+              usersListCache[idx] = data.user;
+            }
+            renderUsersTable();
+          }
+          const auth = window.__PALETLIST_AUTH;
+          if (auth && Number(auth.user_id) === Number(userId) && data.user && data.user.permissions) {
+            auth.permissions = {
+              orders: !!data.user.permissions.orders,
+              nomenclature: !!data.user.permissions.nomenclature,
+              manage_users: !!data.user.permissions.manage_users,
+            };
+            applyMainMenuPermissions(currentStage);
+            if (currentStage === "users") {
+              syncUsersWorkspaceView();
+            }
+          }
+        } catch (error) {
+          row.permissions = prev;
+          renderUsersTable();
+          setUsersStatus(
+            error && error.message ? String(error.message) : "Ошибка сохранения доступа.",
+            true,
+          );
+        }
+      }
+
       async function loadUsers() {
         if (!usersTableBody) {
           return;
         }
-        usersTableBody.innerHTML = '<tr><td colspan="4" class="muted">Загрузка…</td></tr>';
+        usersTableBody.innerHTML = '<tr><td colspan="5" class="muted">Загрузка…</td></tr>';
         setUsersStatus("");
         try {
           const res = await fetch("/api/users", { cache: "no-store" });
@@ -6166,7 +6337,7 @@
         } catch (error) {
           usersListCache = [];
           usersTableBody.innerHTML =
-            '<tr><td colspan="4" class="muted">Не удалось загрузить пользователей.</td></tr>';
+            '<tr><td colspan="5" class="muted">Не удалось загрузить пользователей.</td></tr>';
           setUsersStatus(
             error && error.message ? String(error.message) : "Ошибка загрузки.",
             true,
@@ -6319,6 +6490,19 @@
       }
       if (usersTableBody) {
         usersTableBody.addEventListener("click", (event) => {
+          const permBtn = event.target.closest(".users-perm-btn");
+          if (permBtn && !permBtn.disabled) {
+            const id = Number(permBtn.getAttribute("data-user-id"));
+            const key = permBtn.getAttribute("data-perm-key");
+            if (Number.isFinite(id) && key) {
+              const enabled = !permBtn.classList.contains("active");
+              permBtn.disabled = true;
+              void toggleUserPermission(id, key, enabled).finally(() => {
+                permBtn.disabled = false;
+              });
+            }
+            return;
+          }
           const editBtn = event.target.closest(".users-edit-btn");
           if (editBtn) {
             const id = Number(editBtn.getAttribute("data-user-id"));

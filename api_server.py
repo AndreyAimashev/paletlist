@@ -140,6 +140,7 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
                 "login": ADMIN_LOGIN,
                 "display_name": "Администратор",
                 "is_admin": True,
+                "permissions": _admin_permissions(),
             }
         return None
     with DB_LOCK:
@@ -147,7 +148,8 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT id, login, password_hash, display_name
+            SELECT id, login, password_hash, display_name,
+                   perm_orders, perm_nomenclature, perm_manage_users
             FROM app_users
             WHERE login = ? COLLATE NOCASE
             """,
@@ -163,17 +165,22 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         "login": row["login"] or login_norm,
         "display_name": row["display_name"] or "",
         "is_admin": False,
+        "permissions": _permissions_from_row(row),
     }
 
 
 def create_auth_session(user: dict) -> str:
     token = secrets.token_urlsafe(32)
     expires_at = time.time() + _AUTH_SESSION_TTL_SEC
+    perms = user.get("permissions")
+    if not isinstance(perms, dict):
+        perms = _admin_permissions() if user.get("is_admin") else _permissions_from_row({})
     payload = {
         "user_id": int(user.get("user_id", 0)),
         "login": user.get("login") or "",
         "display_name": user.get("display_name") or "",
         "is_admin": bool(user.get("is_admin")),
+        "permissions": dict(perms),
         "expires_at": expires_at,
     }
     with _AUTH_SESSIONS_LOCK:
@@ -208,6 +215,12 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
         return {
             "error": "forbidden",
             "message": "Для администратора используйте раздел «Управление пользователями».",
+        }
+    session_perms = session.get("permissions") or {}
+    if session_perms.get("manage_users"):
+        return {
+            "error": "forbidden",
+            "message": "Используйте раздел «Управление пользователями» для смены логина и пароля.",
         }
     user_id = int(session.get("user_id") or 0)
     if user_id <= 0:
@@ -273,7 +286,7 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
                     (new_login, user_id),
                 )
             row = cur.execute(
-                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                f"{_APP_USER_SELECT} WHERE id = ?",
                 (user_id,),
             ).fetchone()
             con.commit()
@@ -342,6 +355,54 @@ def _init_app_users_table(cur) -> None:
         )
         """
     )
+    _migrate_app_users_permissions(cur)
+
+
+def _migrate_app_users_permissions(cur) -> None:
+    cols = {r[1] for r in cur.execute("PRAGMA table_info(app_users)").fetchall()}
+    for col, default in (
+        ("perm_orders", 1),
+        ("perm_nomenclature", 1),
+        ("perm_manage_users", 0),
+    ):
+        if col not in cols:
+            cur.execute(
+                f"ALTER TABLE app_users ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}"
+            )
+
+
+def _permissions_from_row(row) -> dict:
+    keys = row.keys() if hasattr(row, "keys") else ()
+    return {
+        "orders": bool(row["perm_orders"]) if "perm_orders" in keys else True,
+        "nomenclature": bool(row["perm_nomenclature"])
+        if "perm_nomenclature" in keys
+        else True,
+        "manage_users": bool(row["perm_manage_users"])
+        if "perm_manage_users" in keys
+        else False,
+    }
+
+
+def _admin_permissions() -> dict:
+    return {"orders": True, "nomenclature": True, "manage_users": True}
+
+
+def _parse_permissions_patch(body: dict) -> dict | None:
+    raw = body.get("permissions")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key, col in (
+        ("orders", "perm_orders"),
+        ("nomenclature", "perm_nomenclature"),
+        ("manage_users", "perm_manage_users"),
+    ):
+        if key in raw:
+            out[col] = 1 if raw[key] else 0
+    return out
 
 
 def _user_row_to_api(row) -> dict:
@@ -350,7 +411,15 @@ def _user_row_to_api(row) -> dict:
         "login": row["login"] or "",
         "display_name": row["display_name"] or "",
         "created_at": row["created_at"] or "",
+        "permissions": _permissions_from_row(row),
     }
+
+
+_APP_USER_SELECT = """
+    SELECT id, login, display_name, created_at,
+           perm_orders, perm_nomenclature, perm_manage_users
+    FROM app_users
+"""
 
 
 def fetch_app_users() -> list[dict]:
@@ -358,9 +427,8 @@ def fetch_app_users() -> list[dict]:
         con = get_connection()
         cur = con.cursor()
         rows = cur.execute(
-            """
-            SELECT id, login, display_name, created_at
-            FROM app_users
+            f"""
+            {_APP_USER_SELECT}
             WHERE lower(trim(login)) != lower(?)
             ORDER BY login COLLATE NOCASE ASC
             """,
@@ -393,20 +461,35 @@ def create_app_user(body: dict) -> dict:
         }
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     pwd_hash = _hash_app_password(password)
+    perm_patch = _parse_permissions_patch(body) or {}
+    perm_orders = perm_patch.get("perm_orders", 1)
+    perm_nomenclature = perm_patch.get("perm_nomenclature", 1)
+    perm_manage_users = perm_patch.get("perm_manage_users", 0)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         try:
             cur.execute(
                 """
-                INSERT INTO app_users (login, password_hash, display_name, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO app_users (
+                  login, password_hash, display_name, created_at,
+                  perm_orders, perm_nomenclature, perm_manage_users
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (login, pwd_hash, display_name, created_at),
+                (
+                    login,
+                    pwd_hash,
+                    display_name,
+                    created_at,
+                    perm_orders,
+                    perm_nomenclature,
+                    perm_manage_users,
+                ),
             )
             uid = int(cur.lastrowid)
             row = cur.execute(
-                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                f"{_APP_USER_SELECT} WHERE id = ?",
                 (uid,),
             ).fetchone()
             con.commit()
@@ -421,11 +504,12 @@ def create_app_user(body: dict) -> dict:
 
 
 def update_app_user(user_id: int, body: dict) -> dict:
+    perm_patch = _parse_permissions_patch(body)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         row = cur.execute(
-            "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+            f"{_APP_USER_SELECT} WHERE id = ?",
             (int(user_id),),
         ).fetchone()
         if not row:
@@ -463,8 +547,21 @@ def update_app_user(user_id: int, body: dict) -> dict:
         pwd_hash = None
         if password is not None and str(password) != "":
             pwd_hash = _hash_app_password(str(password))
+        only_permissions = (
+            perm_patch is not None
+            and len(perm_patch) > 0
+            and "login" not in body
+            and "display_name" not in body
+            and password is None
+        )
         try:
-            if pwd_hash is not None:
+            if only_permissions and perm_patch:
+                sets = ", ".join(f"{col} = ?" for col in perm_patch)
+                cur.execute(
+                    f"UPDATE app_users SET {sets} WHERE id = ?",
+                    (*perm_patch.values(), int(user_id)),
+                )
+            elif pwd_hash is not None:
                 cur.execute(
                     """
                     UPDATE app_users
@@ -473,6 +570,12 @@ def update_app_user(user_id: int, body: dict) -> dict:
                     """,
                     (login, display_name, pwd_hash, int(user_id)),
                 )
+                if perm_patch:
+                    sets = ", ".join(f"{col} = ?" for col in perm_patch)
+                    cur.execute(
+                        f"UPDATE app_users SET {sets} WHERE id = ?",
+                        (*perm_patch.values(), int(user_id)),
+                    )
             else:
                 cur.execute(
                     """
@@ -480,8 +583,14 @@ def update_app_user(user_id: int, body: dict) -> dict:
                     """,
                     (login, display_name, int(user_id)),
                 )
+                if perm_patch:
+                    sets = ", ".join(f"{col} = ?" for col in perm_patch)
+                    cur.execute(
+                        f"UPDATE app_users SET {sets} WHERE id = ?",
+                        (*perm_patch.values(), int(user_id)),
+                    )
             row = cur.execute(
-                "SELECT id, login, display_name, created_at FROM app_users WHERE id = ?",
+                f"{_APP_USER_SELECT} WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
             con.commit()
@@ -1907,6 +2016,31 @@ def _parse_orders_assemble_presence_id(path: str) -> int | None:
         return int(mid)
     except ValueError:
         return None
+
+
+def _path_needs_orders_permission(path: str) -> bool:
+    if (
+        _is_orders_list_path(path)
+        or _is_orders_import_excel_path(path)
+        or _is_orders_batches_export_pdf_path(path)
+    ):
+        return True
+    if _parse_orders_detail_id(path) is not None:
+        return True
+    if _parse_orders_packing_sheets_html_id(path) is not None:
+        return True
+    if _parse_orders_packing_sheets_pdf_id(path) is not None:
+        return True
+    if _parse_orders_lab_ship_id(path) is not None:
+        return True
+    if _parse_orders_assemble_presence_id(path) is not None:
+        return True
+    return False
+
+
+def _path_needs_nomenclature_permission(path: str) -> bool:
+    norm = _norm_api_path(path)
+    return norm == "/api/nomenclature" or norm.startswith("/api/nomenclature/")
 
 
 def _presence_label_from_user_agent(user_agent: str) -> str:
@@ -4391,6 +4525,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "login": user["login"],
                     "display_name": user.get("display_name") or "",
                     "is_admin": bool(user.get("is_admin")),
+                    "permissions": user.get("permissions") or _admin_permissions(),
                 },
             },
         )
@@ -4407,6 +4542,39 @@ class ApiHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _session_permissions(self) -> dict:
+        session = self._auth_session or {}
+        if session.get("is_admin"):
+            return _admin_permissions()
+        perms = session.get("permissions")
+        if isinstance(perms, dict):
+            return {
+                "orders": bool(perms.get("orders")),
+                "nomenclature": bool(perms.get("nomenclature")),
+                "manage_users": bool(perms.get("manage_users")),
+            }
+        return {"orders": True, "nomenclature": True, "manage_users": False}
+
+    def _require_permission(self, key: str, message: str) -> bool:
+        if self._session_permissions().get(key):
+            return True
+        self._send_json(403, {"error": "forbidden", "message": message})
+        return False
+
+    def _require_users_manager(self) -> bool:
+        if (self._auth_session or {}).get("is_admin"):
+            return True
+        if self._session_permissions().get("manage_users"):
+            return True
+        self._send_json(
+            403,
+            {
+                "error": "forbidden",
+                "message": "Нет доступа к управлению пользователями.",
+            },
+        )
+        return False
+
     def _handle_auth_me(self) -> None:
         session = self._auth_session or {}
         self._send_json(
@@ -4416,12 +4584,24 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "login": session.get("login") or "",
                 "display_name": session.get("display_name") or "",
                 "is_admin": bool(session.get("is_admin")),
+                "permissions": self._session_permissions(),
             },
         )
 
     def _handle_auth_logout(self) -> None:
         revoke_auth_session(self._bearer_token())
         self._send_json(200, {"ok": True})
+
+    def _ensure_path_permissions(self, path: str) -> bool:
+        if _path_needs_orders_permission(path):
+            if not self._require_permission("orders", "Нет доступа к заказам."):
+                return False
+        if _path_needs_nomenclature_permission(path):
+            if not self._require_permission(
+                "nomenclature", "Нет доступа к номенклатуре."
+            ):
+                return False
+        return True
 
     def _send_json(self, status: int, data):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -4684,6 +4864,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if not self._ensure_authenticated():
             return
+        if not self._ensure_path_permissions(path):
+            return
         packing_html_oid = _parse_orders_packing_sheets_html_id(path)
         if packing_html_oid is not None:
             detail = fetch_order_detail(packing_html_oid)
@@ -4831,7 +5013,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, fetch_orders())
             return
         if _is_users_list_path(path):
-            if not self._require_admin():
+            if not self._require_users_manager():
                 return
             self._send_json(200, {"users": fetch_app_users()})
             return
@@ -4866,6 +5048,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._handle_auth_login()
             return
         if not self._ensure_authenticated():
+            return
+        if not self._ensure_path_permissions(path):
             return
         if _is_print_arnest_unirus_pallet_sheets_raw_path(path):
             try:
@@ -4996,7 +5180,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
         if _is_users_list_path(path):
-            if not self._require_admin():
+            if not self._require_users_manager():
                 return
             try:
                 body = self._read_json_body()
@@ -5109,6 +5293,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        if not _is_auth_account_path(path) and not _parse_user_id_path(path):
+            if not self._ensure_path_permissions(path):
+                return
         if _is_auth_account_path(path):
             try:
                 body = self._read_json_body()
@@ -5141,7 +5328,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         user_id = _parse_user_id_path(path)
         if user_id is not None:
-            if not self._require_admin():
+            if not self._require_users_manager():
                 return
             try:
                 body = self._read_json_body()
@@ -5255,6 +5442,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        if not self._ensure_path_permissions(path):
+            return
         oid = _parse_orders_detail_id(path)
         if oid is None:
             self._send_json(404, {"error": "Not found"})
@@ -5287,8 +5476,10 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         user_id = _parse_user_id_path(path)
+        if user_id is None and not self._ensure_path_permissions(path):
+            return
         if user_id is not None:
-            if not self._require_admin():
+            if not self._require_users_manager():
                 return
             try:
                 result = delete_app_user(user_id)

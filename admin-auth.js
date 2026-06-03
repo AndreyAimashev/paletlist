@@ -67,12 +67,23 @@
     return;
   }
 
+  var perms = user.permissions;
+  if (!perms || typeof perms !== "object") {
+    perms = user.is_admin
+      ? { orders: true, nomenclature: true, manage_users: true }
+      : { orders: true, nomenclature: true, manage_users: false };
+  }
   window.__PALETLIST_AUTH = {
     token: token,
     user_id: user.user_id != null ? Number(user.user_id) : 0,
     login: user.login || "",
     display_name: user.display_name || "",
     is_admin: !!user.is_admin,
+    permissions: {
+      orders: !!perms.orders,
+      nomenclature: !!perms.nomenclature,
+      manage_users: !!perms.manage_users,
+    },
   };
 
   var nativeFetch = window.fetch.bind(window);

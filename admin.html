@@ -152,6 +152,128 @@
         box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
       }
 
+      .main-menu-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+        margin-bottom: 4px;
+      }
+
+      .updates-menu-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        padding: 8px 14px;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: rgba(12, 18, 28, 0.75);
+        border: 1px solid rgba(0, 200, 160, 0.28);
+        border-radius: 10px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .updates-menu-btn:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.48);
+        background: rgba(0, 200, 160, 0.08);
+        box-shadow: 0 4px 14px rgba(0, 200, 160, 0.12);
+      }
+
+      .updates-menu-btn:focus-visible {
+        outline: 2px solid rgba(0, 200, 160, 0.55);
+        outline-offset: 2px;
+      }
+
+      .updates-menu-btn__icon {
+        flex-shrink: 0;
+        color: var(--accent-teal);
+      }
+
+      .updates-menu-btn__label {
+        line-height: 1.2;
+      }
+
+      .updates-dialog {
+        width: min(560px, 100%);
+      }
+
+      .updates-dialog-intro {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--text-muted);
+        line-height: 1.45;
+      }
+
+      .updates-feed {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        max-height: min(58vh, 520px);
+        overflow-y: auto;
+      }
+
+      .updates-entry {
+        margin: 0 0 18px;
+        padding: 0 0 18px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      .updates-entry:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+      }
+
+      .updates-entry-date {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+
+      .updates-entry-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-main);
+      }
+
+      .updates-entry-lines {
+        margin: 0;
+        padding: 0 0 0 18px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--text-muted);
+      }
+
+      .updates-entry-lines li {
+        margin-bottom: 4px;
+      }
+
+      .updates-entry-lines li:last-child {
+        margin-bottom: 0;
+      }
+
+      .updates-load-error {
+        margin: 0;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 120, 120, 0.45);
+        background: rgba(40, 18, 22, 0.65);
+        color: #ffb4b4;
+        font-size: 13px;
+      }
+
       .menu-items {
         margin-top: 18px;
         display: flex;
@@ -3293,6 +3415,37 @@
           <p id="assemble-presence-hint" class="assemble-presence-hint" hidden aria-live="polite"></p>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
           <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
+          <div class="main-menu-tools">
+            <button
+              id="updates-open-btn"
+              type="button"
+              class="updates-menu-btn"
+              title="Последние обновления"
+              aria-haspopup="dialog"
+            >
+              <svg
+                class="updates-menu-btn__icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 6h13" />
+                <path d="M8 12h13" />
+                <path d="M8 18h13" />
+                <path d="M3 6h.01" />
+                <path d="M3 12h.01" />
+                <path d="M3 18h.01" />
+              </svg>
+              <span class="updates-menu-btn__label">Последние обновления</span>
+            </button>
+          </div>
           <div class="menu-items">
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
@@ -3842,6 +3995,26 @@
       </aside>
     </div>
 
+    <div id="updates-overlay" class="modal-overlay" hidden>
+      <div
+        id="updates-dialog"
+        class="modal-dialog updates-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="updates-dialog-title"
+      >
+        <h3 id="updates-dialog-title">Последние обновления</h3>
+        <p class="updates-dialog-intro muted">
+          Краткий список изменений в системе — без технических деталей.
+        </p>
+        <p id="updates-load-error" class="updates-load-error" hidden></p>
+        <ul id="updates-feed" class="updates-feed" aria-live="polite"></ul>
+        <div class="modal-actions">
+          <button id="updates-close-btn" class="menu-button" type="button">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
     <div id="user-edit-overlay" class="modal-overlay" hidden>
       <div
         id="user-edit-dialog"
@@ -4359,7 +4532,98 @@
           navUsers.hidden = false;
           navUsers.textContent = mgr ? "Пользователи" : "Аккаунт";
         }
+        if (mainMenuTools) {
+          mainMenuTools.style.display = st === "main" ? "" : "none";
+        }
         renderNavOrder();
+      }
+
+      function formatUpdatesDate(iso) {
+        const raw = String(iso || "").trim();
+        if (!raw) {
+          return "";
+        }
+        const d = new Date(`${raw}T12:00:00`);
+        if (Number.isNaN(d.getTime())) {
+          return raw;
+        }
+        return d.toLocaleDateString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      }
+
+      function renderUpdatesFeed(entries) {
+        if (!updatesFeed) {
+          return;
+        }
+        if (!entries.length) {
+          updatesFeed.innerHTML = '<li class="muted">Пока нет записей об обновлениях.</li>';
+          return;
+        }
+        updatesFeed.innerHTML = entries
+          .map((entry) => {
+            const date = escapeXml(formatUpdatesDate(entry.date));
+            const title = escapeXml(entry.title || "Обновление");
+            const lines = Array.isArray(entry.lines) ? entry.lines : [];
+            const linesHtml = lines
+              .map((line) => `<li>${escapeXml(line)}</li>`)
+              .join("");
+            return `<li class="updates-entry">
+              <span class="updates-entry-date">${date}</span>
+              <h4 class="updates-entry-title">${title}</h4>
+              <ul class="updates-entry-lines">${linesHtml}</ul>
+            </li>`;
+          })
+          .join("");
+      }
+
+      async function loadUpdatesFeed() {
+        if (updatesCache) {
+          renderUpdatesFeed(updatesCache);
+          return;
+        }
+        if (updatesLoadError) {
+          updatesLoadError.hidden = true;
+          updatesLoadError.textContent = "";
+        }
+        if (updatesFeed) {
+          updatesFeed.innerHTML = '<li class="muted">Загрузка…</li>';
+        }
+        try {
+          const res = await fetch("/updates.json", { cache: "no-store" });
+          if (!res.ok) {
+            throw new Error("Не удалось загрузить список обновлений.");
+          }
+          const data = await res.json().catch(() => ({}));
+          updatesCache = Array.isArray(data.entries) ? data.entries : [];
+          renderUpdatesFeed(updatesCache);
+        } catch (error) {
+          updatesCache = null;
+          if (updatesFeed) {
+            updatesFeed.innerHTML = "";
+          }
+          if (updatesLoadError) {
+            updatesLoadError.hidden = false;
+            updatesLoadError.textContent =
+              error && error.message ? String(error.message) : "Ошибка загрузки.";
+          }
+        }
+      }
+
+      function openUpdatesModal() {
+        if (!updatesOverlay) {
+          return;
+        }
+        updatesOverlay.hidden = false;
+        void loadUpdatesFeed();
+      }
+
+      function closeUpdatesModal() {
+        if (updatesOverlay) {
+          updatesOverlay.hidden = true;
+        }
       }
 
       function guardStagePermission(stage) {
@@ -4433,6 +4697,14 @@
       const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`;
       const ORDER_ROW_ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
       const ORDER_ROW_ICON_SHIP = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><path d="M16 8h6v4"/><path d="M2 8h2"/><circle cx="7" cy="18" r="2"/><path d="M9 18h6"/><circle cx="17" cy="18" r="2"/></svg>`;
+      const mainMenuTools = document.querySelector(".main-menu-tools");
+      const updatesOpenBtn = document.getElementById("updates-open-btn");
+      const updatesOverlay = document.getElementById("updates-overlay");
+      const updatesFeed = document.getElementById("updates-feed");
+      const updatesLoadError = document.getElementById("updates-load-error");
+      const updatesCloseBtn = document.getElementById("updates-close-btn");
+      let updatesCache = null;
+
       const usersWorkspace = document.getElementById("users-workspace");
       const usersTableBody = document.getElementById("users-table-body");
       const usersStatusEl = document.getElementById("users-status");
@@ -6601,6 +6873,28 @@
       if (userEditCancel) {
         userEditCancel.addEventListener("click", closeUserEditModal);
       }
+      if (updatesOpenBtn) {
+        updatesOpenBtn.addEventListener("click", openUpdatesModal);
+      }
+      if (updatesCloseBtn) {
+        updatesCloseBtn.addEventListener("click", closeUpdatesModal);
+      }
+      if (updatesOverlay) {
+        updatesOverlay.addEventListener("click", (event) => {
+          if (event.target === updatesOverlay) {
+            closeUpdatesModal();
+          }
+        });
+      }
+      document.addEventListener("keydown", (event) => {
+        if (
+          event.key === "Escape" &&
+          updatesOverlay &&
+          !updatesOverlay.hidden
+        ) {
+          closeUpdatesModal();
+        }
+      });
       if (usersAdminPanel) {
         usersAdminPanel.addEventListener("click", (event) => {
           const permBtn = event.target.closest(".users-perm-btn");

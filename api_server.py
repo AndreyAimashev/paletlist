@@ -109,7 +109,7 @@ _AUTH_SESSIONS_LOCK = threading.Lock()
 
 
 def _admin_password() -> str:
-    return os.environ.get("PALETLIST_ADMIN_PASSWORD", "1241")
+    return os.environ.get("PALETLIST_ADMIN_PASSWORD", "1999")
 
 
 def _is_public_api_path(path: str) -> bool:

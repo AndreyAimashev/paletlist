@@ -3619,16 +3619,6 @@
                   />
                 </div>
                 <div class="arnest-field" style="grid-column: 1 / -1">
-                  <label for="account-current-password">Текущий пароль</label>
-                  <input
-                    id="account-current-password"
-                    name="current_password"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                  />
-                </div>
-                <div class="arnest-field" style="grid-column: 1 / -1">
                   <label for="account-new-password">Новый пароль</label>
                   <input
                     id="account-new-password"
@@ -3637,16 +3627,9 @@
                     autocomplete="new-password"
                   />
                   <p class="muted" style="margin: 6px 0 0; font-size: 12px">
-                    Оставьте пустым, если пароль менять не нужно. Не короче 4 символов.
+                    Оставьте пустым, если пароль менять не нужно. Не короче 4 символов. Если
+                    введёте текущий пароль — он останется без изменений.
                   </p>
-                </div>
-                <div class="arnest-field" style="grid-column: 1 / -1">
-                  <label for="account-new-password2">Повтор нового пароля</label>
-                  <input
-                    id="account-new-password2"
-                    type="password"
-                    autocomplete="new-password"
-                  />
                 </div>
                 <div style="grid-column: 1 / -1">
                   <button type="submit" class="assemble-btn">Сохранить</button>
@@ -4149,9 +4132,7 @@
       const accountSelfPanel = document.getElementById("account-self-panel");
       const accountSelfForm = document.getElementById("account-self-form");
       const accountLoginInput = document.getElementById("account-login");
-      const accountCurrentPasswordInput = document.getElementById("account-current-password");
       const accountNewPasswordInput = document.getElementById("account-new-password");
-      const accountNewPassword2Input = document.getElementById("account-new-password2");
       const accountSelfStatusEl = document.getElementById("account-self-status");
 
       function isAdminUser() {
@@ -6047,14 +6028,8 @@
         if (accountLoginInput) {
           accountLoginInput.value = window.__PALETLIST_AUTH.login || "";
         }
-        if (accountCurrentPasswordInput) {
-          accountCurrentPasswordInput.value = "";
-        }
         if (accountNewPasswordInput) {
           accountNewPasswordInput.value = "";
-        }
-        if (accountNewPassword2Input) {
-          accountNewPassword2Input.value = "";
         }
       }
 
@@ -6062,29 +6037,15 @@
         event.preventDefault();
         setAccountSelfStatus("");
         const login = (accountLoginInput && accountLoginInput.value.trim()) || "";
-        const current_password =
-          accountCurrentPasswordInput ? accountCurrentPasswordInput.value : "";
         const password =
           accountNewPasswordInput && accountNewPasswordInput.value
             ? accountNewPasswordInput.value
-            : "";
-        const password2 =
-          accountNewPassword2Input && accountNewPassword2Input.value
-            ? accountNewPassword2Input.value
             : "";
         if (!login) {
           setAccountSelfStatus("Укажите логин.", true);
           return;
         }
-        if (!current_password) {
-          setAccountSelfStatus("Укажите текущий пароль.", true);
-          return;
-        }
-        if (password !== password2) {
-          setAccountSelfStatus("Новый пароль и повтор не совпадают.", true);
-          return;
-        }
-        const body = { login, current_password };
+        const body = { login };
         if (password) {
           body.password = password;
         }
@@ -6114,7 +6075,7 @@
           }
           accountSelfForm.reset();
           initAccountSelfForm();
-          setAccountSelfStatus("Данные аккаунта сохранены.");
+          setAccountSelfStatus(data.message || "Данные аккаунта сохранены.");
         } catch (error) {
           setAccountSelfStatus(
             error && error.message ? String(error.message) : "Ошибка сети.",

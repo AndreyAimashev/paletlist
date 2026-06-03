@@ -212,9 +212,6 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
     user_id = int(session.get("user_id") or 0)
     if user_id <= 0:
         return {"error": "forbidden", "message": "Учётная запись не найдена."}
-    current_password = str(body.get("current_password") or "")
-    if not current_password:
-        return {"error": "validation", "message": "Укажите текущий пароль."}
     new_login = _normalize_str(body.get("login", session.get("login") or ""))
     if not new_login:
         return {"error": "validation", "message": "Укажите логин."}
@@ -250,23 +247,26 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
         if not row:
             con.close()
             return {"error": "not_found", "message": "Пользователь не найден."}
-        if not _verify_app_password(current_password, row["password_hash"]):
-            con.close()
-            return {
-                "error": "invalid_credentials",
-                "message": "Неверный текущий пароль.",
-            }
+        password_unchanged = False
+        login_changed = (new_login or "").lower() != (row["login"] or "").lower()
         try:
             if new_password:
-                pwd_hash = _hash_app_password(new_password)
-                cur.execute(
-                    """
-                    UPDATE app_users
-                    SET login = ?, password_hash = ?
-                    WHERE id = ?
-                    """,
-                    (new_login, pwd_hash, user_id),
-                )
+                if _verify_app_password(new_password, row["password_hash"]):
+                    password_unchanged = True
+                    cur.execute(
+                        "UPDATE app_users SET login = ? WHERE id = ?",
+                        (new_login, user_id),
+                    )
+                else:
+                    pwd_hash = _hash_app_password(new_password)
+                    cur.execute(
+                        """
+                        UPDATE app_users
+                        SET login = ?, password_hash = ?
+                        WHERE id = ?
+                        """,
+                        (new_login, pwd_hash, user_id),
+                    )
             else:
                 cur.execute(
                     "UPDATE app_users SET login = ? WHERE id = ?",
@@ -291,7 +291,18 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
             if stored:
                 stored["login"] = user_api["login"]
                 stored["display_name"] = user_api.get("display_name") or ""
-    return {"ok": True, "user": user_api}
+    if password_unchanged and not login_changed:
+        msg = "Пароль совпадает с текущим — изменений не было."
+    elif password_unchanged:
+        msg = "Логин обновлён. Пароль совпадает с текущим — он не менялся."
+    else:
+        msg = "Данные аккаунта сохранены."
+    return {
+        "ok": True,
+        "user": user_api,
+        "password_unchanged": password_unchanged,
+        "message": msg,
+    }
 
 
 def _is_reserved_admin_login(login: str) -> bool:
@@ -5120,8 +5131,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             if err == "duplicate":
                 self._send_json(409, result)
                 return
-            if err in ("forbidden", "invalid_credentials"):
-                self._send_json(403 if err == "forbidden" else 401, result)
+            if err == "forbidden":
+                self._send_json(403, result)
                 return
             if err == "not_found":
                 self._send_json(404, result)

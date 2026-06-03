@@ -2045,6 +2045,7 @@
 
       .order-item-autocomplete {
         min-width: 0;
+        align-self: stretch;
       }
 
       .order-item-search-wrap {
@@ -2054,13 +2055,23 @@
 
       .order-item-search {
         box-sizing: border-box;
+        display: block;
         width: 100%;
+        min-height: 40px;
         border: 1px solid rgba(0, 200, 160, 0.25);
         border-radius: 8px;
         padding: 10px;
         background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
         font-size: 13px;
+        line-height: 1.35;
+        font-family: inherit;
+        resize: none;
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        field-sizing: content;
       }
 
       .order-item-suggestions {
@@ -3947,12 +3958,13 @@
         <div class="order-item-autocomplete">
           <span class="order-item-field-caption">Наименование</span>
           <div class="order-item-search-wrap">
-            <input
-              type="text"
+            <textarea
               class="order-item-search"
+              rows="1"
               placeholder="Артикул или наименование…"
               autocomplete="off"
-            />
+              aria-label="Артикул или наименование"
+            ></textarea>
             <ul class="order-item-suggestions" hidden></ul>
           </div>
           <div class="order-item-lab-total-wrap" hidden>
@@ -10495,13 +10507,35 @@
         newOrderError.hidden = false;
       }
 
+      const ORDER_ITEM_SEARCH_MIN_H = 40;
+
+      function syncOrderItemSearchHeight(el) {
+        if (!el) {
+          return;
+        }
+        el.style.height = "auto";
+        const h = Math.max(ORDER_ITEM_SEARCH_MIN_H, el.scrollHeight);
+        el.style.height = `${h}px`;
+      }
+
+      function syncAllOrderItemSearchHeights(root) {
+        const container = root || newOrderItems;
+        if (!container) {
+          return;
+        }
+        container.querySelectorAll(".order-item-search").forEach(syncOrderItemSearchHeight);
+      }
+
       function attachOrderItemRowListeners(row) {
         const input = row.querySelector(".order-item-search");
         const ul = row.querySelector(".order-item-suggestions");
         const hid = row.querySelector(".order-item-product-id");
         const removeBtn = row.querySelector(".order-item-remove");
 
+        syncOrderItemSearchHeight(input);
+
         input.addEventListener("input", () => {
+          syncOrderItemSearchHeight(input);
           hid.value = "";
           delete row.dataset.article;
           delete row.dataset.name;
@@ -10545,6 +10579,7 @@
           row.dataset.piecesInBox = String(item.pieces_in_box ?? 0);
           row.dataset.piecesPerSet = String(item.pieces_per_set ?? 1);
           input.value = formatOrderItemSearchInput(item.article, item.name);
+          syncOrderItemSearchHeight(input);
           ul.hidden = true;
           ul.innerHTML = "";
         });
@@ -10620,6 +10655,7 @@
           totalEl.value =
             tq != null && tq !== "" && Number.isFinite(Number(tq)) ? String(tq) : "";
         }
+        syncOrderItemSearchHeight(input);
       }
 
       async function openEditOrderModal(orderId) {
@@ -10678,6 +10714,7 @@
         }
         syncNewOrderLabBuyerUi();
         newOrderOverlay.hidden = false;
+        requestAnimationFrame(() => syncAllOrderItemSearchHeights());
         newOrderShipDate.focus();
       }
 

@@ -414,19 +414,26 @@
       }
 
       .assemble-head {
+        --assemble-head-h: 38px;
         display: flex;
         flex-wrap: nowrap;
-        align-items: center;
+        align-items: stretch;
         justify-content: flex-start;
         gap: 12px;
         margin-bottom: 18px;
         padding-bottom: 14px;
         border-bottom: 1px solid rgba(0, 200, 160, 0.12);
-        min-height: 42px;
+        min-height: var(--assemble-head-h);
       }
 
       .assemble-head .assemble-btn--nav {
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: var(--assemble-head-h);
+        min-height: var(--assemble-head-h);
+        box-sizing: border-box;
       }
 
       /* Кнопки сборки: разные роли, без «одинаковых» градиентов подряд */
@@ -885,14 +892,23 @@
 
       .assemble-sync-banner {
         margin: 0 0 0 auto;
-        padding: 6px 10px;
+        padding: 0 12px;
         border-radius: 8px;
         font-size: 12px;
-        line-height: 1.3;
+        line-height: 1.25;
         flex: 1 1 auto;
         min-width: 0;
-        min-height: 30px;
+        height: var(--assemble-head-h);
+        min-height: var(--assemble-head-h);
+        max-height: var(--assemble-head-h);
+        box-sizing: border-box;
+        display: flex !important;
+        align-items: center;
+        justify-content: flex-end;
         text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         transition:
           color 0.2s ease,
           background 0.2s ease,
@@ -3402,16 +3418,22 @@
           </section>
 
           <section id="assemble-workspace" class="assemble-workspace" aria-label="Распределение заказа по паллетам">
+            <div class="assemble-head">
+              <button type="button" id="assemble-back-orders" class="assemble-btn assemble-btn--nav">
+                ← К списку заказов
+              </button>
+              <p
+                id="assemble-sync-banner"
+                class="assemble-sync-banner is-idle"
+                aria-live="polite"
+              >
+                Все изменения сохранены.
+              </p>
+            </div>
             <div id="assemble-empty" class="assemble-empty muted" hidden>
               <p>Чтобы открыть сборку заказа, перейдите в «Заказы» и нажмите иконку «Сборка» в строке нужного заказа.</p>
             </div>
             <div id="assemble-loaded" hidden>
-              <div class="assemble-head">
-                <button type="button" id="assemble-back-orders" class="assemble-btn assemble-btn--nav">
-                  ← К списку заказов
-                </button>
-                <p id="assemble-sync-banner" class="assemble-sync-banner" hidden aria-live="polite"></p>
-              </div>
               <p id="assemble-save-status" class="assemble-save-status" hidden aria-live="polite"></p>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
@@ -5640,6 +5662,9 @@
             assembleOrderButton.classList.add("visible");
           }
           assembleWorkspace.classList.add("visible");
+          if (assembleSyncBannerEl && !assembleOrderSnapshot) {
+            applyAssembleSyncBannerState("is-idle", "Все изменения сохранены.");
+          }
           refreshAssembleStage();
         }
 
@@ -8336,6 +8361,25 @@
         }, 4000);
       }
 
+      const ASSEMBLE_SYNC_BANNER_STATE_CLASSES = [
+        "is-idle",
+        "is-pending",
+        "is-saving",
+        "is-saved",
+        "is-error",
+      ];
+
+      function applyAssembleSyncBannerState(stateClass, text) {
+        if (!assembleSyncBannerEl) {
+          return;
+        }
+        assembleSyncBannerEl.removeAttribute("hidden");
+        assembleSyncBannerEl.textContent = text;
+        ASSEMBLE_SYNC_BANNER_STATE_CLASSES.forEach((cls) => {
+          assembleSyncBannerEl.classList.toggle(cls, cls === stateClass);
+        });
+      }
+
       function setAssembleSaveUiState(state, opts) {
         const options = opts || {};
         const orderId =
@@ -8343,43 +8387,32 @@
             ? options.orderId
             : assembleOrderSnapshot?.id ?? assembleQueuedPayload?.orderId;
         let text = "";
-        let isError = false;
-        let showBanner = false;
+        let stateClass = "is-idle";
         if (state === "debouncing") {
           text = `Есть несохранённые изменения (${formatAssembleSaveOrderLabel(orderId)})…`;
-          showBanner = true;
+          stateClass = "is-pending";
         } else if (state === "saving") {
-          text = `Сохранение сборки ${formatAssembleSaveOrderLabel(orderId)}…`;
-          showBanner = true;
+          text =
+            options.message ||
+            `Сохранение сборки ${formatAssembleSaveOrderLabel(orderId)}…`;
+          stateClass = "is-saving";
         } else if (state === "saved") {
           text = `Сборка ${formatAssembleSaveOrderLabel(orderId)} сохранена на сервере.`;
-          showBanner = true;
+          stateClass = "is-saved";
         } else if (state === "error") {
           text =
             options.message ||
             `Не удалось сохранить сборку ${formatAssembleSaveOrderLabel(orderId)}. Повтор…`;
-          isError = true;
-          showBanner = true;
+          stateClass = "is-error";
+        } else {
+          text =
+            orderId != null && Number.isFinite(Number(orderId))
+              ? `Сборка ${formatAssembleSaveOrderLabel(orderId)} синхронизирована с сервером.`
+              : "Все изменения сохранены.";
+          stateClass = "is-idle";
         }
-        if (assembleSyncBannerEl) {
-          assembleSyncBannerEl.hidden = !showBanner;
-          assembleSyncBannerEl.textContent = showBanner ? text : "";
-          assembleSyncBannerEl.classList.toggle("is-error", isError);
-          assembleSyncBannerEl.classList.toggle(
-            "is-saving",
-            state === "saving" || state === "debouncing",
-          );
-        }
-        const showInline =
-          currentStage === "assemble" &&
-          assembleOrderSnapshot &&
-          orderId != null &&
-          assembleOrderSnapshot.id === orderId;
-        if (showInline) {
-          setAssembleSaveStatus(showBanner ? text : "", isError);
-        } else if (state === "idle") {
-          setAssembleSaveStatus("", false);
-        }
+        applyAssembleSyncBannerState(stateClass, text);
+        setAssembleSaveStatus("", false);
         if (state === "saved") {
           scheduleAssembleSaveBannerIdle();
         } else if (state === "idle" && assembleSaveBannerHideTimer) {
@@ -9802,6 +9835,10 @@
         if (!assembleLoadedEl || !assembleEmptyEl) {
           return;
         }
+        setAssembleSaveUiState("saving", {
+          orderId,
+          message: `Загрузка сборки ${formatAssembleSaveOrderLabel(orderId)}…`,
+        });
         let res;
         try {
           res = await fetch(`/api/orders/${orderId}`);
@@ -9810,12 +9847,20 @@
           assembleLoadedEl.hidden = true;
           assembleEmptyEl.innerHTML =
             "<p>Не удалось связаться с сервером. Проверьте API и попробуйте снова.</p>";
+          setAssembleSaveUiState("error", {
+            orderId,
+            message: "Нет связи с сервером при загрузке заказа.",
+          });
           return;
         }
         if (!res.ok) {
           assembleEmptyEl.hidden = false;
           assembleLoadedEl.hidden = true;
           assembleEmptyEl.innerHTML = "<p>Заказ не найден или недоступен.</p>";
+          setAssembleSaveUiState("error", {
+            orderId,
+            message: "Заказ не найден или недоступен.",
+          });
           return;
         }
         let data;
@@ -9825,6 +9870,10 @@
           assembleEmptyEl.hidden = false;
           assembleLoadedEl.hidden = true;
           assembleEmptyEl.innerHTML = "<p>Некорректный ответ сервера.</p>";
+          setAssembleSaveUiState("error", {
+            orderId,
+            message: "Некорректный ответ сервера.",
+          });
           return;
         }
         const items = Array.isArray(data.items) ? data.items : [];
@@ -9833,6 +9882,7 @@
           assembleLoadedEl.hidden = true;
           assembleEmptyEl.innerHTML =
             "<p>В заказе нет позиций — нечего распределять по паллетам.</p>";
+          setAssembleSaveUiState("idle", { orderId });
           return;
         }
         assembleOrderSnapshot = {
@@ -9894,6 +9944,7 @@
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
+        setAssembleSaveUiState("idle", { orderId });
       }
 
       function showAssembleEmptyNav() {

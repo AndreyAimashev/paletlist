@@ -4192,25 +4192,13 @@
       const panel = document.querySelector(".panel");
       const resizeHandle = document.getElementById("resize-handle");
       const navButtons = {
-        main: navMain,
-        pallet: navPallet,
-        create: navCreate,
-        arnest: navArnest,
         orders: navOrders,
-        assemble: navAssemble,
         nomenclature: navNomenclature,
+        main: navMain,
         users: navUsers,
       };
-      const defaultNavOrder = [
-        "main",
-        "pallet",
-        "create",
-        "arnest",
-        "orders",
-        "assemble",
-        "nomenclature",
-        "users",
-      ];
+      const defaultNavOrder = ["orders", "nomenclature", "main", "users"];
+      const quickNavStages = new Set(defaultNavOrder);
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
       let currentStage = "main";
@@ -5533,11 +5521,17 @@
 
       function renderNavOrder() {
         navOrder.forEach((stage) => {
-          quickNav.appendChild(navButtons[stage]);
+          const btn = navButtons[stage];
+          if (btn) {
+            quickNav.appendChild(btn);
+          }
         });
       }
 
       function updateVisitedOrder(stage) {
+        if (!quickNavStages.has(stage)) {
+          return;
+        }
         navOrder = [stage, ...navOrder.filter((item) => item !== stage)];
         localStorage.setItem(navOrderStorageKey, JSON.stringify(navOrder));
         renderNavOrder();
@@ -5700,14 +5694,18 @@
           void loadUsers();
         }
 
-        navMain.classList.toggle("active", stage === "main");
-        navPallet.classList.toggle("active", stage === "pallet");
-        navCreate.classList.toggle("active", stage === "create");
-        navArnest.classList.toggle("active", stage === "arnest");
-        navOrders.classList.toggle("active", stage === "orders");
-        navAssemble.classList.toggle("active", stage === "assemble");
-        navNomenclature.classList.toggle("active", stage === "nomenclature");
-        navUsers.classList.toggle("active", stage === "users");
+        if (navMain) {
+          navMain.classList.toggle("active", stage === "main");
+        }
+        if (navOrders) {
+          navOrders.classList.toggle("active", stage === "orders");
+        }
+        if (navNomenclature) {
+          navNomenclature.classList.toggle("active", stage === "nomenclature");
+        }
+        if (navUsers) {
+          navUsers.classList.toggle("active", stage === "users");
+        }
 
         if (recordVisit) {
           updateVisitedOrder(stage);
@@ -5910,14 +5908,18 @@
       nomenclatureCreateProductButton.addEventListener("click", () => {
         openNomenclatureCreate();
       });
-      navMain.addEventListener("click", () => setStage("main"));
-      navPallet.addEventListener("click", () => setStage("pallet"));
-      navCreate.addEventListener("click", () => setStage("create"));
-      navArnest.addEventListener("click", () => setStage("arnest"));
-      navOrders.addEventListener("click", () => setStage("orders"));
-      navAssemble.addEventListener("click", () => setStage("assemble"));
-      navNomenclature.addEventListener("click", () => setStage("nomenclature"));
-      navUsers.addEventListener("click", () => setStage("users"));
+      if (navMain) {
+        navMain.addEventListener("click", () => setStage("main"));
+      }
+      if (navOrders) {
+        navOrders.addEventListener("click", () => setStage("orders"));
+      }
+      if (navNomenclature) {
+        navNomenclature.addEventListener("click", () => setStage("nomenclature"));
+      }
+      if (navUsers) {
+        navUsers.addEventListener("click", () => setStage("users"));
+      }
 
       function setUsersStatus(message, isError) {
         if (!usersStatusEl) {

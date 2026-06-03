@@ -3437,9 +3437,7 @@
               <p id="assemble-save-status" class="assemble-save-status" hidden aria-live="polite"></p>
               <div id="assemble-alloc-alert" class="assemble-alert" hidden></div>
               <div id="assemble-lines-summary-wrap">
-                <p class="muted" style="margin: 0 0 6px; font-size: 12px">Позиции заказа и остаток к распределению</p>
                 <div class="assemble-summary-toolbar muted" id="assemble-summary-unit-toolbar" hidden>
-                  <span>Единицы таблицы:</span>
                   <div class="assemble-summary-unit-toggle" role="group" aria-label="Единицы измерения в сводке">
                     <button type="button" class="assemble-summary-unit-btn" data-assemble-summary-unit="piece">
                       Штуки
@@ -9979,6 +9977,7 @@
           assembleOptionalBatchRoot.innerHTML = "";
         }
         syncAssemblePalletNavVisibility();
+        setAssembleSaveUiState("idle");
       }
 
       function refreshAssembleStage() {

@@ -371,17 +371,52 @@ def _migrate_app_users_permissions(cur) -> None:
             )
 
 
-def _permissions_from_row(row) -> dict:
+def _perm_cell_bool(row, col: str, default: int) -> bool:
     keys = row.keys() if hasattr(row, "keys") else ()
+    if col not in keys:
+        return bool(default)
+    raw = row[col]
+    if raw is None:
+        return bool(default)
+    try:
+        return bool(int(raw))
+    except (TypeError, ValueError):
+        return bool(default)
+
+
+def _permissions_from_row(row) -> dict:
     return {
-        "orders": bool(row["perm_orders"]) if "perm_orders" in keys else True,
-        "nomenclature": bool(row["perm_nomenclature"])
-        if "perm_nomenclature" in keys
-        else True,
-        "manage_users": bool(row["perm_manage_users"])
-        if "perm_manage_users" in keys
-        else False,
+        "orders": _perm_cell_bool(row, "perm_orders", 1),
+        "nomenclature": _perm_cell_bool(row, "perm_nomenclature", 1),
+        "manage_users": _perm_cell_bool(row, "perm_manage_users", 0),
     }
+
+
+def fetch_app_user_permissions(user_id: int) -> dict | None:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            f"{_APP_USER_SELECT} WHERE id = ?",
+            (int(user_id),),
+        ).fetchone()
+        con.close()
+    if not row:
+        return None
+    return _permissions_from_row(row)
+
+
+def sync_auth_sessions_permissions_for_user(user_id: int, permissions: dict) -> None:
+    uid = int(user_id)
+    perms = {
+        "orders": bool(permissions.get("orders")),
+        "nomenclature": bool(permissions.get("nomenclature")),
+        "manage_users": bool(permissions.get("manage_users")),
+    }
+    with _AUTH_SESSIONS_LOCK:
+        for session in _AUTH_SESSIONS.values():
+            if int(session.get("user_id") or 0) == uid and not session.get("is_admin"):
+                session["permissions"] = dict(perms)
 
 
 def _admin_permissions() -> dict:
@@ -552,7 +587,7 @@ def update_app_user(user_id: int, body: dict) -> dict:
             and len(perm_patch) > 0
             and "login" not in body
             and "display_name" not in body
-            and password is None
+            and "password" not in body
         )
         try:
             if only_permissions and perm_patch:
@@ -601,7 +636,12 @@ def update_app_user(user_id: int, body: dict) -> dict:
                 "message": "Пользователь с таким логином уже существует.",
             }
         con.close()
-    return {"ok": True, "user": _user_row_to_api(row)}
+    user_api = _user_row_to_api(row)
+    if perm_patch:
+        sync_auth_sessions_permissions_for_user(
+            int(user_id), user_api.get("permissions") or {}
+        )
+    return {"ok": True, "user": user_api}
 
 
 def delete_app_user(user_id: int) -> dict:
@@ -4546,6 +4586,17 @@ class ApiHandler(BaseHTTPRequestHandler):
         session = self._auth_session or {}
         if session.get("is_admin"):
             return _admin_permissions()
+        uid = int(session.get("user_id") or 0)
+        if uid > 0:
+            db_perms = fetch_app_user_permissions(uid)
+            if db_perms is not None:
+                token = self._bearer_token()
+                if token:
+                    with _AUTH_SESSIONS_LOCK:
+                        stored = _AUTH_SESSIONS.get(token)
+                        if stored and int(stored.get("user_id") or 0) == uid:
+                            stored["permissions"] = dict(db_perms)
+                return db_perms
         perms = session.get("permissions")
         if isinstance(perms, dict):
             return {

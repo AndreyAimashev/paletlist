@@ -4283,6 +4283,52 @@
         return isAdminUser() || getAuthPermissions().manage_users;
       }
 
+      function normalizeUserRecord(user) {
+        const p = (user && user.permissions) || {};
+        return {
+          ...user,
+          permissions: {
+            orders: !!p.orders,
+            nomenclature: !!p.nomenclature,
+            manage_users: !!p.manage_users,
+          },
+        };
+      }
+
+      async function refreshAuthPermissionsFromServer() {
+        try {
+          const res = await fetch("/api/auth/me", { cache: "no-store" });
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json().catch(() => null);
+          const auth = window.__PALETLIST_AUTH;
+          if (!auth || !data) {
+            return;
+          }
+          if (data.is_admin) {
+            auth.is_admin = true;
+            auth.permissions = {
+              orders: true,
+              nomenclature: true,
+              manage_users: true,
+            };
+          } else if (data.permissions) {
+            auth.permissions = {
+              orders: !!data.permissions.orders,
+              nomenclature: !!data.permissions.nomenclature,
+              manage_users: !!data.permissions.manage_users,
+            };
+          }
+          applyMainMenuPermissions(currentStage);
+          if (currentStage === "users") {
+            syncUsersWorkspaceView();
+          }
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
       function applyMainMenuPermissions(stage) {
         const perms = getAuthPermissions();
         const mgr = canManageUsersPanel();
@@ -6339,6 +6385,8 @@
           .join("");
       }
 
+      let usersPermToggleBusy = false;
+
       async function toggleUserPermission(userId, permKey, nextEnabled) {
         const row = usersListCache.find((u) => Number(u.id) === Number(userId));
         if (!row) {
@@ -6353,7 +6401,7 @@
           const res = await fetch(`/api/users/${userId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ permissions: nextPerms }),
+            body: JSON.stringify({ permissions: { [permKey]: nextEnabled } }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || data.error) {
@@ -6362,7 +6410,7 @@
           if (data.user) {
             const idx = usersListCache.findIndex((u) => Number(u.id) === Number(userId));
             if (idx >= 0) {
-              usersListCache[idx] = data.user;
+              usersListCache[idx] = normalizeUserRecord(data.user);
             }
             renderUsersTable();
           }
@@ -6400,7 +6448,9 @@
           if (!res.ok) {
             throw new Error(data.message || "Не удалось загрузить список пользователей.");
           }
-          usersListCache = Array.isArray(data.users) ? data.users : [];
+          usersListCache = Array.isArray(data.users)
+            ? data.users.map(normalizeUserRecord)
+            : [];
           if (currentStage === "users") {
             renderUsersTable();
           }
@@ -6551,19 +6601,21 @@
       if (userEditCancel) {
         userEditCancel.addEventListener("click", closeUserEditModal);
       }
-      if (usersTableBody) {
-        usersTableBody.addEventListener("click", (event) => {
+      if (usersAdminPanel) {
+        usersAdminPanel.addEventListener("click", (event) => {
           const permBtn = event.target.closest(".users-perm-btn");
-          if (permBtn && !permBtn.disabled) {
+          if (permBtn) {
             const id = Number(permBtn.getAttribute("data-user-id"));
             const key = permBtn.getAttribute("data-perm-key");
-            if (Number.isFinite(id) && key) {
+            if (Number.isFinite(id) && key && !usersPermToggleBusy) {
               const enabled = !permBtn.classList.contains("active");
-              permBtn.disabled = true;
+              usersPermToggleBusy = true;
               void toggleUserPermission(id, key, enabled).finally(() => {
-                permBtn.disabled = false;
+                usersPermToggleBusy = false;
               });
             }
+            event.preventDefault();
+            event.stopPropagation();
             return;
           }
           const editBtn = event.target.closest(".users-edit-btn");
@@ -12210,6 +12262,7 @@
 
       renderNavOrder();
       applyMainMenuPermissions("main");
+      void refreshAuthPermissionsFromServer();
       syncMobileLayoutState();
       applyAssembleMobileNavSyncVisual("is-idle");
       setStage("main", false);

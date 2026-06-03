@@ -2630,74 +2630,14 @@
           bottom: 0;
           z-index: 850;
           padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-          background: rgba(14, 32, 28, 0.96);
-          border-top: 2px solid rgba(0, 200, 160, 0.55);
-          box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
+          background: var(--amn-bg, rgba(10, 44, 36, 0.97));
+          border-top: 2px solid var(--amn-border, rgba(0, 200, 160, 0.75));
+          box-shadow: var(--amn-shadow, 0 -6px 24px rgba(0, 0, 0, 0.35));
           backdrop-filter: blur(8px);
           transition:
             background 0.25s ease,
             border-color 0.25s ease,
             box-shadow 0.25s ease;
-        }
-
-        .assemble-mobile-nav.is-idle,
-        .assemble-mobile-nav.is-saved {
-          background: rgba(10, 44, 36, 0.96);
-          border-top-color: rgba(0, 200, 160, 0.7);
-          box-shadow:
-            0 -6px 24px rgba(0, 0, 0, 0.35),
-            0 -2px 12px rgba(0, 200, 160, 0.12);
-        }
-
-        .assemble-mobile-nav.is-pending,
-        .assemble-mobile-nav.is-saving {
-          background: rgba(42, 34, 14, 0.96);
-          border-top-color: rgba(210, 170, 60, 0.75);
-          box-shadow:
-            0 -6px 24px rgba(0, 0, 0, 0.35),
-            0 -2px 12px rgba(210, 170, 60, 0.15);
-        }
-
-        .assemble-mobile-nav.is-error {
-          background: rgba(48, 22, 18, 0.96);
-          border-top-color: rgba(255, 120, 80, 0.8);
-          box-shadow:
-            0 -6px 24px rgba(0, 0, 0, 0.35),
-            0 -2px 12px rgba(255, 100, 80, 0.18);
-        }
-
-        .assemble-mobile-nav.is-idle .assemble-mobile-nav__btn,
-        .assemble-mobile-nav.is-saved .assemble-mobile-nav__btn {
-          border-color: rgba(0, 200, 160, 0.5);
-          background: rgba(0, 80, 65, 0.4);
-          color: #b8f0e0;
-        }
-
-        .assemble-mobile-nav.is-pending .assemble-mobile-nav__btn,
-        .assemble-mobile-nav.is-saving .assemble-mobile-nav__btn {
-          border-color: rgba(210, 170, 60, 0.55);
-          background: rgba(80, 60, 16, 0.45);
-          color: #f0e6b0;
-        }
-
-        .assemble-mobile-nav.is-error .assemble-mobile-nav__btn {
-          border-color: rgba(255, 120, 80, 0.55);
-          background: rgba(90, 28, 20, 0.5);
-          color: #ffc8b8;
-        }
-
-        .assemble-mobile-nav.is-idle .assemble-mobile-nav__input,
-        .assemble-mobile-nav.is-saved .assemble-mobile-nav__input {
-          border-color: rgba(0, 200, 160, 0.35);
-        }
-
-        .assemble-mobile-nav.is-pending .assemble-mobile-nav__input,
-        .assemble-mobile-nav.is-saving .assemble-mobile-nav__input {
-          border-color: rgba(210, 170, 60, 0.45);
-        }
-
-        .assemble-mobile-nav.is-error .assemble-mobile-nav__input {
-          border-color: rgba(255, 120, 80, 0.45);
         }
 
         .assemble-mobile-nav[hidden] {
@@ -2727,10 +2667,11 @@
           box-sizing: border-box;
           padding: 10px 12px;
           border-radius: 8px;
-          border: 1px solid rgba(120, 150, 170, 0.45);
+          border: 1px solid var(--amn-input-border, rgba(0, 200, 160, 0.4));
           background: rgba(8, 14, 20, 0.9);
           color: #e8eef4;
           font-size: 16px;
+          transition: border-color 0.25s ease;
         }
 
         .assemble-mobile-nav__btn {
@@ -2739,12 +2680,16 @@
           min-height: 44px;
           padding: 8px 12px;
           border-radius: 8px;
-          border: 1px solid rgba(0, 200, 160, 0.45);
-          background: rgba(0, 80, 65, 0.35);
-          color: #b8f0e0;
+          border: 1px solid var(--amn-btn-border, rgba(0, 200, 160, 0.55));
+          background: var(--amn-btn-bg, rgba(0, 80, 65, 0.45));
+          color: var(--amn-btn-color, #b8f0e0);
           font-size: 18px;
           line-height: 1;
           cursor: pointer;
+          transition:
+            background 0.25s ease,
+            border-color 0.25s ease,
+            color 0.25s ease;
         }
 
         .assemble-mobile-nav__btn--go {
@@ -3536,56 +3481,57 @@
                 <span class="assemble-btn-add-pallet-icon" aria-hidden="true">+</span>
                 <span>Добавить паллет</span>
               </button>
-              <nav
-                id="assemble-mobile-nav"
-                class="assemble-mobile-nav"
-                hidden
-                aria-label="Быстрая навигация по паллетам"
-              >
-                <div class="assemble-mobile-nav__inner">
+            </div>
+            <nav
+              id="assemble-mobile-nav"
+              class="assemble-mobile-nav is-idle"
+              data-sync-state="idle"
+              hidden
+              aria-label="Быстрая навигация по паллетам"
+            >
+              <div class="assemble-mobile-nav__inner">
+                <button
+                  type="button"
+                  id="assemble-mobile-scroll-top"
+                  class="assemble-mobile-nav__btn"
+                  title="В начало сборки"
+                  aria-label="В начало сборки"
+                >
+                  ↑
+                </button>
+                <div class="assemble-mobile-nav__jump">
+                  <input
+                    type="search"
+                    id="assemble-mobile-pallet-jump"
+                    class="assemble-mobile-nav__input"
+                    inputmode="numeric"
+                    enterkeyhint="go"
+                    placeholder="№ паллета"
+                    list="assemble-mobile-pallet-datalist"
+                    autocomplete="off"
+                    aria-label="Номер паллета для перехода"
+                  />
+                  <datalist id="assemble-mobile-pallet-datalist"></datalist>
                   <button
                     type="button"
-                    id="assemble-mobile-scroll-top"
-                    class="assemble-mobile-nav__btn"
-                    title="В начало сборки"
-                    aria-label="В начало сборки"
+                    id="assemble-mobile-pallet-go"
+                    class="assemble-mobile-nav__btn assemble-mobile-nav__btn--go"
                   >
-                    ↑
-                  </button>
-                  <div class="assemble-mobile-nav__jump">
-                    <input
-                      type="search"
-                      id="assemble-mobile-pallet-jump"
-                      class="assemble-mobile-nav__input"
-                      inputmode="numeric"
-                      enterkeyhint="go"
-                      placeholder="№ паллета"
-                      list="assemble-mobile-pallet-datalist"
-                      autocomplete="off"
-                      aria-label="Номер паллета для перехода"
-                    />
-                    <datalist id="assemble-mobile-pallet-datalist"></datalist>
-                    <button
-                      type="button"
-                      id="assemble-mobile-pallet-go"
-                      class="assemble-mobile-nav__btn assemble-mobile-nav__btn--go"
-                    >
-                      Перейти
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    id="assemble-mobile-scroll-bottom"
-                    class="assemble-mobile-nav__btn"
-                    title="В конец сборки"
-                    aria-label="В конец сборки"
-                  >
-                    ↓
+                    Перейти
                   </button>
                 </div>
-                <p id="assemble-mobile-nav-msg" class="assemble-mobile-nav__msg" hidden aria-live="polite"></p>
-              </nav>
-            </div>
+                <button
+                  type="button"
+                  id="assemble-mobile-scroll-bottom"
+                  class="assemble-mobile-nav__btn"
+                  title="В конец сборки"
+                  aria-label="В конец сборки"
+                >
+                  ↓
+                </button>
+              </div>
+              <p id="assemble-mobile-nav-msg" class="assemble-mobile-nav__msg" hidden aria-live="polite"></p>
+            </nav>
           </section>
 
           <section id="arnest-workspace" class="arnest-workspace">
@@ -7524,6 +7470,55 @@
       let assembleSaveDrainPromise = null;
       let assembleSaveAbortController = null;
       let assembleSaveBannerHideTimer = null;
+      let assembleSaveSyncStateClass = "is-idle";
+
+      const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
+        "is-idle": {
+          bg: "rgba(8, 52, 42, 0.98)",
+          border: "rgba(0, 220, 175, 0.85)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
+          btnBorder: "rgba(0, 220, 175, 0.65)",
+          btnBg: "rgba(0, 100, 80, 0.5)",
+          btnColor: "#c8fff0",
+          inputBorder: "rgba(0, 200, 160, 0.5)",
+        },
+        "is-saved": {
+          bg: "rgba(8, 52, 42, 0.98)",
+          border: "rgba(0, 220, 175, 0.85)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
+          btnBorder: "rgba(0, 220, 175, 0.65)",
+          btnBg: "rgba(0, 100, 80, 0.5)",
+          btnColor: "#c8fff0",
+          inputBorder: "rgba(0, 200, 160, 0.5)",
+        },
+        "is-pending": {
+          bg: "rgba(58, 46, 8, 0.98)",
+          border: "rgba(255, 210, 60, 0.9)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
+          btnBorder: "rgba(255, 210, 60, 0.75)",
+          btnBg: "rgba(110, 85, 12, 0.55)",
+          btnColor: "#fff4c8",
+          inputBorder: "rgba(255, 210, 60, 0.55)",
+        },
+        "is-saving": {
+          bg: "rgba(58, 46, 8, 0.98)",
+          border: "rgba(255, 210, 60, 0.9)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
+          btnBorder: "rgba(255, 210, 60, 0.75)",
+          btnBg: "rgba(110, 85, 12, 0.55)",
+          btnColor: "#fff4c8",
+          inputBorder: "rgba(255, 210, 60, 0.55)",
+        },
+        "is-error": {
+          bg: "rgba(62, 18, 14, 0.98)",
+          border: "rgba(255, 100, 75, 0.95)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 90, 70, 0.32)",
+          btnBorder: "rgba(255, 120, 90, 0.8)",
+          btnBg: "rgba(120, 28, 18, 0.6)",
+          btnColor: "#ffd4c8",
+          inputBorder: "rgba(255, 120, 90, 0.6)",
+        },
+      };
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
@@ -7742,6 +7737,9 @@
         const showSidebar = assembleSidebarPalletNavIsActive();
         if (assembleMobileNav) {
           assembleMobileNav.hidden = !showMobile;
+          if (showMobile) {
+            applyAssembleMobileNavSyncVisual(assembleSaveSyncStateClass);
+          }
         }
         if (assembleSidebarNav) {
           assembleSidebarNav.hidden = !showSidebar;
@@ -8434,15 +8432,47 @@
         "is-error",
       ];
 
-      function applyAssembleSyncBannerState(stateClass, text) {
-        if (!assembleSyncBannerEl) {
+      function applyAssembleSyncStateClasses(el, stateClass) {
+        if (!el) {
           return;
         }
-        assembleSyncBannerEl.removeAttribute("hidden");
-        assembleSyncBannerEl.textContent = text;
         ASSEMBLE_SYNC_BANNER_STATE_CLASSES.forEach((cls) => {
-          assembleSyncBannerEl.classList.toggle(cls, cls === stateClass);
+          el.classList.toggle(cls, cls === stateClass);
         });
+      }
+
+      function applyAssembleMobileNavSyncVisual(stateClass) {
+        if (!assembleMobileNav) {
+          return;
+        }
+        const theme =
+          ASSEMBLE_MOBILE_NAV_SYNC_THEME[stateClass] ||
+          ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-idle"];
+        assembleMobileNav.style.setProperty("--amn-bg", theme.bg);
+        assembleMobileNav.style.setProperty("--amn-border", theme.border);
+        assembleMobileNav.style.setProperty("--amn-shadow", theme.shadow);
+        assembleMobileNav.style.setProperty("--amn-btn-border", theme.btnBorder);
+        assembleMobileNav.style.setProperty("--amn-btn-bg", theme.btnBg);
+        assembleMobileNav.style.setProperty("--amn-btn-color", theme.btnColor);
+        assembleMobileNav.style.setProperty("--amn-input-border", theme.inputBorder);
+        applyAssembleSyncStateClasses(assembleMobileNav, stateClass);
+        assembleMobileNav.dataset.syncState = stateClass.replace(/^is-/, "");
+      }
+
+      function applyAssembleSyncBannerState(stateClass, text) {
+        assembleSaveSyncStateClass = stateClass;
+        if (assembleSyncBannerEl) {
+          assembleSyncBannerEl.removeAttribute("hidden");
+          assembleSyncBannerEl.textContent = text;
+          applyAssembleSyncStateClasses(assembleSyncBannerEl, stateClass);
+        }
+        applyAssembleMobileNavSyncVisual(stateClass);
+        if (assembleMobileNav) {
+          assembleMobileNav.setAttribute(
+            "aria-label",
+            `Навигация по паллетам. ${text}`,
+          );
+        }
       }
 
       function setAssembleSaveUiState(state, opts) {
@@ -11737,6 +11767,7 @@
 
       renderNavOrder();
       syncMobileLayoutState();
+      applyAssembleMobileNavSyncVisual("is-idle");
       setStage("main", false);
       setSidebarCollapsed(false);
       buildSheetPreview();

@@ -2874,6 +2874,13 @@
           text-align: center;
         }
 
+        /* iOS не увеличивает страницу при фокусе — меньше срывов клавиатуры */
+        .assemble-field input,
+        .assemble-field select,
+        .assemble-order-line-select {
+          font-size: 16px;
+        }
+
         .assemble-inputs-grid {
           grid-template-columns: 1fr;
         }
@@ -5645,7 +5652,7 @@
         if (!applyOptionalBatchSetting(ob, data.id, assembleOrderSnapshot.client)) {
           return;
         }
-        if (assembleAllocState && !assembleDirty) {
+        if (assembleAllocState && !assembleDirty && !isAssembleEditableFocused()) {
           renderAssemblePalletCards();
           renderAssembleAlerts();
         }
@@ -9370,7 +9377,8 @@
             if (
               conflict &&
               assembleOrderSnapshot?.id === oid &&
-              !assembleDirty
+              !assembleDirty &&
+              !isAssembleEditableFocused()
             ) {
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || payload.revision;
@@ -9623,8 +9631,94 @@
         }
       }
 
+      function isAssembleEditableFocused() {
+        const el = document.activeElement;
+        if (!el || !assemblePalletsRoot || !assemblePalletsRoot.contains(el)) {
+          return false;
+        }
+        if (el.matches("[data-assemble-pallet-number]")) {
+          return true;
+        }
+        if (!el.matches("[data-assemble-input]")) {
+          return false;
+        }
+        if (el.tagName === "SELECT") {
+          return true;
+        }
+        if (el.tagName === "INPUT") {
+          const type = String(el.type || "").toLowerCase();
+          return type !== "radio" && type !== "checkbox" && type !== "hidden";
+        }
+        return el.tagName === "TEXTAREA";
+      }
+
+      function captureAssembleFocusState() {
+        const el = document.activeElement;
+        if (!isAssembleEditableFocused()) {
+          return null;
+        }
+        const field = el.getAttribute("data-field") || "";
+        const card = el.closest("[data-pallet-card]");
+        const pIdx = card ? Number(card.dataset.palletCard) : NaN;
+        const sIdx = Number(el.getAttribute("data-slot"));
+        const state = {
+          field,
+          pIdx,
+          sIdx,
+          selectionStart: el.selectionStart,
+          selectionEnd: el.selectionEnd,
+        };
+        if (field === "palletNumber" && Number.isFinite(pIdx)) {
+          return state;
+        }
+        if (Number.isFinite(pIdx) && Number.isFinite(sIdx) && field) {
+          return state;
+        }
+        return null;
+      }
+
+      function restoreAssembleFocusState(state) {
+        if (!state || !assemblePalletsRoot) {
+          return;
+        }
+        let el = null;
+        if (state.field === "palletNumber" && Number.isFinite(state.pIdx)) {
+          el = assemblePalletsRoot.querySelector(`#pn-${state.pIdx}`);
+        } else if (
+          Number.isFinite(state.pIdx) &&
+          Number.isFinite(state.sIdx) &&
+          state.field
+        ) {
+          el = assemblePalletsRoot.querySelector(
+            `[data-pallet="${state.pIdx}"][data-slot="${state.sIdx}"][data-field="${state.field}"]`,
+          );
+        }
+        if (!el || typeof el.focus !== "function") {
+          return;
+        }
+        try {
+          el.focus({ preventScroll: true });
+        } catch (e) {
+          el.focus();
+        }
+        if (
+          state.selectionStart != null &&
+          state.selectionEnd != null &&
+          typeof el.setSelectionRange === "function"
+        ) {
+          try {
+            el.setSelectionRange(state.selectionStart, state.selectionEnd);
+          } catch (e2) {
+            /* ignore */
+          }
+        }
+      }
+
       function applyRemoteAssemblePayload(data) {
         if (!assembleOrderSnapshot || !assembleAllocState || data.id !== assembleOrderSnapshot.id) {
+          return;
+        }
+        if (isAssembleEditableFocused()) {
           return;
         }
         const items = assembleOrderSnapshot.items;
@@ -9702,7 +9796,7 @@
         if (!remoteHas && localHas) {
           return;
         }
-        if (!assembleDirty) {
+        if (!assembleDirty && !isAssembleEditableFocused()) {
           applyRemoteAssemblePayload(data);
         }
       }
@@ -10147,7 +10241,7 @@
           /* ignore */
         }
         renderAssembleSummary();
-        if (assembleAllocState) {
+        if (assembleAllocState && !isAssembleEditableFocused()) {
           renderAssemblePalletCards();
         }
       }
@@ -10404,6 +10498,7 @@
         if (!assemblePalletsRoot || !assembleOrderSnapshot || !assembleAllocState) {
           return;
         }
+        const focusState = captureAssembleFocusState();
         const items = assembleOrderSnapshot.items;
         if (!assembleAllocState.pallets.length) {
           assemblePalletsRoot.innerHTML =
@@ -10448,6 +10543,11 @@
         refreshAllAssembleLabBatchValidations();
         refreshAssemblePalletNumberDuplicateStyles();
         syncAssemblePalletNavVisibility();
+        if (focusState) {
+          requestAnimationFrame(() => {
+            restoreAssembleFocusState(focusState);
+          });
+        }
       }
 
       function syncAssembleStateFromDom() {
@@ -10942,6 +11042,21 @@
           if (t && t.matches && t.matches('[data-field="palletNumber"]')) {
             updateAssemblePalletDatalists();
           }
+        });
+        assemblePalletsRoot.addEventListener("focusout", (ev) => {
+          const next = ev.relatedTarget;
+          if (next && assemblePalletsRoot.contains(next)) {
+            return;
+          }
+          window.setTimeout(() => {
+            if (
+              currentStage === "assemble" &&
+              assembleOrderSnapshot &&
+              !isAssembleEditableFocused()
+            ) {
+              void pollAssembleOrderSync();
+            }
+          }, 0);
         });
       }
       if (assembleBackOrdersBtn) {

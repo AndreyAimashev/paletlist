@@ -1542,9 +1542,36 @@
         line-height: 1.3;
       }
 
+      .orders-extra-info-user-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        min-width: 0;
+      }
+
       .orders-extra-info-user {
         font-size: 11px;
         color: var(--text-muted);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .orders-extra-info-action-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        opacity: 0.55;
+        color: var(--text-muted);
+        pointer-events: none;
+      }
+
+      .orders-extra-info-action-icon svg {
+        display: block;
       }
 
       .orders-table th.col-extra-info .orders-th-title--block {
@@ -7462,15 +7489,40 @@
         return t || "—";
       }
 
+      function formatOrderExtraInfoUserRow(userName, iconHtml, title) {
+        const name = String(userName || "").trim();
+        if (!name) {
+          return "";
+        }
+        return `<div class="orders-extra-info-user-row">
+            <span class="orders-extra-info-user">${escapeXml(name)}</span>
+            <span class="orders-extra-info-action-icon" title="${escapeXml(title)}" aria-hidden="true">${iconHtml}</span>
+          </div>`;
+      }
+
       function formatOrderExtraInfoCell(orderRow) {
         const deliveryType = getOrderExtraInfoFilterLabel(orderRow);
-        const userName = String(orderRow.last_modified_by || "").trim();
-        if (!userName) {
+        const editedBy = String(
+          orderRow.last_edited_by || orderRow.last_modified_by || "",
+        ).trim();
+        const assembledBy = String(orderRow.last_assembled_by || "").trim();
+        const editRow = formatOrderExtraInfoUserRow(
+          editedBy,
+          ORDER_ROW_ICON_EDIT,
+          "Редактировать заказ",
+        );
+        const assembleRow = formatOrderExtraInfoUserRow(
+          assembledBy,
+          ORDER_ROW_ICON_ASSEMBLE,
+          "Сборка заказа",
+        );
+        if (!editRow && !assembleRow) {
           return escapeXml(deliveryType);
         }
         return `<div class="orders-extra-info-cell">
             <span class="orders-extra-info-type">${escapeXml(deliveryType)}</span>
-            <span class="orders-extra-info-user">${escapeXml(userName)}</span>
+            ${editRow}
+            ${assembleRow}
           </div>`;
       }
 

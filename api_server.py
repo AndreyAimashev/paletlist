@@ -2476,6 +2476,24 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE orders ADD COLUMN last_modified_by TEXT NOT NULL DEFAULT ''"
         )
+    order_cols = {r[1] for r in cur.execute("PRAGMA table_info(orders)").fetchall()}
+    if "last_edited_by" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN last_edited_by TEXT NOT NULL DEFAULT ''"
+        )
+        if "last_modified_by" in order_cols:
+            cur.execute(
+                """
+                UPDATE orders
+                SET last_edited_by = last_modified_by
+                WHERE COALESCE(last_edited_by, '') = ''
+                  AND COALESCE(last_modified_by, '') != ''
+                """
+            )
+    if "last_assembled_by" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN last_assembled_by TEXT NOT NULL DEFAULT ''"
+        )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -3090,7 +3108,7 @@ def patch_order_assembly(
             UPDATE orders
             SET assembled_percent = ?, assemble_state = ?,
                 assemble_revision = ?, assemble_state_updated_at = ?,
-                last_modified_by = CASE WHEN ? != '' THEN ? ELSE last_modified_by END
+                last_assembled_by = CASE WHEN ? != '' THEN ? ELSE last_assembled_by END
             WHERE id = ?
             """,
             (apct, ajson, new_rev, updated_at, modifier, modifier, order_id),
@@ -3439,7 +3457,7 @@ def insert_order_with_items(body: dict, *, modified_by: str = ""):
             """
             INSERT INTO orders (
               ship_date, client, assembled_percent, names, extra_info,
-              buyer_order_mode, buyer_order, last_modified_by
+              buyer_order_mode, buyer_order, last_edited_by
             )
             VALUES (?, ?, 0, ?, ?, ?, ?, ?)
             """,
@@ -3535,6 +3553,22 @@ def _order_list_fields_from_extra_info(extra_info: str) -> dict:
         "extra_info": clean,
         "import_skipped_lines": skipped,
         "import_skipped_names": skipped_names,
+    }
+
+
+def _order_editor_fields_from_row(row) -> dict:
+    keys = row.keys() if hasattr(row, "keys") else []
+    edited = ""
+    if "last_edited_by" in keys:
+        edited = (row["last_edited_by"] or "").strip()
+    elif "last_modified_by" in keys:
+        edited = (row["last_modified_by"] or "").strip()
+    assembled = ""
+    if "last_assembled_by" in keys:
+        assembled = (row["last_assembled_by"] or "").strip()
+    return {
+        "last_edited_by": edited,
+        "last_assembled_by": assembled,
     }
 
 
@@ -4113,7 +4147,7 @@ def import_orders_from_excel_bytes(data: bytes, *, modified_by: str = ""):
                     """
                     INSERT INTO orders (
                       ship_date, client, assembled_percent, names, extra_info,
-                      last_modified_by
+                      last_edited_by
                     )
                     VALUES (?, ?, 0, ?, ?, ?)
                     """,
@@ -4161,7 +4195,7 @@ def import_orders_from_excel_bytes(data: bytes, *, modified_by: str = ""):
                 """
                 INSERT INTO orders (
                   ship_date, client, assembled_percent, names, extra_info,
-                  last_modified_by
+                  last_edited_by
                 )
                 VALUES (?, ?, 0, ?, ?, ?)
                 """,
@@ -4265,7 +4299,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
               extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
-              last_modified_by = CASE WHEN ? != '' THEN ? ELSE last_modified_by END
+              last_edited_by = CASE WHEN ? != '' THEN ? ELSE last_edited_by END
             WHERE id = ?
             """,
             (
@@ -4344,7 +4378,8 @@ def fetch_order_detail(order_id: int):
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    buyer_order_mode, buyer_order, total_order_quantity,
                    lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                   assemble_revision, assemble_state_updated_at, last_modified_by
+                   assemble_revision, assemble_state_updated_at,
+                   last_edited_by, last_assembled_by, last_modified_by
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -4361,7 +4396,8 @@ def fetch_order_detail(order_id: int):
                 SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                        buyer_order_mode, buyer_order, total_order_quantity,
                        lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                       assemble_revision, assemble_state_updated_at, last_modified_by
+                       assemble_revision, assemble_state_updated_at,
+                       last_edited_by, last_assembled_by, last_modified_by
                 FROM orders WHERE id = ?
                 """,
                 (order_id,),
@@ -4425,9 +4461,7 @@ def fetch_order_detail(order_id: int):
         and "lab_sscc_pallet_count" in row.keys()
         else None,
         "lab_sscc_last_shipped": get_lab_sscc_last_shipped(),
-        "last_modified_by": (row["last_modified_by"] or "").strip()
-        if "last_modified_by" in row.keys()
-        else "",
+        **_order_editor_fields_from_row(row),
         "items": items,
         **extra_fields,
     }
@@ -4469,7 +4503,8 @@ def fetch_orders():
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    lab_sscc_seq_start, lab_sscc_shipped,
-                   assemble_revision, assemble_state_updated_at, last_modified_by
+                   assemble_revision, assemble_state_updated_at,
+                   last_edited_by, last_assembled_by, last_modified_by
             FROM orders ORDER BY id DESC
             """
         ).fetchall()
@@ -4530,9 +4565,7 @@ def fetch_orders():
                 "lab_sscc_shipped": bool(int(row["lab_sscc_shipped"] or 0))
                 if "lab_sscc_shipped" in row.keys()
                 else False,
-                "last_modified_by": (row["last_modified_by"] or "").strip()
-                if "last_modified_by" in row.keys()
-                else "",
+                **_order_editor_fields_from_row(row),
                 "items": items,
                 **extra_fields,
             }

@@ -8243,7 +8243,6 @@
       let assembleSaveRetryTimer = null;
       let assembleQueuedPayload = null;
       let assembleSaveDrainPromise = null;
-      let assembleSaveAbortController = null;
       let assembleSaveBannerHideTimer = null;
       let assembleSaveSyncStateClass = "is-idle";
 
@@ -9090,7 +9089,7 @@
             stopAssembleSaveRetry();
             return;
           }
-          if (!assembleQueuedPayload && !captureAssembleSavePayload()) {
+          if (assembleSaveInFlight) {
             return;
           }
           void queueAssembleServerSave();
@@ -9343,11 +9342,6 @@
         if (!payload || payload.orderId == null) {
           return false;
         }
-        if (assembleSaveAbortController) {
-          assembleSaveAbortController.abort();
-        }
-        assembleSaveAbortController = new AbortController();
-        const signal = assembleSaveAbortController.signal;
         const oid = payload.orderId;
         const items = payload.items || [];
         const pallets = payload.pallets;
@@ -9369,7 +9363,6 @@
               assemble_state,
               expected_assemble_revision: payload.revision,
             }),
-            signal,
           });
           if (res.status === 409) {
             let conflict = null;
@@ -9377,6 +9370,21 @@
               conflict = await res.json();
             } catch (e) {
               /* ignore */
+            }
+            if (conflict && assembleOrderSnapshot?.id === oid && assembleDirty) {
+              assembleKnownRevision =
+                Number(conflict.assemble_revision) || assembleKnownRevision;
+              const fresh = captureAssembleSavePayload();
+              if (fresh) {
+                assembleQueuedPayload = fresh;
+              }
+              setAssembleSaveUiState("error", {
+                orderId: oid,
+                message:
+                  "Синхронизация с сервером… повторная попытка сохранения…",
+              });
+              markAssembleSaveFailed();
+              return false;
             }
             if (
               conflict &&
@@ -9467,9 +9475,6 @@
           notifyAssembleSavedToOtherTabs(oid, newRev);
           return true;
         } catch (e) {
-          if (e && e.name === "AbortError") {
-            return "aborted";
-          }
           setAssembleSaveUiState("error", {
             orderId: oid,
             message:
@@ -9477,10 +9482,6 @@
           });
           markAssembleSaveFailed();
           return false;
-        } finally {
-          if (assembleSaveAbortController?.signal === signal) {
-            assembleSaveAbortController = null;
-          }
         }
       }
 
@@ -9493,12 +9494,6 @@
           assembleSaveInFlight = true;
           const ok = await patchAssemblePayload(payload);
           assembleSaveInFlight = false;
-          if (ok === "aborted") {
-            if (!assembleQueuedPayload) {
-              assembleQueuedPayload = payload;
-            }
-            continue;
-          }
           if (!ok) {
             if (!assembleQueuedPayload) {
               assembleQueuedPayload = payload;
@@ -10042,7 +10037,15 @@
         assembleDirty = true;
         mirrorAssembleDraftLocal();
         const oid = assembleOrderSnapshot?.id;
-        setAssembleSaveUiState("debouncing", { orderId: oid });
+        const syncState = assembleSaveSyncStateClass;
+        if (
+          syncState !== "is-error" &&
+          syncState !== "is-saving" &&
+          !assembleSavePending &&
+          !assembleSaveInFlight
+        ) {
+          setAssembleSaveUiState("debouncing", { orderId: oid });
+        }
         clearTimeout(assembleSaveTimer);
         assembleSaveTimer = setTimeout(() => {
           void queueAssembleServerSave();
@@ -11066,6 +11069,16 @@
       if (assembleBackOrdersBtn) {
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
+      window.addEventListener("online", () => {
+        if (
+          currentStage === "assemble" &&
+          assembleOrderSnapshot &&
+          (assembleSavePending || assembleDirty)
+        ) {
+          clearTimeout(assembleSaveTimer);
+          void queueAssembleServerSave();
+        }
+      });
       if (assembleSyncChannel) {
         assembleSyncChannel.addEventListener("message", (ev) => {
           const msg = ev.data;

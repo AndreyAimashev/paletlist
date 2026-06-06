@@ -3244,12 +3244,33 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
     }
 
 
+ORDER_DELIVERY_TYPES = ("Обычный", "Деловые Линии", "Самовывоз")
+
+
+def _normalize_delivery_type(value: str) -> str:
+    t = _normalize_str(value)
+    if not t:
+        return "Обычный"
+    aliases = {
+        "обычный": "Обычный",
+        "деловые линии": "Деловые Линии",
+        "самовывоз": "Самовывоз",
+    }
+    mapped = aliases.get(t.lower())
+    if mapped:
+        return mapped
+    if t in ORDER_DELIVERY_TYPES:
+        return t
+    return "Обычный"
+
+
 def insert_order_with_items(body: dict):
     pack = _normalize_order_items_body(body)
     if pack.get("error"):
         return pack
     ship = pack["ship"]
     client_n = pack["client"]
+    delivery_type = _normalize_delivery_type(body.get("extra_info", ""))
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
@@ -3267,9 +3288,16 @@ def insert_order_with_items(body: dict):
               ship_date, client, assembled_percent, names, extra_info,
               buyer_order_mode, buyer_order
             )
-            VALUES (?, ?, 0, ?, '', ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?)
             """,
-            (ship, client_n, names_summary, buyer_order_mode, order_buyer_order),
+            (
+                ship,
+                client_n,
+                names_summary,
+                delivery_type,
+                buyer_order_mode,
+                order_buyer_order,
+            ),
         )
         oid = cur.lastrowid
         for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
@@ -4048,8 +4076,11 @@ def update_order_with_items(order_id: int, body: dict):
             skipped = 0
             baseline = 0
             skipped_names = []
+        delivery_type = _normalize_delivery_type(
+            body.get("extra_info", user_xinfo)
+        )
         xinfo = _encode_import_skip_extra_info(
-            skipped, baseline, user_xinfo, skipped_names
+            skipped, baseline, delivery_type, skipped_names
         )
         xasm = row["assemble_state"] or ""
         cur.execute(

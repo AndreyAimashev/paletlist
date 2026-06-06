@@ -2170,6 +2170,43 @@
           url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
       }
 
+      .new-order-delivery-toggle {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .new-order-delivery-btn {
+        margin: 0;
+        padding: 8px 12px;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 8px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .new-order-delivery-btn:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.4);
+      }
+
+      .new-order-delivery-btn.active {
+        color: #09111e;
+        background: linear-gradient(45deg, rgba(0, 200, 160, 0.85), rgba(0, 168, 140, 0.9));
+        border-color: transparent;
+        font-weight: 600;
+      }
+
       .new-order-items-label {
         margin: 16px 0 8px;
       }
@@ -4281,6 +4318,25 @@
                 <option value="ЛАБ Индастриз"></option>
               </datalist>
             </div>
+            <div class="arnest-field" style="grid-column: 1 / -1">
+              <label>Тип отгрузки</label>
+              <div
+                id="new-order-delivery-toggle"
+                class="new-order-delivery-toggle"
+                role="group"
+                aria-label="Тип отгрузки"
+              >
+                <button type="button" class="new-order-delivery-btn active" data-delivery="Обычный">
+                  Обычный
+                </button>
+                <button type="button" class="new-order-delivery-btn" data-delivery="Деловые Линии">
+                  Деловые Линии
+                </button>
+                <button type="button" class="new-order-delivery-btn" data-delivery="Самовывоз">
+                  Самовывоз
+                </button>
+              </div>
+            </div>
           </div>
           <p class="muted new-order-items-label">Позиции заказа</p>
           <div class="order-items-head" id="new-order-items-head">
@@ -4693,6 +4749,8 @@
       const newOrderError = document.getElementById("new-order-error");
       const newOrderShipDate = document.getElementById("new-order-ship-date");
       const newOrderClient = document.getElementById("new-order-client");
+      const newOrderDeliveryToggle = document.getElementById("new-order-delivery-toggle");
+      const ORDER_DELIVERY_TYPES = ["Обычный", "Деловые Линии", "Самовывоз"];
       const newOrderItems = document.getElementById("new-order-items");
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
@@ -11575,6 +11633,7 @@
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
         newOrderClient.value = data.client || "";
+        setNewOrderDeliveryType(data.extra_info || "Обычный");
         const legacyOrderBuyer = String(data.buyer_order || "").trim();
         const items = Array.isArray(data.items)
           ? data.items
@@ -11603,6 +11662,44 @@
         newOrderShipDate.focus();
       }
 
+      function normalizeOrderDeliveryType(raw) {
+        const t = String(raw || "").trim();
+        if (ORDER_DELIVERY_TYPES.includes(t)) {
+          return t;
+        }
+        const lower = t.toLowerCase();
+        if (lower === "деловые линии") {
+          return "Деловые Линии";
+        }
+        if (lower === "самовывоз") {
+          return "Самовывоз";
+        }
+        return "Обычный";
+      }
+
+      function getNewOrderDeliveryType() {
+        if (!newOrderDeliveryToggle) {
+          return "Обычный";
+        }
+        const active = newOrderDeliveryToggle.querySelector(
+          ".new-order-delivery-btn.active",
+        );
+        const value = active && active.getAttribute("data-delivery");
+        return normalizeOrderDeliveryType(value);
+      }
+
+      function setNewOrderDeliveryType(value) {
+        if (!newOrderDeliveryToggle) {
+          return;
+        }
+        const normalized = normalizeOrderDeliveryType(value);
+        newOrderDeliveryToggle.querySelectorAll(".new-order-delivery-btn").forEach((btn) => {
+          const delivery = btn.getAttribute("data-delivery") || "";
+          btn.classList.toggle("active", delivery === normalized);
+          btn.setAttribute("aria-pressed", delivery === normalized ? "true" : "false");
+        });
+      }
+
       function openNewOrderModal() {
         editingOrderId = null;
         newOrderTitle.textContent = "Новый заказ";
@@ -11611,6 +11708,7 @@
         newOrderItems.innerHTML = "";
         addOrderItemRow();
         syncNewOrderLabBuyerUi();
+        setNewOrderDeliveryType("Обычный");
         const today = new Date();
         newOrderShipDate.value = today.toISOString().slice(0, 10);
         newOrderOverlay.hidden = false;
@@ -11622,6 +11720,7 @@
         clearNewOrderError();
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
+        setNewOrderDeliveryType("Обычный");
         editingOrderId = null;
         newOrderTitle.textContent = "Новый заказ";
       }
@@ -11642,6 +11741,19 @@
       newOrderAddItem.addEventListener("click", () => {
         addOrderItemRow();
       });
+
+      if (newOrderDeliveryToggle) {
+        newOrderDeliveryToggle.addEventListener("click", (event) => {
+          const btn = event.target.closest(".new-order-delivery-btn");
+          if (!btn || !newOrderDeliveryToggle.contains(btn)) {
+            return;
+          }
+          const delivery = btn.getAttribute("data-delivery");
+          if (delivery) {
+            setNewOrderDeliveryType(delivery);
+          }
+        });
+      }
 
       if (newOrderClient) {
         newOrderClient.addEventListener("input", syncNewOrderLabBuyerUi);
@@ -11692,7 +11804,12 @@
             return;
           }
         }
-        const orderPayload = { ship_date: shipDate, client, items };
+        const orderPayload = {
+          ship_date: shipDate,
+          client,
+          items,
+          extra_info: getNewOrderDeliveryType(),
+        };
         if (isLabIndustriesClient(client)) {
           orderPayload.buyer_order_mode = "multiple";
           orderPayload.buyer_order = "";

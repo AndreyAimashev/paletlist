@@ -2275,6 +2275,18 @@
         margin-top: 0;
       }
 
+      .modal-actions .menu-button[hidden] {
+        display: none !important;
+      }
+
+      .updates-admin-actions {
+        display: contents;
+      }
+
+      .updates-admin-actions[hidden] {
+        display: none !important;
+      }
+
       .modal-error {
         margin: 0 0 14px;
         padding: 10px 12px;
@@ -4238,15 +4250,17 @@
           </button>
         </div>
         <div class="modal-actions">
-          <button id="updates-edit-btn" class="menu-button" type="button" hidden>
-            Редактировать
-          </button>
-          <button id="updates-save-btn" class="menu-button" type="button" hidden>
-            Сохранить
-          </button>
-          <button id="updates-cancel-edit-btn" class="menu-button" type="button" hidden>
-            Отмена
-          </button>
+          <div id="updates-admin-actions" class="updates-admin-actions" hidden>
+            <button id="updates-edit-btn" class="menu-button" type="button" hidden>
+              Редактировать
+            </button>
+            <button id="updates-save-btn" class="menu-button" type="button" hidden>
+              Сохранить
+            </button>
+            <button id="updates-cancel-edit-btn" class="menu-button" type="button" hidden>
+              Отмена
+            </button>
+          </div>
           <button id="updates-close-btn" class="menu-button" type="button">Закрыть</button>
         </div>
       </div>
@@ -4750,6 +4764,7 @@
             };
           }
           applyMainMenuPermissions(currentStage);
+          syncUpdatesAdminControls();
           if (currentStage === "users") {
             syncUsersWorkspaceView();
           }
@@ -4857,6 +4872,9 @@
 
       function syncUpdatesAdminControls() {
         const admin = isAdminUser();
+        if (updatesAdminActions) {
+          updatesAdminActions.hidden = !admin;
+        }
         if (updatesEditBtn) {
           updatesEditBtn.hidden = !admin || updatesEditing;
         }
@@ -5188,6 +5206,7 @@
       const updatesEditor = document.getElementById("updates-editor");
       const updatesLoadError = document.getElementById("updates-load-error");
       const updatesSaveError = document.getElementById("updates-save-error");
+      const updatesAdminActions = document.getElementById("updates-admin-actions");
       const updatesEditBtn = document.getElementById("updates-edit-btn");
       const updatesSaveBtn = document.getElementById("updates-save-btn");
       const updatesCancelEditBtn = document.getElementById("updates-cancel-edit-btn");

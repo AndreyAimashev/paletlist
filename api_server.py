@@ -2827,6 +2827,126 @@ def _assemble_state_cell_to_api(value) -> dict | None:
     return obj
 
 
+def _normalize_assemble_slot_for_compare(slot) -> dict:
+    if not isinstance(slot, dict):
+        return {}
+    li = slot.get("lineIndex")
+    line_index: int | str = ""
+    if li not in ("", None):
+        try:
+            n = int(li)
+            if n >= 0:
+                line_index = n
+        except (TypeError, ValueError):
+            line_index = ""
+    mode = "rows" if slot.get("mode") == "rows" else "direct"
+    direct_unit = "piece" if slot.get("directUnit") == "piece" else "box"
+    return {
+        "lineIndex": line_index,
+        "batchNumber": _normalize_str(str(slot.get("batchNumber") or "")),
+        "unirusMfgDate": _normalize_str(str(slot.get("unirusMfgDate") or "")),
+        "unirusExpiryDate": _normalize_str(str(slot.get("unirusExpiryDate") or "")),
+        "labExpiryDate": _normalize_str(str(slot.get("labExpiryDate") or "")),
+        "mode": mode,
+        "directUnit": direct_unit,
+        "directQty": slot.get("directQty"),
+        "fullRows": slot.get("fullRows"),
+        "partialBoxes": slot.get("partialBoxes"),
+    }
+
+
+def _normalize_assemble_state_for_compare(value) -> dict:
+    obj = value
+    if isinstance(value, str):
+        obj = _assemble_state_cell_to_api(value)
+    if not isinstance(obj, dict):
+        return {"optional_batch_enabled": False, "pallets": []}
+    pallets_out = []
+    for pal in obj.get("pallets") or []:
+        if not isinstance(pal, dict):
+            continue
+        slots = [
+            _normalize_assemble_slot_for_compare(s)
+            for s in (pal.get("slots") or [])
+            if isinstance(s, dict)
+        ]
+        slots.sort(
+            key=lambda s: (
+                str(s.get("lineIndex", "")),
+                str(s.get("batchNumber", "")),
+            )
+        )
+        pallets_out.append(
+            {
+                "id": pal.get("id"),
+                "palletNumber": _normalize_str(
+                    str(pal.get("palletNumber") or pal.get("pallet_number") or "")
+                ),
+                "slots": slots,
+            }
+        )
+    pallets_out.sort(
+        key=lambda p: (
+            p.get("id") if p.get("id") is not None else 0,
+            p.get("palletNumber") or "",
+        )
+    )
+    return {
+        "optional_batch_enabled": bool(obj.get("optional_batch_enabled")),
+        "pallets": pallets_out,
+    }
+
+
+def _assemble_states_equal(left, right) -> bool:
+    return _normalize_assemble_state_for_compare(left) == _normalize_assemble_state_for_compare(
+        right
+    )
+
+
+def _order_item_save_signature(item_tuple) -> tuple:
+    pid, article, name, qty, unit, line_buyer, line_total_qty = item_tuple
+    qty_f = float(qty) if qty is not None else 0.0
+    total_qty = (
+        float(line_total_qty) if line_total_qty is not None else None
+    )
+    return (
+        pid,
+        article or "",
+        name or "",
+        qty_f,
+        unit or "",
+        line_buyer or "",
+        total_qty,
+    )
+
+
+def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
+    rows = cur.execute(
+        """
+        SELECT product_id, article, name, quantity, unit, buyer_order,
+               total_order_quantity
+        FROM order_items
+        WHERE order_id = ?
+        ORDER BY id
+        """,
+        (order_id,),
+    ).fetchall()
+    return [
+        _order_item_save_signature(
+            (
+                row["product_id"],
+                row["article"],
+                row["name"],
+                row["quantity"],
+                row["unit"],
+                row["buyer_order"],
+                row["total_order_quantity"],
+            )
+        )
+        for row in rows
+    ]
+
+
 def _assemble_state_has_meaningful_pallets(pallets) -> bool:
     """Пустой шаблон (один паллет без слотов) не считается сохранённой сборкой."""
     if not isinstance(pallets, list) or not pallets:
@@ -2943,13 +3063,23 @@ def patch_order_assembly(
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
                 "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip(),
             }
-        apct = new_pct if new_pct is not None else max(
-            0, min(100, int(row["assembled_percent"] or 0))
-        )
+        old_pct = max(0, min(100, int(row["assembled_percent"] or 0)))
+        old_ajson = row["assemble_state"] or ""
+        apct = new_pct if new_pct is not None else old_pct
         if new_state_json is not None:
             ajson = new_state_json
         else:
-            ajson = row["assemble_state"] or ""
+            ajson = old_ajson
+        if apct == old_pct and _assemble_states_equal(old_ajson, ajson):
+            con.close()
+            return {
+                "ok": True,
+                "id": int(order_id),
+                "assemble_revision": current_rev,
+                "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip(),
+                "assembled_percent": old_pct,
+                "unchanged": True,
+            }
         new_rev = current_rev + 1
         updated_at = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
@@ -4093,7 +4223,11 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             return res_err
         names_summary = _format_order_names_summary(normalized)
         row = cur.execute(
-            "SELECT id, assembled_percent, extra_info, assemble_state FROM orders WHERE id = ?",
+            """
+            SELECT id, ship_date, client, assembled_percent, extra_info, assemble_state,
+                   buyer_order_mode, buyer_order
+            FROM orders WHERE id = ?
+            """,
             (order_id,),
         ).fetchone()
         if not row:
@@ -4114,6 +4248,18 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             skipped, baseline, delivery_type, skipped_names
         )
         xasm = row["assemble_state"] or ""
+        new_item_sigs = [_order_item_save_signature(t) for t in normalized]
+        old_item_sigs = _fetch_order_item_signatures(cur, order_id)
+        if (
+            (row["ship_date"] or "") == ship
+            and _normalize_str(row["client"] or "") == client_n
+            and (row["buyer_order_mode"] or "") == buyer_order_mode
+            and (row["buyer_order"] or "") == order_buyer_order
+            and (row["extra_info"] or "") == xinfo
+            and old_item_sigs == new_item_sigs
+        ):
+            con.close()
+            return {"ok": True, "id": int(order_id), "unchanged": True}
         modifier = _normalize_str(modified_by)
         cur.execute(
             """

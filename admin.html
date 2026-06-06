@@ -4815,6 +4815,7 @@
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
+      let editingOrderSnapshot = null;
       /** Номер заказа при переходе из строки таблицы в «Сборка» / «Паллетные листы»; иначе null. */
       let activeStageOrderId = null;
 
@@ -6257,9 +6258,11 @@
         stage = guardStagePermission(stage);
         if (currentStage === "assemble" && stage !== "assemble") {
           if (assembleAllocState && assembleOrderSnapshot) {
-            syncAssembleStateFromDom();
-            clearTimeout(assembleSaveTimer);
-            void flushAssembleSaveNow();
+            if (assembleDirty) {
+              syncAssembleStateFromDom();
+              clearTimeout(assembleSaveTimer);
+              void flushAssembleSaveNow();
+            }
             void leaveAssemblePresence(assembleOrderSnapshot.id);
           }
           hideAssemblePresenceHint();
@@ -9180,6 +9183,21 @@
         return tryGetAssembleDraftPallets(orderId);
       }
 
+      function normalizePalletsForCompare(pallets) {
+        return (pallets || []).map((p) => ({
+          id: p.id,
+          palletNumber: String(p.palletNumber ?? p.pallet_number ?? "").trim(),
+          slots: (p.slots || []).map((s) => normalizeSlot(s)),
+        }));
+      }
+
+      function assembleStatesContentEqual(palletsA, palletsB) {
+        return (
+          JSON.stringify(normalizePalletsForCompare(palletsA)) ===
+          JSON.stringify(normalizePalletsForCompare(palletsB))
+        );
+      }
+
       function pickAssemblePalletsOnLoad(orderData, localDraft, items) {
         const serverPallets =
           orderData.assemble_state && Array.isArray(orderData.assemble_state.pallets)
@@ -9195,10 +9213,11 @@
         const localRev = Number(localDraft?.assemble_revision) || 0;
         if (serverStored) {
           if (localHas && localRev > serverRev) {
+            const sameAsServer = assembleStatesContentEqual(localPallets, serverPallets);
             return {
-              pallets: localPallets,
-              revision: localRev,
-              pushToServer: true,
+              pallets: sameAsServer ? serverPallets : localPallets,
+              revision: sameAsServer ? serverRev : localRev,
+              pushToServer: !sameAsServer,
               serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
             };
           }
@@ -9210,10 +9229,12 @@
           };
         }
         if (localHas) {
+          const defaultPallets = [{ id: 1, palletNumber: "1", slots: [] }];
+          const sameAsDefault = assembleStatesContentEqual(localPallets, defaultPallets);
           return {
             pallets: localPallets,
             revision: Math.max(localRev, serverRev),
-            pushToServer: true,
+            pushToServer: !sameAsDefault,
             serverHadContent: false,
           };
         }
@@ -9669,6 +9690,9 @@
       }
 
       function queueAssembleServerSave() {
+        if (!assembleDirty) {
+          return assembleSaveDrainPromise || Promise.resolve(true);
+        }
         const payload = captureAssembleSavePayload();
         if (!payload) {
           return assembleSaveDrainPromise || Promise.resolve(false);
@@ -9683,6 +9707,9 @@
 
       function flushAssembleSaveNow() {
         clearTimeout(assembleSaveTimer);
+        if (!assembleDirty) {
+          return assembleSaveDrainPromise || Promise.resolve(true);
+        }
         const payload = captureAssembleSavePayload();
         if (!payload) {
           return assembleSaveDrainPromise || Promise.resolve(true);
@@ -10942,7 +10969,8 @@
         if (
           prevOrderId != null &&
           prevOrderId !== orderId &&
-          assembleAllocState
+          assembleAllocState &&
+          assembleDirty
         ) {
           syncAssembleStateFromDom();
           clearTimeout(assembleSaveTimer);
@@ -11071,7 +11099,7 @@
         }
         const leavingOrderId = assembleOrderSnapshot?.id;
         clearTimeout(assembleSaveTimer);
-        if (assembleAllocState && assembleOrderSnapshot) {
+        if (assembleAllocState && assembleOrderSnapshot && assembleDirty) {
           syncAssembleStateFromDom();
           void flushAssembleSaveNow();
         }
@@ -11252,7 +11280,12 @@
       }
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") {
-          if (currentStage === "assemble" && assembleAllocState && assembleOrderSnapshot) {
+          if (
+            currentStage === "assemble" &&
+            assembleAllocState &&
+            assembleOrderSnapshot &&
+            assembleDirty
+          ) {
             syncAssembleStateFromDom();
             clearTimeout(assembleSaveTimer);
             void flushAssembleSaveNow();
@@ -11764,9 +11797,84 @@
           }
         }
         syncNewOrderLabBuyerUi();
+        editingOrderSnapshot = captureOrderEditSnapshotFromForm();
         newOrderOverlay.hidden = false;
         requestAnimationFrame(() => syncAllOrderItemSearchHeights());
         newOrderShipDate.focus();
+      }
+
+      function normalizeOrderItemSnapshotValue(value) {
+        if (value == null || value === "") {
+          return "";
+        }
+        const n = Number(value);
+        return Number.isFinite(n) ? String(n) : String(value).trim();
+      }
+
+      function captureOrderEditSnapshotFromForm() {
+        const client = newOrderClient ? String(newOrderClient.value || "").trim() : "";
+        const rows = [...newOrderItems.querySelectorAll(".order-item-row")];
+        const items = rows.map((r) => {
+          const rowPayload = {
+            product_id: String(r.querySelector(".order-item-product-id")?.value || "").trim(),
+            article: String(r.dataset.article || "").trim(),
+            name: String(r.dataset.name || "").trim(),
+            quantity: normalizeOrderItemSnapshotValue(
+              r.querySelector(".order-item-qty")?.value,
+            ),
+            unit: String(r.querySelector(".order-item-unit")?.value || "").trim(),
+          };
+          if (isLabIndustriesClient(client)) {
+            const boEl = r.querySelector(".order-item-buyer-order");
+            rowPayload.buyer_order = boEl ? String(boEl.value || "").trim() : "";
+            const tqEl = r.querySelector(".order-item-total-quantity");
+            const tqRaw = tqEl ? String(tqEl.value || "").trim() : "";
+            if (tqRaw !== "") {
+              rowPayload.total_order_quantity = normalizeOrderItemSnapshotValue(tqRaw);
+            }
+          }
+          return rowPayload;
+        });
+        return {
+          ship_date: String(newOrderShipDate?.value || "").trim(),
+          client,
+          extra_info: getNewOrderDeliveryType(),
+          items,
+        };
+      }
+
+      function orderEditSnapshotsEqual(left, right) {
+        if (!left || !right) {
+          return false;
+        }
+        if (
+          left.ship_date !== right.ship_date ||
+          left.client !== right.client ||
+          left.extra_info !== right.extra_info
+        ) {
+          return false;
+        }
+        const aItems = Array.isArray(left.items) ? left.items : [];
+        const bItems = Array.isArray(right.items) ? right.items : [];
+        if (aItems.length !== bItems.length) {
+          return false;
+        }
+        for (let i = 0; i < aItems.length; i += 1) {
+          const a = aItems[i];
+          const b = bItems[i];
+          if (
+            a.product_id !== b.product_id ||
+            a.article !== b.article ||
+            a.name !== b.name ||
+            a.quantity !== b.quantity ||
+            a.unit !== b.unit ||
+            String(a.buyer_order || "") !== String(b.buyer_order || "") ||
+            String(a.total_order_quantity || "") !== String(b.total_order_quantity || "")
+          ) {
+            return false;
+          }
+        }
+        return true;
       }
 
       function normalizeOrderDeliveryType(raw) {
@@ -11809,6 +11917,7 @@
 
       function openNewOrderModal() {
         editingOrderId = null;
+        editingOrderSnapshot = null;
         newOrderTitle.textContent = "Новый заказ";
         clearNewOrderError();
         newOrderForm.reset();
@@ -11829,6 +11938,7 @@
         newOrderItems.innerHTML = "";
         setNewOrderDeliveryType("Обычный");
         editingOrderId = null;
+        editingOrderSnapshot = null;
         newOrderTitle.textContent = "Новый заказ";
       }
 
@@ -11922,6 +12032,17 @@
           orderPayload.buyer_order = "";
         }
         const isEdit = editingOrderId != null;
+        if (
+          isEdit &&
+          editingOrderSnapshot &&
+          orderEditSnapshotsEqual(
+            editingOrderSnapshot,
+            captureOrderEditSnapshotFromForm(),
+          )
+        ) {
+          closeNewOrderModal();
+          return;
+        }
         const url = isEdit ? `/api/orders/${editingOrderId}` : "/api/orders";
         const method = isEdit ? "PUT" : "POST";
         let response;

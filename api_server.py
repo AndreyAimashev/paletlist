@@ -2322,6 +2322,13 @@ def init_db():
             """
         )
         _migrate_products(cur)
+        cur.execute(
+            """
+            DELETE FROM products
+            WHERE TRIM(COALESCE(article, '')) = ''
+              AND TRIM(COALESCE(name, '')) = ''
+            """
+        )
         count = cur.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if count == 0 and JSON_SEED_PATH.exists():
             seed_items = json.loads(JSON_SEED_PATH.read_text(encoding="utf-8"))
@@ -4669,8 +4676,15 @@ def update_nomenclature_row(
     return True if affected > 0 else False
 
 
-def soft_delete_row(row_id: int):
-    return update_nomenclature_row(row_id, "", "", 0, 1, 0, 0, 0, 0, 0) is True
+def delete_nomenclature_row(row_id: int) -> bool:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute("DELETE FROM products WHERE id = ?", (int(row_id),))
+        affected = cur.rowcount
+        con.commit()
+        con.close()
+    return affected > 0
 
 
 def _normalize_str(value: str) -> str:
@@ -5841,7 +5855,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_json(400, {"error": "Invalid id"})
             return
-        ok = soft_delete_row(row_id)
+        try:
+            ok = delete_nomenclature_row(row_id)
+        except sqlite3.Error as exc:
+            self._send_json(500, {"error": "database", "message": str(exc)})
+            return
         if not ok:
             self._send_json(404, {"error": "Item not found"})
             return

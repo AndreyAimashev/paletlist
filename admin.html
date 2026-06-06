@@ -12891,7 +12891,9 @@
         }
 
         if (action === "delete") {
-          const confirmed = confirm("Удалить номенклатуру? Поля будут очищены, id останется.");
+          const confirmed = confirm(
+            "Удалить позицию из номенклатуры? Запись будет полностью удалена из базы.",
+          );
           if (!confirmed) {
             return;
           }

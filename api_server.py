@@ -62,6 +62,7 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "warehouse.db"
 JSON_SEED_PATH = BASE_DIR / "nomenclature.json"
+UPDATES_JSON_PATH = BASE_DIR / "updates.json"
 HOST = "127.0.0.1"
 
 try:
@@ -126,6 +127,10 @@ def _is_auth_login_path(path: str) -> bool:
 
 def _is_auth_account_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/auth/account"
+
+
+def _is_updates_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/updates"
 
 
 def authenticate_app_login(login: str, password: str) -> dict | None:
@@ -4676,6 +4681,97 @@ def update_nomenclature_row(
     return True if affected > 0 else False
 
 
+def _normalize_updates_entry(raw, index: int) -> dict:
+    if not isinstance(raw, dict):
+        return {
+            "error": "validation",
+            "message": f"Запись #{index + 1}: ожидался объект.",
+        }
+    date = _normalize_str(str(raw.get("date", "")))
+    if date:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return {
+                "error": "validation",
+                "message": f"Запись #{index + 1}: дата должна быть в формате ГГГГ-ММ-ДД.",
+            }
+    title = _normalize_str(str(raw.get("title", "")))
+    if not title:
+        return {
+            "error": "validation",
+            "message": f"Запись #{index + 1}: укажите заголовок.",
+        }
+    lines_raw = raw.get("lines")
+    if lines_raw is None:
+        lines_raw = []
+    if not isinstance(lines_raw, list):
+        return {
+            "error": "validation",
+            "message": f"Запись #{index + 1}: пункты списка должны быть массивом строк.",
+        }
+    lines = [_normalize_str(str(line)) for line in lines_raw]
+    lines = [line for line in lines if line]
+    if not lines:
+        return {
+            "error": "validation",
+            "message": f"Запись #{index + 1}: добавьте хотя бы один пункт.",
+        }
+    return {"date": date, "title": title, "lines": lines}
+
+
+def _normalize_updates_payload(body) -> dict:
+    if not isinstance(body, dict):
+        return {"error": "validation", "message": "Ожидался JSON-объект."}
+    entries_raw = body.get("entries")
+    if not isinstance(entries_raw, list):
+        return {"error": "validation", "message": "Поле entries должно быть массивом."}
+    entries = []
+    for idx, raw in enumerate(entries_raw):
+        item = _normalize_updates_entry(raw, idx)
+        if item.get("error"):
+            return item
+        entries.append(item)
+    return {"entries": entries}
+
+
+def fetch_updates() -> dict:
+    if not UPDATES_JSON_PATH.exists():
+        return {"entries": []}
+    try:
+        data = json.loads(UPDATES_JSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"entries": []}
+    if not isinstance(data, dict):
+        return {"entries": []}
+    entries_raw = data.get("entries")
+    if not isinstance(entries_raw, list):
+        return {"entries": []}
+    entries = []
+    for idx, raw in enumerate(entries_raw):
+        item = _normalize_updates_entry(raw, idx)
+        if item.get("error"):
+            continue
+        entries.append(item)
+    return {"entries": entries}
+
+
+def save_updates(body: dict) -> dict:
+    pack = _normalize_updates_payload(body)
+    if pack.get("error"):
+        return pack
+    payload = {"entries": pack["entries"]}
+    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    tmp_path = UPDATES_JSON_PATH.with_suffix(".json.tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        tmp_path.replace(UPDATES_JSON_PATH)
+    except OSError as exc:
+        return {
+            "error": "io",
+            "message": f"Не удалось сохранить обновления: {exc}",
+        }
+    return {"ok": True, **payload}
+
+
 def delete_nomenclature_row(row_id: int) -> bool:
     with DB_LOCK:
         con = get_connection()
@@ -5180,6 +5276,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if not self._ensure_authenticated():
             return
+        if _is_updates_path(path):
+            self._send_json(200, fetch_updates())
+            return
         if not self._ensure_path_permissions(path):
             return
         packing_html_oid = _parse_orders_packing_sheets_html_id(path)
@@ -5613,6 +5712,24 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        if _is_updates_path(path):
+            if not self._require_admin():
+                return
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            result = save_updates(body)
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "io":
+                self._send_json(500, result)
+                return
+            self._send_json(200, result)
+            return
         if not _is_auth_account_path(path) and not _parse_user_id_path(path):
             if not self._ensure_path_permissions(path):
                 return

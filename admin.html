@@ -274,6 +274,89 @@
         font-size: 13px;
       }
 
+      .updates-save-error {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 120, 120, 0.45);
+        background: rgba(40, 18, 22, 0.65);
+        color: #ffb4b4;
+        font-size: 13px;
+      }
+
+      .updates-save-error[hidden] {
+        display: none !important;
+      }
+
+      .updates-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: min(58vh, 520px);
+        overflow-y: auto;
+      }
+
+      .updates-editor-entry {
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        background: rgba(10, 14, 23, 0.55);
+      }
+
+      .updates-editor-entry-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .updates-editor-entry-title {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-muted);
+      }
+
+      .updates-editor-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 10px;
+      }
+
+      .updates-editor-field:last-child {
+        margin-bottom: 0;
+      }
+
+      .updates-editor-field label {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .updates-editor-field input,
+      .updates-editor-field textarea {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 7px 10px;
+        font-family: "Roboto", sans-serif;
+        font-size: 13px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+      }
+
+      .updates-editor-field textarea {
+        min-height: 88px;
+        resize: vertical;
+        line-height: 1.45;
+      }
+
+      .updates-add-entry-btn {
+        align-self: flex-start;
+      }
+
       .menu-items {
         margin-top: 18px;
         display: flex;
@@ -4140,8 +4223,30 @@
           Краткий список изменений в системе — без технических деталей.
         </p>
         <p id="updates-load-error" class="updates-load-error" hidden></p>
-        <ul id="updates-feed" class="updates-feed" aria-live="polite"></ul>
+        <p id="updates-save-error" class="updates-save-error" hidden></p>
+        <div id="updates-view-panel">
+          <ul id="updates-feed" class="updates-feed" aria-live="polite"></ul>
+        </div>
+        <div id="updates-edit-panel" hidden>
+          <div id="updates-editor" class="updates-editor"></div>
+          <button
+            id="updates-add-entry-btn"
+            class="menu-button updates-add-entry-btn"
+            type="button"
+          >
+            Добавить запись
+          </button>
+        </div>
         <div class="modal-actions">
+          <button id="updates-edit-btn" class="menu-button" type="button" hidden>
+            Редактировать
+          </button>
+          <button id="updates-save-btn" class="menu-button" type="button" hidden>
+            Сохранить
+          </button>
+          <button id="updates-cancel-edit-btn" class="menu-button" type="button" hidden>
+            Отмена
+          </button>
           <button id="updates-close-btn" class="menu-button" type="button">Закрыть</button>
         </div>
       </div>
@@ -4730,8 +4835,165 @@
           .join("");
       }
 
-      async function loadUpdatesFeed() {
+      function syncUpdatesAdminControls() {
+        const admin = isAdminUser();
+        if (updatesEditBtn) {
+          updatesEditBtn.hidden = !admin || updatesEditing;
+        }
+        if (updatesSaveBtn) {
+          updatesSaveBtn.hidden = !admin || !updatesEditing;
+        }
+        if (updatesCancelEditBtn) {
+          updatesCancelEditBtn.hidden = !admin || !updatesEditing;
+        }
+        if (updatesViewPanel) {
+          updatesViewPanel.hidden = updatesEditing;
+        }
+        if (updatesEditPanel) {
+          updatesEditPanel.hidden = !updatesEditing;
+        }
+      }
+
+      function cloneUpdatesEntries(entries) {
+        return (entries || []).map((entry) => ({
+          date: String(entry.date || "").trim(),
+          title: String(entry.title || "").trim(),
+          lines: Array.isArray(entry.lines)
+            ? entry.lines.map((line) => String(line || "").trim()).filter(Boolean)
+            : [],
+        }));
+      }
+
+      function defaultUpdatesEntry() {
+        const today = new Date().toISOString().slice(0, 10);
+        return {
+          date: today,
+          title: "",
+          lines: [""],
+        };
+      }
+
+      function renderUpdatesEditor() {
+        if (!updatesEditor) {
+          return;
+        }
+        const entries = Array.isArray(updatesEditDraft) ? updatesEditDraft : [];
+        if (!entries.length) {
+          updatesEditor.innerHTML =
+            '<p class="muted" style="margin:0;">Нет записей. Добавьте первую запись об обновлении.</p>';
+          return;
+        }
+        updatesEditor.innerHTML = entries
+          .map((entry, index) => {
+            const linesText = (entry.lines || []).join("\n");
+            return `<article class="updates-editor-entry" data-entry-index="${index}">
+              <div class="updates-editor-entry-head">
+                <h4 class="updates-editor-entry-title">Запись ${index + 1}</h4>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-danger"
+                  data-updates-remove-entry="${index}"
+                  title="Удалить запись"
+                >🗑️</button>
+              </div>
+              <div class="updates-editor-field">
+                <label for="updates-entry-date-${index}">Дата</label>
+                <input
+                  id="updates-entry-date-${index}"
+                  type="date"
+                  data-updates-field="date"
+                  data-entry-index="${index}"
+                  value="${escapeXml(entry.date || "")}"
+                />
+              </div>
+              <div class="updates-editor-field">
+                <label for="updates-entry-title-${index}">Заголовок</label>
+                <input
+                  id="updates-entry-title-${index}"
+                  type="text"
+                  data-updates-field="title"
+                  data-entry-index="${index}"
+                  value="${escapeXml(entry.title || "")}"
+                  placeholder="Например: Заказы"
+                />
+              </div>
+              <div class="updates-editor-field">
+                <label for="updates-entry-lines-${index}">Пункты списка (каждый с новой строки)</label>
+                <textarea
+                  id="updates-entry-lines-${index}"
+                  data-updates-field="lines"
+                  data-entry-index="${index}"
+                  placeholder="Опишите изменение простыми словами"
+                >${escapeXml(linesText)}</textarea>
+              </div>
+            </article>`;
+          })
+          .join("");
+      }
+
+      function collectUpdatesEditorDraft() {
+        if (!updatesEditor) {
+          return [];
+        }
+        const articles = [...updatesEditor.querySelectorAll(".updates-editor-entry")];
+        return articles.map((article) => {
+          const dateEl = article.querySelector('[data-updates-field="date"]');
+          const titleEl = article.querySelector('[data-updates-field="title"]');
+          const linesEl = article.querySelector('[data-updates-field="lines"]');
+          const lines = String(linesEl?.value || "")
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          return {
+            date: String(dateEl?.value || "").trim(),
+            title: String(titleEl?.value || "").trim(),
+            lines: lines.length ? lines : [""],
+          };
+        });
+      }
+
+      function clearUpdatesSaveError() {
+        if (!updatesSaveError) {
+          return;
+        }
+        updatesSaveError.hidden = true;
+        updatesSaveError.textContent = "";
+      }
+
+      function showUpdatesSaveError(message) {
+        if (!updatesSaveError) {
+          return;
+        }
+        updatesSaveError.hidden = false;
+        updatesSaveError.textContent = message;
+      }
+
+      function enterUpdatesEditMode() {
+        if (!isAdminUser()) {
+          return;
+        }
+        updatesEditDraft = cloneUpdatesEntries(updatesCache);
+        if (!updatesEditDraft.length) {
+          updatesEditDraft = [defaultUpdatesEntry()];
+        }
+        updatesEditing = true;
+        clearUpdatesSaveError();
+        renderUpdatesEditor();
+        syncUpdatesAdminControls();
+      }
+
+      function exitUpdatesEditMode() {
+        updatesEditing = false;
+        updatesEditDraft = null;
+        clearUpdatesSaveError();
+        syncUpdatesAdminControls();
         if (updatesCache) {
+          renderUpdatesFeed(updatesCache);
+        }
+      }
+
+      async function loadUpdatesFeed(forceReload = false) {
+        if (updatesCache && !forceReload) {
           renderUpdatesFeed(updatesCache);
           return;
         }
@@ -4743,13 +5005,15 @@
           updatesFeed.innerHTML = '<li class="muted">Загрузка…</li>';
         }
         try {
-          const res = await fetch("/updates.json", { cache: "no-store" });
+          const res = await fetch("/api/updates", { cache: "no-store" });
           if (!res.ok) {
             throw new Error("Не удалось загрузить список обновлений.");
           }
           const data = await res.json().catch(() => ({}));
           updatesCache = Array.isArray(data.entries) ? data.entries : [];
-          renderUpdatesFeed(updatesCache);
+          if (!updatesEditing) {
+            renderUpdatesFeed(updatesCache);
+          }
         } catch (error) {
           updatesCache = null;
           if (updatesFeed) {
@@ -4763,15 +5027,59 @@
         }
       }
 
+      async function saveUpdatesFromEditor() {
+        if (!isAdminUser() || !updatesEditing) {
+          return;
+        }
+        clearUpdatesSaveError();
+        const entries = collectUpdatesEditorDraft();
+        let response;
+        try {
+          response = await fetch("/api/updates", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entries }),
+          });
+        } catch (error) {
+          showUpdatesSaveError("Нет связи с сервером при сохранении.");
+          return;
+        }
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          payload = null;
+        }
+        if (!response.ok) {
+          showUpdatesSaveError(
+            (payload && payload.message) ||
+              `Не удалось сохранить (код ${response.status}).`,
+          );
+          return;
+        }
+        updatesCache = Array.isArray(payload.entries) ? payload.entries : entries;
+        updatesEditing = false;
+        updatesEditDraft = null;
+        syncUpdatesAdminControls();
+        renderUpdatesFeed(updatesCache);
+      }
+
       function openUpdatesModal() {
         if (!updatesOverlay) {
           return;
         }
+        if (updatesEditing) {
+          exitUpdatesEditMode();
+        }
         updatesOverlay.hidden = false;
+        syncUpdatesAdminControls();
         void loadUpdatesFeed();
       }
 
       function closeUpdatesModal() {
+        if (updatesEditing) {
+          exitUpdatesEditMode();
+        }
         if (updatesOverlay) {
           updatesOverlay.hidden = true;
         }
@@ -4854,10 +5162,20 @@
       const mainMenuTools = document.querySelector(".main-menu-tools");
       const updatesOpenBtn = document.getElementById("updates-open-btn");
       const updatesOverlay = document.getElementById("updates-overlay");
+      const updatesViewPanel = document.getElementById("updates-view-panel");
+      const updatesEditPanel = document.getElementById("updates-edit-panel");
       const updatesFeed = document.getElementById("updates-feed");
+      const updatesEditor = document.getElementById("updates-editor");
       const updatesLoadError = document.getElementById("updates-load-error");
+      const updatesSaveError = document.getElementById("updates-save-error");
+      const updatesEditBtn = document.getElementById("updates-edit-btn");
+      const updatesSaveBtn = document.getElementById("updates-save-btn");
+      const updatesCancelEditBtn = document.getElementById("updates-cancel-edit-btn");
+      const updatesAddEntryBtn = document.getElementById("updates-add-entry-btn");
       const updatesCloseBtn = document.getElementById("updates-close-btn");
       let updatesCache = null;
+      let updatesEditDraft = null;
+      let updatesEditing = false;
 
       const usersWorkspace = document.getElementById("users-workspace");
       const usersTableBody = document.getElementById("users-table-body");
@@ -7032,6 +7350,42 @@
       if (updatesOpenBtn) {
         updatesOpenBtn.addEventListener("click", openUpdatesModal);
       }
+      if (updatesEditBtn) {
+        updatesEditBtn.addEventListener("click", enterUpdatesEditMode);
+      }
+      if (updatesSaveBtn) {
+        updatesSaveBtn.addEventListener("click", () => {
+          void saveUpdatesFromEditor();
+        });
+      }
+      if (updatesCancelEditBtn) {
+        updatesCancelEditBtn.addEventListener("click", exitUpdatesEditMode);
+      }
+      if (updatesAddEntryBtn) {
+        updatesAddEntryBtn.addEventListener("click", () => {
+          if (!updatesEditing) {
+            return;
+          }
+          updatesEditDraft = collectUpdatesEditorDraft();
+          updatesEditDraft.push(defaultUpdatesEntry());
+          renderUpdatesEditor();
+        });
+      }
+      if (updatesEditor) {
+        updatesEditor.addEventListener("click", (event) => {
+          const btn = event.target.closest("[data-updates-remove-entry]");
+          if (!btn || !updatesEditing) {
+            return;
+          }
+          const index = Number(btn.getAttribute("data-updates-remove-entry"));
+          if (!Number.isFinite(index)) {
+            return;
+          }
+          updatesEditDraft = collectUpdatesEditorDraft();
+          updatesEditDraft.splice(index, 1);
+          renderUpdatesEditor();
+        });
+      }
       if (updatesCloseBtn) {
         updatesCloseBtn.addEventListener("click", closeUpdatesModal);
       }
@@ -7048,9 +7402,14 @@
           updatesOverlay &&
           !updatesOverlay.hidden
         ) {
+          if (updatesEditing) {
+            exitUpdatesEditMode();
+            return;
+          }
           closeUpdatesModal();
         }
       });
+      syncUpdatesAdminControls();
       if (usersAdminPanel) {
         usersAdminPanel.addEventListener("click", (event) => {
           const permBtn = event.target.closest(".users-perm-btn");

@@ -5588,6 +5588,75 @@
         }
       }
 
+      function feedbackThreadsSignature(threads) {
+        return (Array.isArray(threads) ? threads : [])
+          .map(
+            (thread) =>
+              `${Number(thread.id)}:${thread.updated_at || ""}:${Number(thread.message_count) || 0}:${thread.is_closed ? 1 : 0}:${thread.has_unread ? 1 : 0}`,
+          )
+          .join("|");
+      }
+
+      function feedbackMessagesSignature(messages) {
+        return (Array.isArray(messages) ? messages : [])
+          .map((msg) => `${Number(msg.id)}:${msg.created_at || ""}`)
+          .join("|");
+      }
+
+      function feedbackThreadDetailSignature(data) {
+        if (!data) {
+          return "";
+        }
+        return [
+          data.updated_at || "",
+          data.is_closed ? 1 : 0,
+          feedbackMessagesSignature(data.messages),
+        ].join("|");
+      }
+
+      function isFeedbackMessagesNearBottom() {
+        if (!feedbackMessagesEl) {
+          return true;
+        }
+        const threshold = 48;
+        return (
+          feedbackMessagesEl.scrollHeight -
+            feedbackMessagesEl.scrollTop -
+            feedbackMessagesEl.clientHeight <=
+          threshold
+        );
+      }
+
+      function applyFeedbackThreadDetail(data, opts = {}) {
+        const quiet = !!opts.quiet;
+        if (feedbackThreadSubjectEl) {
+          feedbackThreadSubjectEl.textContent = data.subject || "Без темы";
+        }
+        if (feedbackThreadMetaEl) {
+          const parts = [];
+          if (isAdminUser() && data.user_name) {
+            parts.push(`От: ${data.user_name}`);
+          }
+          if (data.updated_at) {
+            parts.push(`Обновлено: ${formatFeedbackDateTime(data.updated_at)}`);
+          }
+          feedbackThreadMetaEl.textContent = parts.join(" · ");
+        }
+        const nearBottom = isFeedbackMessagesNearBottom();
+        const prevSig =
+          quiet && feedbackActiveThreadData
+            ? feedbackMessagesSignature(feedbackActiveThreadData.messages)
+            : "";
+        const newSig = feedbackMessagesSignature(data.messages);
+        if (!quiet || prevSig !== newSig) {
+          renderFeedbackMessages(data.messages, {
+            scrollToBottom: !quiet || nearBottom,
+          });
+        }
+        feedbackActiveThreadData = data;
+        syncFeedbackThreadToolbar(data);
+      }
+
       function renderFeedbackThreadList(threads) {
         if (!feedbackThreadList) {
           return;
@@ -5626,19 +5695,24 @@
           .join("");
       }
 
-      async function loadFeedbackThreads() {
-        setFeedbackStatus("");
-        if (feedbackThreadList) {
-          feedbackThreadList.innerHTML = '<li class="muted">Загрузка…</li>';
+      async function loadFeedbackThreads(opts = {}) {
+        const quiet = !!opts.quiet;
+        if (!quiet) {
+          setFeedbackStatus("");
+          if (feedbackThreadList) {
+            feedbackThreadList.innerHTML = '<li class="muted">Загрузка…</li>';
+          }
         }
         let res;
         try {
           res = await fetch("/api/feedback/threads", { cache: "no-store" });
         } catch (error) {
-          if (feedbackThreadList) {
-            feedbackThreadList.innerHTML = "";
+          if (!quiet) {
+            if (feedbackThreadList) {
+              feedbackThreadList.innerHTML = "";
+            }
+            setFeedbackStatus("Нет связи с сервером.", true);
           }
-          setFeedbackStatus("Нет связи с сервером.", true);
           return;
         }
         let data = null;
@@ -5648,20 +5722,31 @@
           data = null;
         }
         if (!res.ok) {
-          if (feedbackThreadList) {
-            feedbackThreadList.innerHTML = "";
+          if (!quiet) {
+            if (feedbackThreadList) {
+              feedbackThreadList.innerHTML = "";
+            }
+            setFeedbackStatus(
+              (data && data.message) || `Не удалось загрузить беседы (код ${res.status}).`,
+              true,
+            );
           }
-          setFeedbackStatus(
-            (data && data.message) || `Не удалось загрузить беседы (код ${res.status}).`,
-            true,
-          );
           return;
         }
-        feedbackThreadsCache = Array.isArray(data.threads) ? data.threads : [];
-        renderFeedbackThreadList(feedbackThreadsCache);
+        const newThreads = Array.isArray(data.threads) ? data.threads : [];
+        if (
+          quiet &&
+          feedbackThreadsSignature(newThreads) === feedbackThreadsSignature(feedbackThreadsCache)
+        ) {
+          return;
+        }
+        feedbackThreadsCache = newThreads;
+        if (feedbackListView && !feedbackListView.hidden) {
+          renderFeedbackThreadList(feedbackThreadsCache);
+        }
       }
 
-      function renderFeedbackMessages(messages) {
+      function renderFeedbackMessages(messages, opts = {}) {
         if (!feedbackMessagesEl) {
           return;
         }
@@ -5683,31 +5768,38 @@
             </li>`;
           })
           .join("");
-        feedbackMessagesEl.scrollTop = feedbackMessagesEl.scrollHeight;
+        if (opts.scrollToBottom !== false) {
+          feedbackMessagesEl.scrollTop = feedbackMessagesEl.scrollHeight;
+        }
       }
 
-      async function openFeedbackThread(threadId) {
+      async function openFeedbackThread(threadId, opts = {}) {
+        const quiet = !!opts.quiet;
         const tid = Number(threadId);
         if (!Number.isFinite(tid)) {
           return;
         }
         feedbackActiveThreadId = tid;
-        showFeedbackThreadView();
-        if (feedbackThreadSubjectEl) {
-          feedbackThreadSubjectEl.textContent = "Загрузка…";
-        }
-        if (feedbackThreadMetaEl) {
-          feedbackThreadMetaEl.textContent = "";
-        }
-        if (feedbackMessagesEl) {
-          feedbackMessagesEl.innerHTML = '<li class="muted">Загрузка…</li>';
+        if (!quiet) {
+          showFeedbackThreadView();
+          if (feedbackThreadSubjectEl) {
+            feedbackThreadSubjectEl.textContent = "Загрузка…";
+          }
+          if (feedbackThreadMetaEl) {
+            feedbackThreadMetaEl.textContent = "";
+          }
+          if (feedbackMessagesEl) {
+            feedbackMessagesEl.innerHTML = '<li class="muted">Загрузка…</li>';
+          }
         }
         let res;
         try {
           res = await fetch(`/api/feedback/threads/${tid}`, { cache: "no-store" });
         } catch (error) {
-          setFeedbackStatus("Нет связи с сервером.", true);
-          showFeedbackListView();
+          if (!quiet) {
+            setFeedbackStatus("Нет связи с сервером.", true);
+            showFeedbackListView();
+          }
           return;
         }
         let data = null;
@@ -5717,32 +5809,26 @@
           data = null;
         }
         if (!res.ok) {
-          setFeedbackStatus(
-            (data && data.message) || `Не удалось открыть беседу (код ${res.status}).`,
-            true,
-          );
-          showFeedbackListView();
+          if (!quiet) {
+            setFeedbackStatus(
+              (data && data.message) || `Не удалось открыть беседу (код ${res.status}).`,
+              true,
+            );
+            showFeedbackListView();
+          }
           return;
         }
-        if (feedbackThreadSubjectEl) {
-          feedbackThreadSubjectEl.textContent = data.subject || "Без темы";
+        if (
+          quiet &&
+          feedbackThreadDetailSignature(data) ===
+            feedbackThreadDetailSignature(feedbackActiveThreadData)
+        ) {
+          return;
         }
-        if (feedbackThreadMetaEl) {
-          const parts = [];
-          if (isAdminUser() && data.user_name) {
-            parts.push(`От: ${data.user_name}`);
-          }
-          if (data.updated_at) {
-            parts.push(`Обновлено: ${formatFeedbackDateTime(data.updated_at)}`);
-          }
-          feedbackThreadMetaEl.textContent = parts.join(" · ");
-        }
-        renderFeedbackMessages(data.messages);
-        if (feedbackReplyText) {
+        if (!quiet && feedbackReplyText) {
           feedbackReplyText.value = "";
         }
-        feedbackActiveThreadData = data;
-        syncFeedbackThreadToolbar(data);
+        applyFeedbackThreadDetail(data, { quiet });
       }
 
       async function submitFeedbackReply(event) {
@@ -7563,6 +7649,11 @@
           startNomenclatureSyncPoll();
         } else {
           stopNomenclatureSyncPoll();
+        }
+        if (stage === "feedback") {
+          startFeedbackSyncPoll();
+        } else {
+          stopFeedbackSyncPoll();
         }
         if (stage !== "assemble") {
           stopAssembleSyncPoll();
@@ -9634,6 +9725,7 @@
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
       const NOMENCLATURE_SYNC_POLL_MS = 1000;
+      const FEEDBACK_SYNC_POLL_MS = 3000;
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
       const ASSEMBLE_SUMMARY_UNITS = {
         piece: { label: "штуки", short: "шт" },
@@ -9717,6 +9809,8 @@
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
+      let feedbackSyncPollTimer = null;
+      let feedbackSyncPollInFlight = false;
       const ASSEMBLE_CLIENT_ID_STORAGE = "paletlist_assemble_client_id";
       const assembleSyncChannel =
         typeof BroadcastChannel !== "undefined"
@@ -10598,6 +10692,44 @@
           }
           void loadNomenclature({ quiet: true });
         }, NOMENCLATURE_SYNC_POLL_MS);
+      }
+
+      function stopFeedbackSyncPoll() {
+        if (feedbackSyncPollTimer) {
+          clearInterval(feedbackSyncPollTimer);
+          feedbackSyncPollTimer = null;
+        }
+      }
+
+      function startFeedbackSyncPoll() {
+        stopFeedbackSyncPoll();
+        feedbackSyncPollTimer = setInterval(() => {
+          if (currentStage !== "feedback") {
+            return;
+          }
+          void pollFeedbackSync();
+        }, FEEDBACK_SYNC_POLL_MS);
+      }
+
+      async function pollFeedbackSync() {
+        if (currentStage !== "feedback" || feedbackSyncPollInFlight) {
+          return;
+        }
+        feedbackSyncPollInFlight = true;
+        try {
+          await loadFeedbackThreads({ quiet: true });
+          if (
+            feedbackActiveThreadId != null &&
+            feedbackThreadView &&
+            !feedbackThreadView.hidden
+          ) {
+            await openFeedbackThread(feedbackActiveThreadId, { quiet: true });
+          } else if (feedbackListView && !feedbackListView.hidden) {
+            renderFeedbackThreadList(feedbackThreadsCache);
+          }
+        } finally {
+          feedbackSyncPollInFlight = false;
+        }
       }
 
       function setAssembleSaveStatus(text, isError) {

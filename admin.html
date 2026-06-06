@@ -8335,24 +8335,14 @@
       if (updatesCloseBtn) {
         updatesCloseBtn.addEventListener("click", closeUpdatesModal);
       }
-      if (updatesOverlay) {
-        updatesOverlay.addEventListener("click", (event) => {
-          if (event.target === updatesOverlay) {
-            closeUpdatesModal();
-          }
-        });
-      }
       document.addEventListener("keydown", (event) => {
         if (
           event.key === "Escape" &&
           updatesOverlay &&
-          !updatesOverlay.hidden
+          !updatesOverlay.hidden &&
+          updatesEditing
         ) {
-          if (updatesEditing) {
-            exitUpdatesEditMode();
-            return;
-          }
-          closeUpdatesModal();
+          exitUpdatesEditMode();
         }
       });
       syncUpdatesAdminControls();

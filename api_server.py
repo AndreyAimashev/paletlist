@@ -2450,6 +2450,21 @@ def _init_feedback_tables(cur) -> None:
         ON feedback_messages(thread_id)
         """
     )
+    feedback_cols = {
+        r[1] for r in cur.execute("PRAGMA table_info(feedback_threads)").fetchall()
+    }
+    if "is_closed" not in feedback_cols:
+        cur.execute(
+            "ALTER TABLE feedback_threads ADD COLUMN is_closed INTEGER NOT NULL DEFAULT 0"
+        )
+    if "user_last_read_at" not in feedback_cols:
+        cur.execute(
+            "ALTER TABLE feedback_threads ADD COLUMN user_last_read_at TEXT NOT NULL DEFAULT ''"
+        )
+    if "admin_last_read_at" not in feedback_cols:
+        cur.execute(
+            "ALTER TABLE feedback_threads ADD COLUMN admin_last_read_at TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _init_orders_table(cur):
@@ -4882,6 +4897,30 @@ def _feedback_user_label_from_row(row) -> str:
     return "Пользователь"
 
 
+def _feedback_row_is_closed(row) -> bool:
+    if "is_closed" not in row.keys():
+        return False
+    return bool(int(row["is_closed"] or 0))
+
+
+def _feedback_has_unread(row, *, is_admin: bool) -> bool:
+    last_at = (row["last_message_at"] or "").strip() if "last_message_at" in row.keys() else ""
+    if not last_at:
+        return False
+    last_author = int(row["last_author_user_id"] or 0) if "last_author_user_id" in row.keys() else 0
+    if is_admin:
+        if last_author == 0:
+            return False
+        read_at = (row["admin_last_read_at"] or "").strip() if "admin_last_read_at" in row.keys() else ""
+    else:
+        if last_author != 0:
+            return False
+        read_at = (row["user_last_read_at"] or "").strip() if "user_last_read_at" in row.keys() else ""
+    if not read_at:
+        return True
+    return read_at < last_at
+
+
 def _feedback_thread_row_to_list_item(row, *, is_admin: bool) -> dict:
     out = {
         "id": int(row["id"]),
@@ -4889,11 +4928,59 @@ def _feedback_thread_row_to_list_item(row, *, is_admin: bool) -> dict:
         "created_at": row["created_at"] or "",
         "updated_at": row["updated_at"] or "",
         "message_count": max(0, int(row["message_count"] or 0)),
+        "is_closed": _feedback_row_is_closed(row),
+        "has_unread": _feedback_has_unread(row, is_admin=is_admin),
     }
     if is_admin:
         out["user_id"] = int(row["user_id"] or 0)
         out["user_name"] = _feedback_user_label_from_row(row)
     return out
+
+
+def _feedback_thread_list_select_sql(*, admin: bool) -> str:
+    base = """
+        SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
+               t.is_closed, t.user_last_read_at, t.admin_last_read_at,
+               (SELECT COUNT(*) FROM feedback_messages m WHERE m.thread_id = t.id) AS message_count,
+               (SELECT author_user_id FROM feedback_messages m2
+                WHERE m2.thread_id = t.id ORDER BY m2.id DESC LIMIT 1) AS last_author_user_id,
+               (SELECT created_at FROM feedback_messages m3
+                WHERE m3.thread_id = t.id ORDER BY m3.id DESC LIMIT 1) AS last_message_at
+    """
+    if admin:
+        return (
+            base
+            + """,
+               u.display_name, u.login
+        FROM feedback_threads t
+        LEFT JOIN app_users u ON u.id = t.user_id
+        ORDER BY t.updated_at DESC, t.id DESC
+        """
+        )
+    return (
+        base
+        + """
+        FROM feedback_threads t
+        WHERE t.user_id = ?
+        ORDER BY t.updated_at DESC, t.id DESC
+        """
+    )
+
+
+def _feedback_mark_thread_read(cur, thread_id: int, session: dict | None) -> None:
+    if not session:
+        return
+    now = _utc_now_iso()
+    if session.get("is_admin"):
+        cur.execute(
+            "UPDATE feedback_threads SET admin_last_read_at = ? WHERE id = ?",
+            (now, int(thread_id)),
+        )
+    else:
+        cur.execute(
+            "UPDATE feedback_threads SET user_last_read_at = ? WHERE id = ?",
+            (now, int(thread_id)),
+        )
 
 
 def fetch_feedback_threads(session: dict | None) -> dict:
@@ -4905,28 +4992,13 @@ def fetch_feedback_threads(session: dict | None) -> dict:
         con = get_connection()
         cur = con.cursor()
         if is_admin:
-            rows = cur.execute(
-                """
-                SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
-                       u.display_name, u.login,
-                       (SELECT COUNT(*) FROM feedback_messages m WHERE m.thread_id = t.id) AS message_count
-                FROM feedback_threads t
-                LEFT JOIN app_users u ON u.id = t.user_id
-                ORDER BY t.updated_at DESC, t.id DESC
-                """
-            ).fetchall()
+            rows = cur.execute(_feedback_thread_list_select_sql(admin=True)).fetchall()
         else:
             if user_id <= 0:
                 con.close()
                 return {"threads": []}
             rows = cur.execute(
-                """
-                SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
-                       (SELECT COUNT(*) FROM feedback_messages m WHERE m.thread_id = t.id) AS message_count
-                FROM feedback_threads t
-                WHERE t.user_id = ?
-                ORDER BY t.updated_at DESC, t.id DESC
-                """,
+                _feedback_thread_list_select_sql(admin=False),
                 (user_id,),
             ).fetchall()
         con.close()
@@ -4952,7 +5024,12 @@ def fetch_feedback_thread_detail(session: dict | None, thread_id: int) -> dict:
         row = cur.execute(
             """
             SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
-                   u.display_name, u.login
+                   t.is_closed, t.user_last_read_at, t.admin_last_read_at,
+                   u.display_name, u.login,
+                   (SELECT author_user_id FROM feedback_messages m2
+                    WHERE m2.thread_id = t.id ORDER BY m2.id DESC LIMIT 1) AS last_author_user_id,
+                   (SELECT created_at FROM feedback_messages m3
+                    WHERE m3.thread_id = t.id ORDER BY m3.id DESC LIMIT 1) AS last_message_at
             FROM feedback_threads t
             LEFT JOIN app_users u ON u.id = t.user_id
             WHERE t.id = ?
@@ -4974,6 +5051,23 @@ def fetch_feedback_thread_detail(session: dict | None, thread_id: int) -> dict:
             """,
             (int(thread_id),),
         ).fetchall()
+        _feedback_mark_thread_read(cur, int(thread_id), session)
+        row = cur.execute(
+            """
+            SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
+                   t.is_closed, t.user_last_read_at, t.admin_last_read_at,
+                   u.display_name, u.login,
+                   (SELECT author_user_id FROM feedback_messages m2
+                    WHERE m2.thread_id = t.id ORDER BY m2.id DESC LIMIT 1) AS last_author_user_id,
+                   (SELECT created_at FROM feedback_messages m3
+                    WHERE m3.thread_id = t.id ORDER BY m3.id DESC LIMIT 1) AS last_message_at
+            FROM feedback_threads t
+            LEFT JOIN app_users u ON u.id = t.user_id
+            WHERE t.id = ?
+            """,
+            (int(thread_id),),
+        ).fetchone()
+        con.commit()
         con.close()
     is_admin = bool(session.get("is_admin"))
     out = {
@@ -4981,6 +5075,8 @@ def fetch_feedback_thread_detail(session: dict | None, thread_id: int) -> dict:
         "subject": row["subject"] or "",
         "created_at": row["created_at"] or "",
         "updated_at": row["updated_at"] or "",
+        "is_closed": _feedback_row_is_closed(row),
+        "has_unread": _feedback_has_unread(row, is_admin=is_admin),
         "messages": [
             {
                 "id": int(m["id"]),
@@ -5041,6 +5137,14 @@ def create_feedback_thread(session: dict | None, body: dict) -> dict:
             """,
             (thread_id, user_id, author_name, message, now),
         )
+        cur.execute(
+            """
+            UPDATE feedback_threads
+            SET user_last_read_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (now, now, thread_id),
+        )
         con.commit()
         con.close()
     return {"ok": True, "id": thread_id}
@@ -5065,7 +5169,7 @@ def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> di
         con = get_connection()
         cur = con.cursor()
         row = cur.execute(
-            "SELECT id, user_id FROM feedback_threads WHERE id = ?",
+            "SELECT id, user_id, is_closed FROM feedback_threads WHERE id = ?",
             (int(thread_id),),
         ).fetchone()
         if not row:
@@ -5074,6 +5178,12 @@ def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> di
         if not _feedback_can_access_thread(session, row):
             con.close()
             return {"error": "forbidden", "message": "Нет доступа к этой беседе."}
+        if not is_admin and _feedback_row_is_closed(row):
+            con.close()
+            return {
+                "error": "closed",
+                "message": "Тема закрыта. Откройте тему, чтобы отправить сообщение.",
+            }
         cur.execute(
             """
             INSERT INTO feedback_messages (
@@ -5083,10 +5193,24 @@ def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> di
             (int(thread_id), author_user_id, author_name, message, now),
         )
         msg_id = int(cur.lastrowid)
-        cur.execute(
-            "UPDATE feedback_threads SET updated_at = ? WHERE id = ?",
-            (now, int(thread_id)),
-        )
+        if is_admin:
+            cur.execute(
+                """
+                UPDATE feedback_threads
+                SET updated_at = ?, admin_last_read_at = ?
+                WHERE id = ?
+                """,
+                (now, now, int(thread_id)),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE feedback_threads
+                SET updated_at = ?, user_last_read_at = ?
+                WHERE id = ?
+                """,
+                (now, now, int(thread_id)),
+            )
         con.commit()
         con.close()
     return {
@@ -5101,6 +5225,37 @@ def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> di
             "is_admin": is_admin,
         },
     }
+
+
+def patch_feedback_thread(session: dict | None, thread_id: int, body: dict) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    if not isinstance(body, dict) or "is_closed" not in body:
+        return {
+            "error": "validation",
+            "message": "Передайте is_closed: true или false.",
+        }
+    is_closed = bool(body.get("is_closed"))
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT id, user_id FROM feedback_threads WHERE id = ?",
+            (int(thread_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Беседа не найдена."}
+        if not _feedback_can_access_thread(session, row):
+            con.close()
+            return {"error": "forbidden", "message": "Нет доступа к этой беседе."}
+        cur.execute(
+            "UPDATE feedback_threads SET is_closed = ? WHERE id = ?",
+            (1 if is_closed else 0, int(thread_id)),
+        )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": int(thread_id), "is_closed": is_closed}
 
 
 def delete_nomenclature_row(row_id: int) -> bool:
@@ -5862,6 +6017,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if err == "forbidden":
                 self._send_json(403, result)
                 return
+            if err == "closed":
+                self._send_json(400, result)
+                return
             self._send_json(201, result)
             return
         if not self._ensure_path_permissions(path):
@@ -6281,6 +6439,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
+        feedback_tid = _parse_feedback_thread_detail_id(path)
+        if feedback_tid is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = patch_feedback_thread(
+                    self._auth_session, feedback_tid, body
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            self._send_json(200, result)
+            return
         if not self._ensure_path_permissions(path):
             return
         oid = _parse_orders_detail_id(path)

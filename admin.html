@@ -1891,11 +1891,23 @@
         background: rgba(10, 14, 23, 0.85);
       }
 
+      .feedback-thread-btn__row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
       .feedback-thread-btn__subject {
         display: block;
         font-size: 14px;
         font-weight: 500;
-        margin-bottom: 4px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .feedback-thread-btn.has-unread .feedback-thread-btn__subject {
+        font-weight: 600;
       }
 
       .feedback-thread-btn__meta {
@@ -1904,14 +1916,55 @@
         color: var(--text-muted);
       }
 
+      .feedback-thread-status-icons {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        line-height: 0;
+      }
+
+      .feedback-thread-status-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .feedback-thread-status-icon--open {
+        color: rgba(0, 200, 160, 0.92);
+      }
+
+      .feedback-thread-status-icon--closed {
+        color: rgba(170, 180, 200, 0.9);
+      }
+
+      .feedback-thread-status-icon--unread {
+        color: #00e0b0;
+      }
+
       .feedback-thread-head {
         margin-bottom: 14px;
       }
 
+      .feedback-thread-head__row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+
       .feedback-thread-head h4 {
-        margin: 0 0 6px;
+        margin: 0;
         font-size: 16px;
         font-weight: 500;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .feedback-thread-closed-note {
+        margin: 0 0 12px;
+        font-size: 13px;
+        color: var(--text-muted);
       }
 
       .feedback-messages {
@@ -4266,11 +4319,19 @@
             <div id="feedback-thread-view" hidden>
               <div class="feedback-toolbar">
                 <button type="button" id="feedback-back-list-btn" class="users-btn">К списку бесед</button>
+                <button type="button" id="feedback-close-thread-btn" class="users-btn" hidden>Закрыть тему</button>
+                <button type="button" id="feedback-open-thread-btn" class="users-btn" hidden>Открыть тему</button>
               </div>
               <div class="feedback-thread-head">
-                <h4 id="feedback-thread-subject"></h4>
+                <div class="feedback-thread-head__row">
+                  <span id="feedback-thread-status-icons" class="feedback-thread-status-icons" aria-hidden="true"></span>
+                  <h4 id="feedback-thread-subject"></h4>
+                </div>
                 <p id="feedback-thread-meta" class="muted"></p>
               </div>
+              <p id="feedback-thread-closed-note" class="feedback-thread-closed-note" hidden>
+                Тема закрыта. Откройте тему, чтобы отправить сообщение.
+              </p>
               <ul id="feedback-messages" class="feedback-messages"></ul>
               <form id="feedback-reply-form" class="feedback-reply-form">
                 <div class="feedback-form-field">
@@ -5377,6 +5438,78 @@
         }
       }
 
+      const FEEDBACK_ICON_TOPIC_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+      const FEEDBACK_ICON_TOPIC_CLOSED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      const FEEDBACK_ICON_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>`;
+
+      function feedbackThreadStatusIconsHtml(thread) {
+        const closed = !!(thread && thread.is_closed);
+        const unread = !!(thread && thread.has_unread);
+        const stateTitle = closed ? "Тема закрыта" : "Тема открыта";
+        const stateClass = closed
+          ? "feedback-thread-status-icon--closed"
+          : "feedback-thread-status-icon--open";
+        const stateIcon = closed ? FEEDBACK_ICON_TOPIC_CLOSED : FEEDBACK_ICON_TOPIC_OPEN;
+        const unreadHtml = unread
+          ? `<span class="feedback-thread-status-icon feedback-thread-status-icon--unread" title="Есть непрочитанные сообщения">${FEEDBACK_ICON_UNREAD}</span>`
+          : "";
+        return `<span class="feedback-thread-status-icon ${stateClass}" title="${stateTitle}">${stateIcon}</span>${unreadHtml}`;
+      }
+
+      function syncFeedbackThreadToolbar(thread) {
+        const closed = !!(thread && thread.is_closed);
+        if (feedbackCloseThreadBtn) {
+          feedbackCloseThreadBtn.hidden = closed;
+        }
+        if (feedbackOpenThreadBtn) {
+          feedbackOpenThreadBtn.hidden = !closed;
+        }
+        if (feedbackThreadStatusIconsEl) {
+          feedbackThreadStatusIconsEl.innerHTML = feedbackThreadStatusIconsHtml(thread);
+        }
+        const userBlocked = closed && !isAdminUser();
+        if (feedbackThreadClosedNote) {
+          feedbackThreadClosedNote.hidden = !userBlocked;
+        }
+        if (feedbackReplyForm) {
+          feedbackReplyForm.hidden = userBlocked;
+        }
+      }
+
+      async function setFeedbackThreadClosed(isClosed) {
+        const tid = feedbackActiveThreadId;
+        if (tid == null) {
+          return;
+        }
+        let res;
+        try {
+          res = await fetch(`/api/feedback/threads/${tid}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ is_closed: !!isClosed }),
+          });
+        } catch (error) {
+          setFeedbackStatus("Нет связи с сервером.", true);
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          setFeedbackStatus(
+            (data && data.message) || `Не удалось изменить статус темы (код ${res.status}).`,
+            true,
+          );
+          return;
+        }
+        setFeedbackStatus("");
+        await openFeedbackThread(tid);
+        await loadFeedbackThreads();
+      }
+
       function formatFeedbackDateTime(iso) {
         const raw = String(iso || "").trim();
         if (!raw) {
@@ -5413,6 +5546,7 @@
 
       function showFeedbackListView() {
         feedbackActiveThreadId = null;
+        feedbackActiveThreadData = null;
         if (feedbackListView) {
           feedbackListView.hidden = false;
         }
@@ -5473,13 +5607,18 @@
             const userLine = isAdminUser()
               ? `<span class="feedback-thread-btn__meta">${escapeXml(thread.user_name || "Пользователь")} · ${updated} · ${count} сообщ.</span>`
               : `<span class="feedback-thread-btn__meta">${updated} · ${count} сообщ.</span>`;
+            const unreadClass = thread.has_unread ? " has-unread" : "";
+            const icons = feedbackThreadStatusIconsHtml(thread);
             return `<li class="feedback-thread-item">
               <button
                 type="button"
-                class="feedback-thread-btn"
+                class="feedback-thread-btn${unreadClass}"
                 data-feedback-thread-id="${Number(thread.id)}"
               >
-                <span class="feedback-thread-btn__subject">${subject}</span>
+                <span class="feedback-thread-btn__row">
+                  <span class="feedback-thread-status-icons">${icons}</span>
+                  <span class="feedback-thread-btn__subject">${subject}</span>
+                </span>
                 ${userLine}
               </button>
             </li>`;
@@ -5602,6 +5741,8 @@
         if (feedbackReplyText) {
           feedbackReplyText.value = "";
         }
+        feedbackActiveThreadData = data;
+        syncFeedbackThreadToolbar(data);
       }
 
       async function submitFeedbackReply(event) {
@@ -5797,8 +5938,12 @@
       const feedbackStatusEl = document.getElementById("feedback-status");
       const feedbackNewBtn = document.getElementById("feedback-new-btn");
       const feedbackBackListBtn = document.getElementById("feedback-back-list-btn");
+      const feedbackCloseThreadBtn = document.getElementById("feedback-close-thread-btn");
+      const feedbackOpenThreadBtn = document.getElementById("feedback-open-thread-btn");
       const feedbackThreadSubjectEl = document.getElementById("feedback-thread-subject");
       const feedbackThreadMetaEl = document.getElementById("feedback-thread-meta");
+      const feedbackThreadStatusIconsEl = document.getElementById("feedback-thread-status-icons");
+      const feedbackThreadClosedNote = document.getElementById("feedback-thread-closed-note");
       const feedbackMessagesEl = document.getElementById("feedback-messages");
       const feedbackReplyForm = document.getElementById("feedback-reply-form");
       const feedbackReplyText = document.getElementById("feedback-reply-text");
@@ -5808,6 +5953,7 @@
       const feedbackNewCancelBtn = document.getElementById("feedback-new-cancel-btn");
       let feedbackThreadsCache = [];
       let feedbackActiveThreadId = null;
+      let feedbackActiveThreadData = null;
       const usersTableBody = document.getElementById("users-table-body");
       const usersStatusEl = document.getElementById("users-status");
       const usersAddBtn = document.getElementById("users-add-btn");
@@ -7609,6 +7755,16 @@
         feedbackBackListBtn.addEventListener("click", () => {
           showFeedbackListView();
           void loadFeedbackThreads();
+        });
+      }
+      if (feedbackCloseThreadBtn) {
+        feedbackCloseThreadBtn.addEventListener("click", () => {
+          void setFeedbackThreadClosed(true);
+        });
+      }
+      if (feedbackOpenThreadBtn) {
+        feedbackOpenThreadBtn.addEventListener("click", () => {
+          void setFeedbackThreadClosed(false);
         });
       }
       if (feedbackThreadList) {

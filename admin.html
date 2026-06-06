@@ -1619,6 +1619,27 @@
         border-color: rgba(0, 200, 160, 0.4);
       }
 
+      .orders-filter-client-popover {
+        min-width: 260px;
+        max-width: min(360px, calc(100vw - 16px));
+      }
+
+      .orders-filter-client-popover .orders-filter-extra-toolbar {
+        flex-wrap: nowrap;
+        align-items: center;
+      }
+
+      .orders-filter-client-search {
+        flex: 1 1 0;
+        min-width: 72px;
+        width: auto;
+        margin: 0;
+      }
+
+      .orders-filter-extra-checkboxes label[hidden] {
+        display: none !important;
+      }
+
       .orders-filter-extra-checkboxes {
         display: flex;
         flex-direction: column;
@@ -3683,6 +3704,14 @@
               <div class="orders-filter-extra-toolbar">
                 <button type="button" id="orders-filter-client-all">Все</button>
                 <button type="button" id="orders-filter-client-none">Снять</button>
+                <input
+                  type="search"
+                  id="orders-filter-client-search"
+                  class="orders-filter-input orders-filter-client-search"
+                  placeholder="Поиск…"
+                  autocomplete="off"
+                  aria-label="Поиск клиента в списке"
+                />
               </div>
               <div id="orders-filter-client-options" class="orders-filter-extra-checkboxes"></div>
             </div>
@@ -8069,6 +8098,34 @@
         }
       }
 
+      function ordersClientFilterMatchesSearch(label, query) {
+        const q = String(query || "").trim().toLowerCase();
+        if (!q) {
+          return true;
+        }
+        return String(label || "").toLowerCase().includes(q);
+      }
+
+      function applyOrdersClientFilterSearch() {
+        const box = document.getElementById("orders-filter-client-options");
+        const input = document.getElementById("orders-filter-client-search");
+        if (!box) {
+          return;
+        }
+        const query = input ? input.value : "";
+        box.querySelectorAll("label").forEach((labelEl) => {
+          const cb = labelEl.querySelector('input[type="checkbox"]');
+          const text = cb
+            ? cb.dataset.ordersClientFilter || cb.value || ""
+            : labelEl.textContent || "";
+          labelEl.hidden = !ordersClientFilterMatchesSearch(text, query);
+        });
+        const pop = document.getElementById("orders-filter-client-popover");
+        if (pop && !pop.hidden) {
+          requestAnimationFrame(() => positionOrdersClientFilterPopover());
+        }
+      }
+
       function rebuildOrdersClientFilterCheckboxes() {
         const box = document.getElementById("orders-filter-client-options");
         if (!box) {
@@ -8097,11 +8154,8 @@
           wrap.appendChild(span);
           box.appendChild(wrap);
         });
+        applyOrdersClientFilterSearch();
         updateOrdersClientFilterToggle();
-        const pop = document.getElementById("orders-filter-client-popover");
-        if (pop && !pop.hidden) {
-          requestAnimationFrame(() => positionOrdersClientFilterPopover());
-        }
       }
 
       function syncOrdersClientFilterUi() {
@@ -11221,6 +11275,7 @@
         const clientPopover = document.getElementById("orders-filter-client-popover");
         const clientAllBtn = document.getElementById("orders-filter-client-all");
         const clientNoneBtn = document.getElementById("orders-filter-client-none");
+        const clientSearch = document.getElementById("orders-filter-client-search");
         const clientOptions = document.getElementById("orders-filter-client-options");
         if (clientToggle && clientPopover) {
           clientToggle.addEventListener("click", (ev) => {
@@ -11232,6 +11287,18 @@
               syncOrdersClientFilterUi();
             }
             setOrdersClientFilterOpen(willOpen);
+            if (willOpen && clientSearch) {
+              requestAnimationFrame(() => clientSearch.focus());
+            }
+          });
+        }
+        if (clientSearch) {
+          clientSearch.addEventListener("input", (ev) => {
+            ev.stopPropagation();
+            applyOrdersClientFilterSearch();
+          });
+          clientSearch.addEventListener("click", (ev) => {
+            ev.stopPropagation();
           });
         }
         if (clientAllBtn) {

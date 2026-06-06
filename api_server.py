@@ -209,6 +209,20 @@ def revoke_auth_session(token: str | None) -> None:
         _AUTH_SESSIONS.pop(token, None)
 
 
+def _auth_display_name(session: dict | None) -> str:
+    if not session:
+        return ""
+    display_name = _normalize_str(session.get("display_name") or "")
+    if display_name:
+        return display_name
+    login = _normalize_str(session.get("login") or "")
+    if login:
+        return login
+    if session.get("is_admin"):
+        return "Администратор"
+    return ""
+
+
 def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
     """Смена логина/пароля текущим пользователем (не admin)."""
     if session.get("is_admin"):
@@ -2458,6 +2472,10 @@ def _init_orders_table(cur):
         )
     if "lab_sscc_pallet_count" not in order_cols:
         cur.execute("ALTER TABLE orders ADD COLUMN lab_sscc_pallet_count INTEGER")
+    if "last_modified_by" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN last_modified_by TEXT NOT NULL DEFAULT ''"
+        )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -2842,7 +2860,9 @@ def _assemble_state_has_meaningful_pallets(pallets) -> bool:
     return len(pallets) > 1
 
 
-def patch_order_assembly(order_id: int, body: dict) -> dict:
+def patch_order_assembly(
+    order_id: int, body: dict, *, modified_by: str = ""
+) -> dict:
     """Частичное обновление: assembled_percent и/или assemble_state (распределение по паллетам)."""
     if not isinstance(body, dict):
         return {"error": "validation", "message": "Ожидался JSON-объект."}
@@ -2934,14 +2954,16 @@ def patch_order_assembly(order_id: int, body: dict) -> dict:
         updated_at = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        modifier = _normalize_str(modified_by)
         cur.execute(
             """
             UPDATE orders
             SET assembled_percent = ?, assemble_state = ?,
-                assemble_revision = ?, assemble_state_updated_at = ?
+                assemble_revision = ?, assemble_state_updated_at = ?,
+                last_modified_by = CASE WHEN ? != '' THEN ? ELSE last_modified_by END
             WHERE id = ?
             """,
-            (apct, ajson, new_rev, updated_at, order_id),
+            (apct, ajson, new_rev, updated_at, modifier, modifier, order_id),
         )
         lab_sscc_seq_by_order: dict[int, int] = {}
         if has_state and _is_lab_industries_client(
@@ -3264,13 +3286,14 @@ def _normalize_delivery_type(value: str) -> str:
     return "Обычный"
 
 
-def insert_order_with_items(body: dict):
+def insert_order_with_items(body: dict, *, modified_by: str = ""):
     pack = _normalize_order_items_body(body)
     if pack.get("error"):
         return pack
     ship = pack["ship"]
     client_n = pack["client"]
     delivery_type = _normalize_delivery_type(body.get("extra_info", ""))
+    modifier = _normalize_str(modified_by)
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
@@ -3286,9 +3309,9 @@ def insert_order_with_items(body: dict):
             """
             INSERT INTO orders (
               ship_date, client, assembled_percent, names, extra_info,
-              buyer_order_mode, buyer_order
+              buyer_order_mode, buyer_order, last_modified_by
             )
-            VALUES (?, ?, 0, ?, ?, ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?)
             """,
             (
                 ship,
@@ -3297,6 +3320,7 @@ def insert_order_with_items(body: dict):
                 delivery_type,
                 buyer_order_mode,
                 order_buyer_order,
+                modifier,
             ),
         )
         oid = cur.lastrowid
@@ -3873,7 +3897,7 @@ def _resolve_product_id_for_excel_import(
     )
 
 
-def import_orders_from_excel_bytes(data: bytes):
+def import_orders_from_excel_bytes(data: bytes, *, modified_by: str = ""):
     if not HAVE_OPENPYXL or load_workbook is None:
         return {
             "error": "no_openpyxl",
@@ -3904,6 +3928,7 @@ def import_orders_from_excel_bytes(data: bytes):
         }
     created_ids: list[int] = []
     import_errors: list[str] = list(parse_errors)
+    modifier = _normalize_str(modified_by)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -3956,10 +3981,13 @@ def import_orders_from_excel_bytes(data: bytes):
                 )
                 cur.execute(
                     """
-                    INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
-                    VALUES (?, ?, 0, ?, ?)
+                    INSERT INTO orders (
+                      ship_date, client, assembled_percent, names, extra_info,
+                      last_modified_by
+                    )
+                    VALUES (?, ?, 0, ?, ?, ?)
                     """,
-                    (ship, client_n, names_summary, extra_info),
+                    (ship, client_n, names_summary, extra_info, modifier),
                 )
                 oid = int(cur.lastrowid)
                 created_ids.append(oid)
@@ -4001,10 +4029,13 @@ def import_orders_from_excel_bytes(data: bytes):
             )
             cur.execute(
                 """
-                INSERT INTO orders (ship_date, client, assembled_percent, names, extra_info)
-                VALUES (?, ?, 0, ?, ?)
+                INSERT INTO orders (
+                  ship_date, client, assembled_percent, names, extra_info,
+                  last_modified_by
+                )
+                VALUES (?, ?, 0, ?, ?, ?)
                 """,
-                (ship, client_n, names_summary, extra_info),
+                (ship, client_n, names_summary, extra_info, modifier),
             )
             oid = int(cur.lastrowid)
             for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
@@ -4044,7 +4075,7 @@ def import_orders_from_excel_bytes(data: bytes):
     }
 
 
-def update_order_with_items(order_id: int, body: dict):
+def update_order_with_items(order_id: int, body: dict, *, modified_by: str = ""):
     pack = _normalize_order_items_body(body)
     if pack.get("error"):
         return pack
@@ -4083,10 +4114,12 @@ def update_order_with_items(order_id: int, body: dict):
             skipped, baseline, delivery_type, skipped_names
         )
         xasm = row["assemble_state"] or ""
+        modifier = _normalize_str(modified_by)
         cur.execute(
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
-              extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?
+              extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
+              last_modified_by = CASE WHEN ? != '' THEN ? ELSE last_modified_by END
             WHERE id = ?
             """,
             (
@@ -4098,6 +4131,8 @@ def update_order_with_items(order_id: int, body: dict):
                 xasm,
                 buyer_order_mode,
                 order_buyer_order,
+                modifier,
+                modifier,
                 order_id,
             ),
         )
@@ -4163,7 +4198,7 @@ def fetch_order_detail(order_id: int):
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    buyer_order_mode, buyer_order, total_order_quantity,
                    lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                   assemble_revision, assemble_state_updated_at
+                   assemble_revision, assemble_state_updated_at, last_modified_by
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -4180,7 +4215,7 @@ def fetch_order_detail(order_id: int):
                 SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                        buyer_order_mode, buyer_order, total_order_quantity,
                        lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                       assemble_revision, assemble_state_updated_at
+                       assemble_revision, assemble_state_updated_at, last_modified_by
                 FROM orders WHERE id = ?
                 """,
                 (order_id,),
@@ -4244,6 +4279,9 @@ def fetch_order_detail(order_id: int):
         and "lab_sscc_pallet_count" in row.keys()
         else None,
         "lab_sscc_last_shipped": get_lab_sscc_last_shipped(),
+        "last_modified_by": (row["last_modified_by"] or "").strip()
+        if "last_modified_by" in row.keys()
+        else "",
         "items": items,
         **extra_fields,
     }
@@ -4285,7 +4323,7 @@ def fetch_orders():
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    lab_sscc_seq_start, lab_sscc_shipped,
-                   assemble_revision, assemble_state_updated_at
+                   assemble_revision, assemble_state_updated_at, last_modified_by
             FROM orders ORDER BY id DESC
             """
         ).fetchall()
@@ -4346,6 +4384,9 @@ def fetch_orders():
                 "lab_sscc_shipped": bool(int(row["lab_sscc_shipped"] or 0))
                 if "lab_sscc_shipped" in row.keys()
                 else False,
+                "last_modified_by": (row["last_modified_by"] or "").strip()
+                if "last_modified_by" in row.keys()
+                else "",
                 "items": items,
                 **extra_fields,
             }
@@ -5213,7 +5254,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, read_err)
                 return
             try:
-                result = import_orders_from_excel_bytes(data)
+                result = import_orders_from_excel_bytes(
+                    data, modified_by=_auth_display_name(self._auth_session)
+                )
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
                 return
@@ -5290,7 +5333,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             try:
-                result = insert_order_with_items(body)
+                result = insert_order_with_items(
+                    body, modified_by=_auth_display_name(self._auth_session)
+                )
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
                 return
@@ -5445,7 +5490,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             try:
-                result = update_order_with_items(oid, body)
+                result = update_order_with_items(
+                    oid, body, modified_by=_auth_display_name(self._auth_session)
+                )
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
                 return
@@ -5536,7 +5583,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid JSON"})
             return
         try:
-            result = patch_order_assembly(oid, body)
+            result = patch_order_assembly(
+                oid, body, modified_by=_auth_display_name(self._auth_session)
+            )
         except sqlite3.Error as exc:
             self._send_json(500, {"error": "database", "message": str(exc)})
             return

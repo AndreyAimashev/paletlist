@@ -1834,6 +1834,176 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .feedback-workspace {
+        display: none;
+        margin-top: 20px;
+        padding-top: 4px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .feedback-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .feedback-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .feedback-thread-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .feedback-thread-item {
+        margin: 0;
+      }
+
+      .feedback-thread-btn {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 12px 14px;
+        text-align: left;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        background: rgba(10, 14, 23, 0.65);
+        color: var(--text-main);
+        cursor: pointer;
+        font-family: "Roboto", sans-serif;
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .feedback-thread-btn:hover {
+        border-color: rgba(0, 200, 160, 0.45);
+        background: rgba(10, 14, 23, 0.85);
+      }
+
+      .feedback-thread-btn__subject {
+        display: block;
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 4px;
+      }
+
+      .feedback-thread-btn__meta {
+        display: block;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .feedback-thread-head {
+        margin-bottom: 14px;
+      }
+
+      .feedback-thread-head h4 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        font-weight: 500;
+      }
+
+      .feedback-messages {
+        margin: 0 0 14px;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: min(52vh, 480px);
+        overflow-y: auto;
+      }
+
+      .feedback-message {
+        margin: 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 200, 160, 0.18);
+        background: rgba(10, 14, 23, 0.55);
+      }
+
+      .feedback-message.is-admin {
+        border-color: rgba(120, 160, 255, 0.28);
+        background: rgba(18, 24, 42, 0.75);
+      }
+
+      .feedback-message__author {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+
+      .feedback-message__body {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .feedback-message__time {
+        display: block;
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .feedback-reply-form,
+      .feedback-new-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .feedback-form-field label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .feedback-form-field input,
+      .feedback-form-field textarea {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 8px 10px;
+        font-family: "Roboto", sans-serif;
+        font-size: 13px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+      }
+
+      .feedback-form-field textarea {
+        min-height: 110px;
+        resize: vertical;
+        line-height: 1.45;
+      }
+
+      .feedback-form-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .feedback-status {
+        margin: 0 0 12px;
+        font-size: 13px;
+      }
+
       .users-toolbar {
         display: flex;
         flex-wrap: wrap;
@@ -3669,6 +3839,12 @@
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
             <button id="users-button" class="menu-button" type="button">Управление пользователями</button>
+            <button id="feedback-user-button" class="menu-button" type="button" hidden>
+              Жалоба/предложение
+            </button>
+            <button id="feedback-admin-button" class="menu-button" type="button" hidden>
+              Жалобы/предложения
+            </button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
             </button>
@@ -3692,6 +3868,9 @@
               Назад
             </button>
             <button id="back-to-main-users-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button id="back-to-main-feedback-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
           </div>
@@ -4070,6 +4249,71 @@
               <button id="build-sheet" class="menu-button" type="button">Сформировать паллетный лист</button>
             </div>
             <div id="arnest-output" class="arnest-output"></div>
+          </section>
+
+          <section id="feedback-workspace" class="feedback-workspace" aria-label="Жалобы и предложения">
+            <div id="feedback-list-view">
+              <div class="feedback-toolbar">
+                <button type="button" id="feedback-new-btn" class="users-btn users-btn--primary" hidden>
+                  Новая беседа
+                </button>
+              </div>
+              <p id="feedback-status" class="feedback-status muted" hidden aria-live="polite"></p>
+              <ul id="feedback-thread-list" class="feedback-thread-list">
+                <li class="muted">Загрузка…</li>
+              </ul>
+            </div>
+            <div id="feedback-thread-view" hidden>
+              <div class="feedback-toolbar">
+                <button type="button" id="feedback-back-list-btn" class="users-btn">К списку бесед</button>
+              </div>
+              <div class="feedback-thread-head">
+                <h4 id="feedback-thread-subject"></h4>
+                <p id="feedback-thread-meta" class="muted"></p>
+              </div>
+              <ul id="feedback-messages" class="feedback-messages"></ul>
+              <form id="feedback-reply-form" class="feedback-reply-form">
+                <div class="feedback-form-field">
+                  <label for="feedback-reply-text">Ваш ответ</label>
+                  <textarea
+                    id="feedback-reply-text"
+                    required
+                    placeholder="Напишите сообщение…"
+                  ></textarea>
+                </div>
+                <div class="feedback-form-actions">
+                  <button type="submit" class="users-btn users-btn--primary">Отправить</button>
+                </div>
+              </form>
+            </div>
+            <div id="feedback-new-view" hidden>
+              <div class="feedback-toolbar">
+                <button type="button" id="feedback-new-cancel-btn" class="users-btn">Отмена</button>
+              </div>
+              <form id="feedback-new-form" class="feedback-new-form">
+                <div class="feedback-form-field">
+                  <label for="feedback-new-subject">Тема беседы</label>
+                  <input
+                    id="feedback-new-subject"
+                    type="text"
+                    maxlength="200"
+                    required
+                    placeholder="Кратко опишите суть обращения"
+                  />
+                </div>
+                <div class="feedback-form-field">
+                  <label for="feedback-new-message">Сообщение</label>
+                  <textarea
+                    id="feedback-new-message"
+                    required
+                    placeholder="Опишите жалобу или предложение"
+                  ></textarea>
+                </div>
+                <div class="feedback-form-actions">
+                  <button type="submit" class="users-btn users-btn--primary">Отправить</button>
+                </div>
+              </form>
+            </div>
           </section>
 
           <section id="users-workspace" class="users-workspace" aria-label="Пользователи и аккаунт">
@@ -4641,6 +4885,9 @@
       const backToMainOrdersButton = document.getElementById("back-to-main-orders-button");
       const backToMainNomenclatureButton = document.getElementById("back-to-main-nomenclature-button");
       const backToMainUsersButton = document.getElementById("back-to-main-users-button");
+      const feedbackUserButton = document.getElementById("feedback-user-button");
+      const feedbackAdminButton = document.getElementById("feedback-admin-button");
+      const backToMainFeedbackButton = document.getElementById("back-to-main-feedback-button");
       const nomenclatureCreateProductButton = document.getElementById("nomenclature-create-product-button");
       const nomenclatureCreateOverlay = document.getElementById("nomenclature-create-overlay");
       const nomenclatureCreateForm = document.getElementById("nomenclature-create-form");
@@ -4785,13 +5032,20 @@
             usersButton.style.display = "";
           }
         }
-        if (st === "main") {
-          if (ordersButton) {
-            ordersButton.style.display = perms.orders ? "" : "none";
-          }
-          if (nomenclatureButton) {
-            nomenclatureButton.style.display = perms.nomenclature ? "" : "none";
-          }
+        if (ordersButton) {
+          ordersButton.style.display = st === "main" && perms.orders ? "" : "none";
+        }
+        if (nomenclatureButton) {
+          nomenclatureButton.style.display =
+            st === "main" && perms.nomenclature ? "" : "none";
+        }
+        if (feedbackUserButton) {
+          feedbackUserButton.style.display =
+            st === "main" && !isAdminUser() ? "" : "none";
+        }
+        if (feedbackAdminButton) {
+          feedbackAdminButton.style.display =
+            st === "main" && isAdminUser() ? "" : "none";
         }
         if (navOrders) {
           navOrders.hidden = !perms.orders;
@@ -5123,6 +5377,324 @@
         }
       }
 
+      function formatFeedbackDateTime(iso) {
+        const raw = String(iso || "").trim();
+        if (!raw) {
+          return "";
+        }
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) {
+          return raw;
+        }
+        return d.toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function setFeedbackStatus(message, isError = false) {
+        if (!feedbackStatusEl) {
+          return;
+        }
+        const text = String(message || "").trim();
+        if (!text) {
+          feedbackStatusEl.hidden = true;
+          feedbackStatusEl.textContent = "";
+          feedbackStatusEl.classList.remove("modal-error");
+          return;
+        }
+        feedbackStatusEl.hidden = false;
+        feedbackStatusEl.textContent = text;
+        feedbackStatusEl.classList.toggle("modal-error", !!isError);
+      }
+
+      function showFeedbackListView() {
+        feedbackActiveThreadId = null;
+        if (feedbackListView) {
+          feedbackListView.hidden = false;
+        }
+        if (feedbackThreadView) {
+          feedbackThreadView.hidden = true;
+        }
+        if (feedbackNewView) {
+          feedbackNewView.hidden = true;
+        }
+        if (feedbackNewBtn) {
+          feedbackNewBtn.hidden = isAdminUser();
+        }
+      }
+
+      function showFeedbackNewView() {
+        if (feedbackListView) {
+          feedbackListView.hidden = true;
+        }
+        if (feedbackThreadView) {
+          feedbackThreadView.hidden = true;
+        }
+        if (feedbackNewView) {
+          feedbackNewView.hidden = false;
+        }
+        if (feedbackNewForm) {
+          feedbackNewForm.reset();
+        }
+      }
+
+      function showFeedbackThreadView() {
+        if (feedbackListView) {
+          feedbackListView.hidden = true;
+        }
+        if (feedbackThreadView) {
+          feedbackThreadView.hidden = false;
+        }
+        if (feedbackNewView) {
+          feedbackNewView.hidden = true;
+        }
+      }
+
+      function renderFeedbackThreadList(threads) {
+        if (!feedbackThreadList) {
+          return;
+        }
+        const list = Array.isArray(threads) ? threads : [];
+        if (!list.length) {
+          feedbackThreadList.innerHTML = isAdminUser()
+            ? '<li class="muted">Пока нет обращений от пользователей.</li>'
+            : '<li class="muted">У вас пока нет бесед. Создайте новую, чтобы написать администратору.</li>';
+          return;
+        }
+        feedbackThreadList.innerHTML = list
+          .map((thread) => {
+            const subject = escapeXml(thread.subject || "Без темы");
+            const updated = escapeXml(formatFeedbackDateTime(thread.updated_at));
+            const count = Number(thread.message_count) || 0;
+            const userLine = isAdminUser()
+              ? `<span class="feedback-thread-btn__meta">${escapeXml(thread.user_name || "Пользователь")} · ${updated} · ${count} сообщ.</span>`
+              : `<span class="feedback-thread-btn__meta">${updated} · ${count} сообщ.</span>`;
+            return `<li class="feedback-thread-item">
+              <button
+                type="button"
+                class="feedback-thread-btn"
+                data-feedback-thread-id="${Number(thread.id)}"
+              >
+                <span class="feedback-thread-btn__subject">${subject}</span>
+                ${userLine}
+              </button>
+            </li>`;
+          })
+          .join("");
+      }
+
+      async function loadFeedbackThreads() {
+        setFeedbackStatus("");
+        if (feedbackThreadList) {
+          feedbackThreadList.innerHTML = '<li class="muted">Загрузка…</li>';
+        }
+        let res;
+        try {
+          res = await fetch("/api/feedback/threads", { cache: "no-store" });
+        } catch (error) {
+          if (feedbackThreadList) {
+            feedbackThreadList.innerHTML = "";
+          }
+          setFeedbackStatus("Нет связи с сервером.", true);
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          if (feedbackThreadList) {
+            feedbackThreadList.innerHTML = "";
+          }
+          setFeedbackStatus(
+            (data && data.message) || `Не удалось загрузить беседы (код ${res.status}).`,
+            true,
+          );
+          return;
+        }
+        feedbackThreadsCache = Array.isArray(data.threads) ? data.threads : [];
+        renderFeedbackThreadList(feedbackThreadsCache);
+      }
+
+      function renderFeedbackMessages(messages) {
+        if (!feedbackMessagesEl) {
+          return;
+        }
+        const list = Array.isArray(messages) ? messages : [];
+        if (!list.length) {
+          feedbackMessagesEl.innerHTML = '<li class="muted">Сообщений пока нет.</li>';
+          return;
+        }
+        feedbackMessagesEl.innerHTML = list
+          .map((msg) => {
+            const author = escapeXml(msg.author_name || (msg.is_admin ? "Администратор" : "Пользователь"));
+            const body = escapeXml(msg.body || "");
+            const time = escapeXml(formatFeedbackDateTime(msg.created_at));
+            const adminClass = msg.is_admin ? " is-admin" : "";
+            return `<li class="feedback-message${adminClass}">
+              <span class="feedback-message__author">${author}</span>
+              <p class="feedback-message__body">${body}</p>
+              <span class="feedback-message__time">${time}</span>
+            </li>`;
+          })
+          .join("");
+        feedbackMessagesEl.scrollTop = feedbackMessagesEl.scrollHeight;
+      }
+
+      async function openFeedbackThread(threadId) {
+        const tid = Number(threadId);
+        if (!Number.isFinite(tid)) {
+          return;
+        }
+        feedbackActiveThreadId = tid;
+        showFeedbackThreadView();
+        if (feedbackThreadSubjectEl) {
+          feedbackThreadSubjectEl.textContent = "Загрузка…";
+        }
+        if (feedbackThreadMetaEl) {
+          feedbackThreadMetaEl.textContent = "";
+        }
+        if (feedbackMessagesEl) {
+          feedbackMessagesEl.innerHTML = '<li class="muted">Загрузка…</li>';
+        }
+        let res;
+        try {
+          res = await fetch(`/api/feedback/threads/${tid}`, { cache: "no-store" });
+        } catch (error) {
+          setFeedbackStatus("Нет связи с сервером.", true);
+          showFeedbackListView();
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          setFeedbackStatus(
+            (data && data.message) || `Не удалось открыть беседу (код ${res.status}).`,
+            true,
+          );
+          showFeedbackListView();
+          return;
+        }
+        if (feedbackThreadSubjectEl) {
+          feedbackThreadSubjectEl.textContent = data.subject || "Без темы";
+        }
+        if (feedbackThreadMetaEl) {
+          const parts = [];
+          if (isAdminUser() && data.user_name) {
+            parts.push(`От: ${data.user_name}`);
+          }
+          if (data.updated_at) {
+            parts.push(`Обновлено: ${formatFeedbackDateTime(data.updated_at)}`);
+          }
+          feedbackThreadMetaEl.textContent = parts.join(" · ");
+        }
+        renderFeedbackMessages(data.messages);
+        if (feedbackReplyText) {
+          feedbackReplyText.value = "";
+        }
+      }
+
+      async function submitFeedbackReply(event) {
+        event.preventDefault();
+        const tid = feedbackActiveThreadId;
+        if (tid == null) {
+          return;
+        }
+        const text = feedbackReplyText ? String(feedbackReplyText.value || "").trim() : "";
+        if (!text) {
+          return;
+        }
+        let res;
+        try {
+          res = await fetch(`/api/feedback/threads/${tid}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text }),
+          });
+        } catch (error) {
+          setFeedbackStatus("Нет связи с сервером при отправке.", true);
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          setFeedbackStatus(
+            (data && data.message) || `Не удалось отправить (код ${res.status}).`,
+            true,
+          );
+          return;
+        }
+        setFeedbackStatus("");
+        if (feedbackReplyText) {
+          feedbackReplyText.value = "";
+        }
+        await openFeedbackThread(tid);
+        await loadFeedbackThreads();
+      }
+
+      async function submitFeedbackNewThread(event) {
+        event.preventDefault();
+        const subject = feedbackNewSubject
+          ? String(feedbackNewSubject.value || "").trim()
+          : "";
+        const message = feedbackNewMessage
+          ? String(feedbackNewMessage.value || "").trim()
+          : "";
+        if (!subject || !message) {
+          return;
+        }
+        let res;
+        try {
+          res = await fetch("/api/feedback/threads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subject, message }),
+          });
+        } catch (error) {
+          setFeedbackStatus("Нет связи с сервером при создании беседы.", true);
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          setFeedbackStatus(
+            (data && data.message) || `Не удалось создать беседу (код ${res.status}).`,
+            true,
+          );
+          return;
+        }
+        setFeedbackStatus("");
+        showFeedbackListView();
+        await loadFeedbackThreads();
+        if (data && data.id != null) {
+          await openFeedbackThread(data.id);
+        }
+      }
+
+      function refreshFeedbackStage() {
+        showFeedbackListView();
+        setFeedbackStatus("");
+        void loadFeedbackThreads();
+      }
+
       function guardStagePermission(stage) {
         const perms = getAuthPermissions();
         if (stage === "orders" && !perms.orders) {
@@ -5217,6 +5789,25 @@
       let updatesEditing = false;
 
       const usersWorkspace = document.getElementById("users-workspace");
+      const feedbackWorkspace = document.getElementById("feedback-workspace");
+      const feedbackListView = document.getElementById("feedback-list-view");
+      const feedbackThreadView = document.getElementById("feedback-thread-view");
+      const feedbackNewView = document.getElementById("feedback-new-view");
+      const feedbackThreadList = document.getElementById("feedback-thread-list");
+      const feedbackStatusEl = document.getElementById("feedback-status");
+      const feedbackNewBtn = document.getElementById("feedback-new-btn");
+      const feedbackBackListBtn = document.getElementById("feedback-back-list-btn");
+      const feedbackThreadSubjectEl = document.getElementById("feedback-thread-subject");
+      const feedbackThreadMetaEl = document.getElementById("feedback-thread-meta");
+      const feedbackMessagesEl = document.getElementById("feedback-messages");
+      const feedbackReplyForm = document.getElementById("feedback-reply-form");
+      const feedbackReplyText = document.getElementById("feedback-reply-text");
+      const feedbackNewForm = document.getElementById("feedback-new-form");
+      const feedbackNewSubject = document.getElementById("feedback-new-subject");
+      const feedbackNewMessage = document.getElementById("feedback-new-message");
+      const feedbackNewCancelBtn = document.getElementById("feedback-new-cancel-btn");
+      let feedbackThreadsCache = [];
+      let feedbackActiveThreadId = null;
       const usersTableBody = document.getElementById("users-table-body");
       const usersStatusEl = document.getElementById("users-status");
       const usersAddBtn = document.getElementById("users-add-btn");
@@ -6684,6 +7275,7 @@
         backToMainOrdersButton.classList.remove("visible");
         backToMainNomenclatureButton.classList.remove("visible");
         backToMainUsersButton.classList.remove("visible");
+        backToMainFeedbackButton.classList.remove("visible");
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         ordersWorkspace.classList.remove("visible");
@@ -6691,6 +7283,7 @@
         assembleWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
         usersWorkspace.classList.remove("visible");
+        feedbackWorkspace.classList.remove("visible");
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
@@ -6767,9 +7360,33 @@
           ordersButton.style.display = "none";
           nomenclatureButton.style.display = "none";
           usersButton.style.display = "none";
+          if (feedbackUserButton) {
+            feedbackUserButton.style.display = "none";
+          }
+          if (feedbackAdminButton) {
+            feedbackAdminButton.style.display = "none";
+          }
           backToMainUsersButton.classList.add("visible");
           usersWorkspace.classList.add("visible");
           syncUsersWorkspaceView();
+        }
+
+        if (stage === "feedback") {
+          menuTitle.textContent = isAdminUser()
+            ? "Жалобы/предложения"
+            : "Жалоба/предложение";
+          ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
+          if (feedbackUserButton) {
+            feedbackUserButton.style.display = "none";
+          }
+          if (feedbackAdminButton) {
+            feedbackAdminButton.style.display = "none";
+          }
+          backToMainFeedbackButton.classList.add("visible");
+          feedbackWorkspace.classList.add("visible");
+          refreshFeedbackStage();
         }
 
         if (navMain) {
@@ -6973,6 +7590,49 @@
       ordersButton.addEventListener("click", () => setStage("orders"));
       nomenclatureButton.addEventListener("click", () => setStage("nomenclature"));
       usersButton.addEventListener("click", () => setStage("users"));
+      if (feedbackUserButton) {
+        feedbackUserButton.addEventListener("click", () => setStage("feedback"));
+      }
+      if (feedbackAdminButton) {
+        feedbackAdminButton.addEventListener("click", () => setStage("feedback"));
+      }
+      if (backToMainFeedbackButton) {
+        backToMainFeedbackButton.addEventListener("click", () => setStage("main"));
+      }
+      if (feedbackNewBtn) {
+        feedbackNewBtn.addEventListener("click", showFeedbackNewView);
+      }
+      if (feedbackNewCancelBtn) {
+        feedbackNewCancelBtn.addEventListener("click", showFeedbackListView);
+      }
+      if (feedbackBackListBtn) {
+        feedbackBackListBtn.addEventListener("click", () => {
+          showFeedbackListView();
+          void loadFeedbackThreads();
+        });
+      }
+      if (feedbackThreadList) {
+        feedbackThreadList.addEventListener("click", (event) => {
+          const btn = event.target.closest("[data-feedback-thread-id]");
+          if (!btn) {
+            return;
+          }
+          const tid = Number(btn.getAttribute("data-feedback-thread-id"));
+          if (Number.isFinite(tid)) {
+            void openFeedbackThread(tid);
+          }
+        });
+      }
+      if (feedbackReplyForm) {
+        feedbackReplyForm.addEventListener("submit", (event) => {
+          void submitFeedbackReply(event);
+        });
+      }
+      if (feedbackNewForm) {
+        feedbackNewForm.addEventListener("submit", (event) => {
+          void submitFeedbackNewThread(event);
+        });
+      }
       createPalletButton.addEventListener("click", () => setStage("create"));
       backToMainButton.addEventListener("click", () => setStage("main"));
       backToPalletButton.addEventListener("click", () => setStage("pallet"));

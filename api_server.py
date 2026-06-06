@@ -133,6 +133,38 @@ def _is_updates_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/updates"
 
 
+def _is_feedback_threads_list_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/feedback/threads"
+
+
+def _parse_feedback_thread_detail_id(path: str) -> int | None:
+    norm = _norm_api_path(path)
+    prefix = "/api/feedback/threads/"
+    if not norm.startswith(prefix):
+        return None
+    tail = norm[len(prefix) :]
+    if not tail or "/" in tail:
+        return None
+    try:
+        return int(tail)
+    except ValueError:
+        return None
+
+
+def _parse_feedback_thread_messages_id(path: str) -> int | None:
+    norm = _norm_api_path(path)
+    suffix = "/messages"
+    if not norm.startswith("/api/feedback/threads/") or not norm.endswith(suffix):
+        return None
+    middle = norm[len("/api/feedback/threads/") : -len(suffix)]
+    if not middle or "/" in middle:
+        return None
+    try:
+        return int(middle)
+    except ValueError:
+        return None
+
+
 def authenticate_app_login(login: str, password: str) -> dict | None:
     login_norm = (login or "").strip()
     pwd = str(password or "")
@@ -2375,9 +2407,49 @@ def init_db():
                 )
         _init_orders_table(cur)
         _init_app_users_table(cur)
+        _init_feedback_tables(cur)
         _migrate_strip_trailing_name_suffixes(cur)
         con.commit()
         con.close()
+
+
+def _init_feedback_tables(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feedback_threads (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          subject TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feedback_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          thread_id INTEGER NOT NULL,
+          author_user_id INTEGER NOT NULL DEFAULT 0,
+          author_name TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (thread_id) REFERENCES feedback_threads(id) ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_feedback_threads_user
+        ON feedback_threads(user_id)
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_feedback_messages_thread
+        ON feedback_messages(thread_id)
+        """
+    )
 
 
 def _init_orders_table(cur):
@@ -4792,6 +4864,245 @@ def save_updates(body: dict) -> dict:
     return {"ok": True, **payload}
 
 
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _feedback_author_name_from_session(session: dict | None) -> str:
+    return _auth_display_name(session)
+
+
+def _feedback_user_label_from_row(row) -> str:
+    display_name = _normalize_str(row["display_name"] or "")
+    if display_name:
+        return display_name
+    login = _normalize_str(row["login"] or "")
+    if login:
+        return login
+    return "Пользователь"
+
+
+def _feedback_thread_row_to_list_item(row, *, is_admin: bool) -> dict:
+    out = {
+        "id": int(row["id"]),
+        "subject": row["subject"] or "",
+        "created_at": row["created_at"] or "",
+        "updated_at": row["updated_at"] or "",
+        "message_count": max(0, int(row["message_count"] or 0)),
+    }
+    if is_admin:
+        out["user_id"] = int(row["user_id"] or 0)
+        out["user_name"] = _feedback_user_label_from_row(row)
+    return out
+
+
+def fetch_feedback_threads(session: dict | None) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    is_admin = bool(session.get("is_admin"))
+    user_id = int(session.get("user_id") or 0)
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        if is_admin:
+            rows = cur.execute(
+                """
+                SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
+                       u.display_name, u.login,
+                       (SELECT COUNT(*) FROM feedback_messages m WHERE m.thread_id = t.id) AS message_count
+                FROM feedback_threads t
+                LEFT JOIN app_users u ON u.id = t.user_id
+                ORDER BY t.updated_at DESC, t.id DESC
+                """
+            ).fetchall()
+        else:
+            if user_id <= 0:
+                con.close()
+                return {"threads": []}
+            rows = cur.execute(
+                """
+                SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
+                       (SELECT COUNT(*) FROM feedback_messages m WHERE m.thread_id = t.id) AS message_count
+                FROM feedback_threads t
+                WHERE t.user_id = ?
+                ORDER BY t.updated_at DESC, t.id DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        con.close()
+    threads = [_feedback_thread_row_to_list_item(r, is_admin=is_admin) for r in rows]
+    return {"threads": threads}
+
+
+def _feedback_can_access_thread(session: dict | None, thread_row) -> bool:
+    if not session or not thread_row:
+        return False
+    if session.get("is_admin"):
+        return True
+    uid = int(session.get("user_id") or 0)
+    return uid > 0 and int(thread_row["user_id"] or 0) == uid
+
+
+def fetch_feedback_thread_detail(session: dict | None, thread_id: int) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT t.id, t.user_id, t.subject, t.created_at, t.updated_at,
+                   u.display_name, u.login
+            FROM feedback_threads t
+            LEFT JOIN app_users u ON u.id = t.user_id
+            WHERE t.id = ?
+            """,
+            (int(thread_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Беседа не найдена."}
+        if not _feedback_can_access_thread(session, row):
+            con.close()
+            return {"error": "forbidden", "message": "Нет доступа к этой беседе."}
+        messages = cur.execute(
+            """
+            SELECT id, author_user_id, author_name, body, created_at
+            FROM feedback_messages
+            WHERE thread_id = ?
+            ORDER BY id ASC
+            """,
+            (int(thread_id),),
+        ).fetchall()
+        con.close()
+    is_admin = bool(session.get("is_admin"))
+    out = {
+        "id": int(row["id"]),
+        "subject": row["subject"] or "",
+        "created_at": row["created_at"] or "",
+        "updated_at": row["updated_at"] or "",
+        "messages": [
+            {
+                "id": int(m["id"]),
+                "author_user_id": int(m["author_user_id"] or 0),
+                "author_name": m["author_name"] or "",
+                "body": m["body"] or "",
+                "created_at": m["created_at"] or "",
+                "is_admin": int(m["author_user_id"] or 0) == 0,
+            }
+            for m in messages
+        ],
+    }
+    if is_admin:
+        out["user_id"] = int(row["user_id"] or 0)
+        out["user_name"] = _feedback_user_label_from_row(row)
+    return out
+
+
+def create_feedback_thread(session: dict | None, body: dict) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    if session.get("is_admin"):
+        return {
+            "error": "forbidden",
+            "message": "Администратор не создаёт обращения — отвечайте в существующих беседах.",
+        }
+    user_id = int(session.get("user_id") or 0)
+    if user_id <= 0:
+        return {"error": "forbidden", "message": "Создание обращений недоступно."}
+    subject = _normalize_str(body.get("subject", ""))
+    message = _normalize_str(body.get("message", ""))
+    if not subject:
+        return {"error": "validation", "message": "Укажите тему беседы."}
+    if len(subject) > 200:
+        return {"error": "validation", "message": "Тема не длиннее 200 символов."}
+    if not message:
+        return {"error": "validation", "message": "Напишите сообщение."}
+    if len(message) > 8000:
+        return {"error": "validation", "message": "Сообщение слишком длинное."}
+    author_name = _feedback_author_name_from_session(session)
+    now = _utc_now_iso()
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO feedback_threads (user_id, subject, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, subject, now, now),
+        )
+        thread_id = int(cur.lastrowid)
+        cur.execute(
+            """
+            INSERT INTO feedback_messages (
+              thread_id, author_user_id, author_name, body, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (thread_id, user_id, author_name, message, now),
+        )
+        con.commit()
+        con.close()
+    return {"ok": True, "id": thread_id}
+
+
+def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    message = _normalize_str(body.get("message", ""))
+    if not message:
+        return {"error": "validation", "message": "Напишите сообщение."}
+    if len(message) > 8000:
+        return {"error": "validation", "message": "Сообщение слишком длинное."}
+    is_admin = bool(session.get("is_admin"))
+    user_id = int(session.get("user_id") or 0)
+    author_user_id = 0 if is_admin else user_id
+    if not is_admin and user_id <= 0:
+        return {"error": "forbidden", "message": "Отправка сообщений недоступна."}
+    author_name = _feedback_author_name_from_session(session)
+    now = _utc_now_iso()
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT id, user_id FROM feedback_threads WHERE id = ?",
+            (int(thread_id),),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Беседа не найдена."}
+        if not _feedback_can_access_thread(session, row):
+            con.close()
+            return {"error": "forbidden", "message": "Нет доступа к этой беседе."}
+        cur.execute(
+            """
+            INSERT INTO feedback_messages (
+              thread_id, author_user_id, author_name, body, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(thread_id), author_user_id, author_name, message, now),
+        )
+        msg_id = int(cur.lastrowid)
+        cur.execute(
+            "UPDATE feedback_threads SET updated_at = ? WHERE id = ?",
+            (now, int(thread_id)),
+        )
+        con.commit()
+        con.close()
+    return {
+        "ok": True,
+        "id": msg_id,
+        "message": {
+            "id": msg_id,
+            "author_user_id": author_user_id,
+            "author_name": author_name,
+            "body": message,
+            "created_at": now,
+            "is_admin": is_admin,
+        },
+    }
+
+
 def delete_nomenclature_row(row_id: int) -> bool:
     with DB_LOCK:
         con = get_connection()
@@ -5299,6 +5610,29 @@ class ApiHandler(BaseHTTPRequestHandler):
         if _is_updates_path(path):
             self._send_json(200, fetch_updates())
             return
+        if _is_feedback_threads_list_path(path):
+            result = fetch_feedback_threads(self._auth_session)
+            err = result.get("error")
+            if err == "unauthorized":
+                self._send_json(401, result)
+                return
+            self._send_json(200, result)
+            return
+        feedback_tid = _parse_feedback_thread_detail_id(path)
+        if feedback_tid is not None:
+            result = fetch_feedback_thread_detail(self._auth_session, feedback_tid)
+            err = result.get("error")
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            if err == "unauthorized":
+                self._send_json(401, result)
+                return
+            self._send_json(200, result)
+            return
         if not self._ensure_path_permissions(path):
             return
         packing_html_oid = _parse_orders_packing_sheets_html_id(path)
@@ -5483,6 +5817,52 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._handle_auth_login()
             return
         if not self._ensure_authenticated():
+            return
+        if _is_feedback_threads_list_path(path):
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = create_feedback_thread(self._auth_session, body)
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            self._send_json(201, result)
+            return
+        feedback_msg_tid = _parse_feedback_thread_messages_id(path)
+        if feedback_msg_tid is not None:
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = add_feedback_message(
+                    self._auth_session, feedback_msg_tid, body
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            self._send_json(201, result)
             return
         if not self._ensure_path_permissions(path):
             return

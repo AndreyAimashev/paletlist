@@ -4730,7 +4730,27 @@ def _normalize_updates_payload(body) -> dict:
         if item.get("error"):
             return item
         entries.append(item)
-    return {"entries": entries}
+    return {"entries": _sort_updates_entries(entries)}
+
+
+def _updates_entry_date_sort_key(entry: dict) -> float:
+    date = _normalize_str(str(entry.get("date", "")))
+    if not date:
+        return float("-inf")
+    try:
+        return datetime.datetime.strptime(date, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc
+        ).timestamp()
+    except ValueError:
+        return float("-inf")
+
+
+def _sort_updates_entries(entries: list) -> list:
+    return sorted(
+        entries,
+        key=_updates_entry_date_sort_key,
+        reverse=True,
+    )
 
 
 def fetch_updates() -> dict:
@@ -4751,7 +4771,7 @@ def fetch_updates() -> dict:
         if item.get("error"):
             continue
         entries.append(item)
-    return {"entries": entries}
+    return {"entries": _sort_updates_entries(entries)}
 
 
 def save_updates(body: dict) -> dict:

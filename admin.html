@@ -4810,15 +4810,35 @@
         });
       }
 
+      function sortUpdatesEntries(entries) {
+        return [...(entries || [])].sort((a, b) => {
+          const aDate = String(a?.date || "").trim();
+          const bDate = String(b?.date || "").trim();
+          const aTs = aDate ? Date.parse(`${aDate}T12:00:00`) : Number.NEGATIVE_INFINITY;
+          const bTs = bDate ? Date.parse(`${bDate}T12:00:00`) : Number.NEGATIVE_INFINITY;
+          if (!Number.isFinite(aTs) && !Number.isFinite(bTs)) {
+            return 0;
+          }
+          if (!Number.isFinite(aTs)) {
+            return 1;
+          }
+          if (!Number.isFinite(bTs)) {
+            return -1;
+          }
+          return bTs - aTs;
+        });
+      }
+
       function renderUpdatesFeed(entries) {
         if (!updatesFeed) {
           return;
         }
-        if (!entries.length) {
+        const sorted = sortUpdatesEntries(entries);
+        if (!sorted.length) {
           updatesFeed.innerHTML = '<li class="muted">Пока нет записей об обновлениях.</li>';
           return;
         }
-        updatesFeed.innerHTML = entries
+        updatesFeed.innerHTML = sorted
           .map((entry) => {
             const date = escapeXml(formatUpdatesDate(entry.date));
             const title = escapeXml(entry.title || "Обновление");

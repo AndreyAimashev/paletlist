@@ -4836,6 +4836,7 @@
               <datalist id="new-order-client-presets">
                 <option value="Арнест Юнирусь"></option>
                 <option value="ЛАБ Индастриз"></option>
+                <option value="Дрогери Ритейл"></option>
               </datalist>
             </div>
             <div class="arnest-field" style="grid-column: 1 / -1">
@@ -5999,6 +6000,7 @@
         "Самовывоз",
         "Арнест Юнирусь",
         "ЛАБ Индастриз",
+        "Дрогери Ритейл",
       ];
       const newOrderItems = document.getElementById("new-order-items");
       const newOrderAddItem = document.getElementById("new-order-add-item");
@@ -6314,6 +6316,15 @@
         );
       }
 
+      function isDrogeriRetailClient(client) {
+        return (
+          String(client || "")
+            .trim()
+            .replace(/\s+/g, " ")
+            .toLowerCase() === "дрогери ритейл"
+        );
+      }
+
       const LAB_SSCC_MAX = 9999;
       const LAB_SSCC_18_PREFIX = "15000000000000";
 
@@ -6375,11 +6386,18 @@
         if (isLabIndustriesClient(client)) {
           return "ЛАБ Индастриз";
         }
+        if (isDrogeriRetailClient(client)) {
+          return "Дрогери Ритейл";
+        }
         return normalizeOrderDeliveryType(requested);
       }
 
       function isNewOrderSpecialClient(client) {
-        return isArnestUnirusClient(client) || isLabIndustriesClient(client);
+        return (
+          isArnestUnirusClient(client) ||
+          isLabIndustriesClient(client) ||
+          isDrogeriRetailClient(client)
+        );
       }
 
       function syncNewOrderDeliveryUi() {
@@ -6401,7 +6419,11 @@
           return;
         }
         const current = getNewOrderDeliveryType();
-        if (current === "Арнест Юнирусь" || current === "ЛАБ Индастриз") {
+        if (
+          current === "Арнест Юнирусь" ||
+          current === "ЛАБ Индастриз" ||
+          current === "Дрогери Ритейл"
+        ) {
           setNewOrderDeliveryType("Обычный");
         }
       }
@@ -8846,6 +8868,7 @@
         "Самовывоз",
         "Арнест Юнирусь",
         "ЛАБ Индастриз",
+        "Дрогери Ритейл",
       ];
 
       function getOrderExtraInfoFilterLabel(o) {
@@ -13355,12 +13378,15 @@
         if (lower === "лаб индастриз") {
           return "ЛАБ Индастриз";
         }
+        if (lower === "дрогери ритейл") {
+          return "Дрогери Ритейл";
+        }
         return "Обычный";
       }
 
       function getNewOrderDeliveryType() {
         const client = newOrderClient ? String(newOrderClient.value || "") : "";
-        if (isArnestUnirusClient(client) || isLabIndustriesClient(client)) {
+        if (isNewOrderSpecialClient(client)) {
           return getDeliveryTypeForClient(client);
         }
         if (!newOrderDeliveryToggle) {

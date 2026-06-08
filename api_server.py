@@ -133,6 +133,10 @@ def _is_updates_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/updates"
 
 
+def _is_unique_clients_list_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/unique-clients"
+
+
 def _is_feedback_threads_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/feedback/threads"
 
@@ -2408,6 +2412,7 @@ def init_db():
         _init_orders_table(cur)
         _init_app_users_table(cur)
         _init_feedback_tables(cur)
+        _init_unique_clients_table(cur)
         _migrate_strip_trailing_name_suffixes(cur)
         con.commit()
         con.close()
@@ -2465,6 +2470,37 @@ def _init_feedback_tables(cur) -> None:
         cur.execute(
             "ALTER TABLE feedback_threads ADD COLUMN admin_last_read_at TEXT NOT NULL DEFAULT ''"
         )
+
+
+def _init_unique_clients_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS unique_clients (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          display_name TEXT NOT NULL,
+          client_key TEXT NOT NULL UNIQUE,
+          delivery_type TEXT NOT NULL,
+          pallet_kind TEXT NOT NULL DEFAULT 'generic',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    seeds = (
+        ("Арнест Юнирусь", "арнест юнирусь", "Арнест Юнирусь", "arnest", 10),
+        ("ЛАБ Индастриз", "лаб индастриз", "ЛАБ Индастриз", "lab", 20),
+        ("Дрогери Ритейл", "дрогери ритейл", "Дрогери Ритейл", "generic", 30),
+    )
+    for display_name, client_key, delivery_type, pallet_kind, sort_order in seeds:
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO unique_clients (
+              display_name, client_key, delivery_type, pallet_kind, sort_order
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (display_name, client_key, delivery_type, pallet_kind, sort_order),
+        )
+    _reload_unique_clients_cache(cur)
 
 
 def _init_orders_table(cur):
@@ -2699,6 +2735,56 @@ def _lab_sscc_pallet_count_for_order_row(row) -> int:
 
 def _normalize_client_key(client: str) -> str:
     return re.sub(r"\s+", " ", str(client or "").strip()).lower()
+
+
+_UNIQUE_CLIENTS_BY_KEY: dict[str, dict] = {}
+
+
+def _reload_unique_clients_cache(cur) -> None:
+    global _UNIQUE_CLIENTS_BY_KEY
+    rows = cur.execute(
+        """
+        SELECT display_name, client_key, delivery_type, pallet_kind, sort_order
+        FROM unique_clients
+        WHERE active = 1
+        ORDER BY sort_order, id
+        """
+    ).fetchall()
+    _UNIQUE_CLIENTS_BY_KEY = {
+        str(r["client_key"] or ""): {
+            "display_name": str(r["display_name"] or ""),
+            "delivery_type": str(r["delivery_type"] or ""),
+            "pallet_kind": str(r["pallet_kind"] or "generic").strip().lower(),
+            "sort_order": int(r["sort_order"] or 0),
+        }
+        for r in rows
+    }
+
+
+def _unique_client_record(client: str) -> dict | None:
+    return _UNIQUE_CLIENTS_BY_KEY.get(_normalize_client_key(client))
+
+
+def fetch_unique_clients() -> dict:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        if not _UNIQUE_CLIENTS_BY_KEY:
+            _reload_unique_clients_cache(cur)
+        con.close()
+    clients = [
+        {
+            "display_name": rec["display_name"],
+            "client_key": key,
+            "delivery_type": rec["delivery_type"],
+            "pallet_kind": rec["pallet_kind"],
+        }
+        for key, rec in sorted(
+            _UNIQUE_CLIENTS_BY_KEY.items(),
+            key=lambda item: (item[1]["sort_order"], item[0]),
+        )
+    ]
+    return {"clients": clients}
 
 
 def _lab_sscc_unshipped_lab_order_rows(cur):
@@ -3357,7 +3443,8 @@ def _try_resolve_product_id(cur, article: str, name: str, name_lookup: dict[str,
 
 
 def _is_lab_industries_client(client: str) -> bool:
-    return _normalize_client_key(client) == "лаб индастриз"
+    rec = _unique_client_record(client)
+    return bool(rec and rec.get("pallet_kind") == "lab")
 
 
 def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | None | dict:
@@ -3519,11 +3606,13 @@ ORDER_DELIVERY_TYPES = (
     "Самовывоз",
     "Арнест Юнирусь",
     "ЛАБ Индастриз",
+    "Дрогери Ритейл",
 )
 
 
 def _is_arnest_unirus_client(client: str) -> bool:
-    return _normalize_client_key(client) == "арнест юнирусь"
+    rec = _unique_client_record(client)
+    return bool(rec and rec.get("pallet_kind") == "arnest")
 
 
 def _normalize_delivery_type(value: str) -> str:
@@ -3536,6 +3625,7 @@ def _normalize_delivery_type(value: str) -> str:
         "самовывоз": "Самовывоз",
         "арнест юнирусь": "Арнест Юнирусь",
         "лаб индастриз": "ЛАБ Индастриз",
+        "дрогери ритейл": "Дрогери Ритейл",
     }
     mapped = aliases.get(t.lower())
     if mapped:
@@ -3546,10 +3636,9 @@ def _normalize_delivery_type(value: str) -> str:
 
 
 def _delivery_type_for_client(client: str, requested: str = "") -> str:
-    if _is_arnest_unirus_client(client):
-        return "Арнест Юнирусь"
-    if _is_lab_industries_client(client):
-        return "ЛАБ Индастриз"
+    rec = _unique_client_record(client)
+    if rec:
+        return rec.get("delivery_type") or _normalize_delivery_type(requested)
     return _normalize_delivery_type(requested)
 
 
@@ -5799,6 +5888,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if _is_updates_path(path):
             self._send_json(200, fetch_updates())
+            return
+        if _is_unique_clients_list_path(path):
+            self._send_json(200, fetch_unique_clients())
             return
         if _is_feedback_threads_list_path(path):
             result = fetch_feedback_threads(self._auth_session)

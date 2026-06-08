@@ -10686,6 +10686,20 @@
         return assembledPercentFromPieceTotals(allocTotal, maxTotal);
       }
 
+      function computeAssembledPercentForOrder(client, items, pallets) {
+        if (!Array.isArray(items) || !items.length) {
+          return 0;
+        }
+        let workItems = items;
+        if (isDrogeriRetailClient(client)) {
+          workItems = mergeDrogeriAssemblyItems(items).merged;
+        }
+        const workPallets = Array.isArray(pallets)
+          ? pallets.map((p) => migratePalletRecord(p))
+          : [];
+        return computeAssembledPercentFromDraftItems(workItems, workPallets);
+      }
+
       function tryGetAssembleDraftPallets(orderId) {
         try {
           const raw = localStorage.getItem(assembleStorageKey(orderId));
@@ -11129,7 +11143,8 @@
         const oid = payload.orderId;
         const items = payload.items || [];
         const pallets = payload.pallets;
-        const assembled_percent = computeAssembledPercentFromDraftItems(
+        const assembled_percent = computeAssembledPercentForOrder(
+          payload.client || "",
           items,
           pallets,
         );
@@ -11724,7 +11739,7 @@
               if (!items.length) {
                 return { ...o, assemble_pallet_count };
               }
-              const pct = computeAssembledPercentFromDraftItems(items, pallets);
+              const pct = computeAssembledPercentForOrder(o.client || "", items, pallets);
               return {
                 ...o,
                 assembled_percent: pct,

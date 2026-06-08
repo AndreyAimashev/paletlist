@@ -4030,6 +4030,18 @@ def _drogeri_excel_header_key(value) -> str:
     return s
 
 
+def _drogeri_excel_buyer_order_header_score(value) -> int:
+    """Чем выше — тем предпочтительнее колонка «Номер заказа» (не «в 1С»)."""
+    key = _drogeri_excel_header_key(value)
+    if not key or "номерзаказа" not in key:
+        return -1
+    if key == "номерзаказа":
+        return 100
+    if "1с" in key or "в1с" in key:
+        return 10
+    return 50
+
+
 def _drogeri_excel_match_header(value) -> str | None:
     key = _drogeri_excel_header_key(value)
     if not key:
@@ -4052,15 +4064,26 @@ def _excel_cell_at(ws, col_idx: int, row: int):
 def _find_drogeri_excel_column_map(ws) -> tuple[dict[str, tuple[int, int]], list[str]]:
     """Колонки по подписям: поле → (номер колонки, строка заголовка)."""
     found: dict[str, tuple[int, int]] = {}
+    buyer_order_best: tuple[int, int, int] = (-1, 0, 0)  # score, col, row
     max_row = min(int(ws.max_row or 0), 120)
     max_col = min(int(ws.max_column or 0), 60) if ws.max_column else 60
     if max_row <= 0:
         return {}, ["Лист Excel пустой."]
     for row in range(1, max_row + 1):
         for col in range(1, max_col + 1):
-            kind = _drogeri_excel_match_header(_excel_cell_at(ws, col, row))
-            if kind and kind not in found:
+            cell_val = _excel_cell_at(ws, col, row)
+            kind = _drogeri_excel_match_header(cell_val)
+            if not kind:
+                continue
+            if kind == "buyer_order":
+                score = _drogeri_excel_buyer_order_header_score(cell_val)
+                if score > buyer_order_best[0]:
+                    buyer_order_best = (score, col, row)
+                continue
+            if kind not in found:
                 found[kind] = (col, row)
+    if buyer_order_best[0] >= 0:
+        found["buyer_order"] = (buyer_order_best[1], buyer_order_best[2])
     errors: list[str] = []
     labels = {
         "buyer_order": "Номер заказа",
@@ -4084,6 +4107,7 @@ def _drogeri_excel_data_row_empty(ws, row: int, columns: dict[str, tuple[int, in
 
 
 def _parse_drogeri_excel_buyer_order(value) -> str:
+    """Номер заказа — только целое число (ячейка с цифрами, без букв вроде ПО/ЦБА)."""
     if value is None:
         return ""
     if isinstance(value, bool):
@@ -4093,22 +4117,21 @@ def _parse_drogeri_excel_buyer_order(value) -> str:
             num = float(value)
         except (TypeError, ValueError):
             return ""
-        if not math.isfinite(num):
+        if not math.isfinite(num) or num < 0:
             return ""
-        if num == int(num):
-            return str(int(num))
-        return str(num).rstrip("0").rstrip(".")
+        if num != int(num):
+            return ""
+        return str(int(num))
     s = str(value).strip()
     if not s:
         return ""
-    digits = re.sub(r"\D", "", s)
-    if digits:
-        return digits
-    qty, ok = _parse_excel_quantity(value)
-    if ok and qty > 0:
-        if qty == int(qty):
-            return str(int(qty))
-        return str(qty).rstrip("0").rstrip(".")
+    compact = (
+        s.replace("\u00a0", "")
+        .replace("\u202f", "")
+        .replace(" ", "")
+    )
+    if compact.isdigit():
+        return compact
     return ""
 
 

@@ -22,6 +22,11 @@ def _is_lab_industries_client(client: str) -> bool:
     return n == "лаб индастриз"
 
 
+def _is_drogeri_retail_client(client: str) -> bool:
+    n = str(client or "").strip().replace("  ", " ").lower()
+    return n == "дрогери ритейл"
+
+
 def _ship_date_ru(ship_date: str) -> str:
     s = str(ship_date or "").strip()
     m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
@@ -138,9 +143,15 @@ def _estimate_generic_table_block_height_pt(font_pt: float, title_lens: list[int
     return h_head + h_body + h_foot
 
 
-def _fit_generic_table_font_pt(title_lens: list[int]) -> float:
+def _fit_generic_table_font_pt(
+    title_lens: list[int], *, header_extra_pt: float = 0.0
+) -> float:
     """Кегль таблицы: базовый или меньше, чтобы оценочная высота уместилась на одной странице."""
-    budget = _mm_to_pt(_GENERIC_PAGE_CONTENT_H_MM) - _GENERIC_SHEET_HEADER_RESERVE_PT
+    budget = (
+        _mm_to_pt(_GENERIC_PAGE_CONTENT_H_MM)
+        - _GENERIC_SHEET_HEADER_RESERVE_PT
+        - max(0.0, float(header_extra_pt))
+    )
     if budget < 80.0:
         budget = 320.0
     budget_eff = budget / _GENERIC_TABLE_HEIGHT_SAFETY
@@ -250,11 +261,44 @@ def _nomenclature_title(it: dict[str, Any]) -> str:
     return (it.get("name") or "—").strip() or "—"
 
 
-def _build_pallet_lines_table_html(items: list[dict[str, Any]], pal: dict[str, Any]) -> str:
+def _buyer_order_for_pallet(
+    items: list[dict[str, Any]],
+    pal: dict[str, Any],
+    order_buyer_order: str,
+) -> str:
+    """Номер заказа клиента по позициям на паллете (Дрогери Ритейл)."""
+    order_keys, _ = _aggregate_pallet_lines(items, pal)
+    for li in order_keys:
+        line_bo = str(items[li].get("buyer_order") or "").strip()
+        if line_bo:
+            return line_bo
+    order_bo = str(order_buyer_order or "").strip()
+    return order_bo if order_bo else "—"
+
+
+def _generic_row34_html(label: str, value: str) -> str:
+    label_e = html.escape(label, quote=True)
+    value_e = html.escape(value, quote=True)
+    return (
+        '<div class="generic-row34">'
+        f'<span class="generic-r34-label">{label_e}</span>'
+        f'<span class="generic-r34-center">{value_e}</span>'
+        "</div>"
+    )
+
+
+def _build_pallet_lines_table_html(
+    items: list[dict[str, Any]],
+    pal: dict[str, Any],
+    *,
+    header_extra_pt: float = 0.0,
+) -> str:
     """Таблица строки 5: агрегат по строкам заказа (lineIndex) на паллете."""
     order_keys, agg = _aggregate_pallet_lines(items, pal)
     title_lens = [len(_nomenclature_title(items[li])) for li in order_keys]
-    table_font_pt = _fit_generic_table_font_pt(title_lens)
+    table_font_pt = _fit_generic_table_font_pt(
+        title_lens, header_extra_pt=header_extra_pt
+    )
     fs_attr = ""
     if table_font_pt + 0.005 < _GENERIC_LINES_TABLE_BASE_PT:
         fs_attr = f' style="font-size:{table_font_pt:.2f}pt;line-height:1.25"'
@@ -361,8 +405,10 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     ship_e = html.escape(ship_ru, quote=True)
     total_pallets = len(pallets)
     total_e = html.escape(str(total_pallets), quote=True)
-    buyer_e = html.escape(str(detail.get("client") or "").strip() or "—", quote=True)
-    supplier_e = html.escape(SUPPLIER_LINE, quote=True)
+    client_name = str(detail.get("client") or "").strip() or "—"
+    is_drogeri = _is_drogeri_retail_client(client_name)
+    order_buyer = str(detail.get("buyer_order") or "").strip()
+    drogeri_header_extra_pt = 28.0 if is_drogeri else 0.0
 
     sections: list[str] = []
     for idx, pal in enumerate(pallets, start=1):
@@ -390,20 +436,22 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
             "</td>"
             "</tr></table>"
         )
-        row3 = (
-            '<div class="generic-row34">'
-            '<span class="generic-r34-label">Поставщик:</span>'
-            f'<span class="generic-r34-center">{supplier_e}</span>'
-            "</div>"
+        row3 = _generic_row34_html("Поставщик:", SUPPLIER_LINE)
+        row4 = _generic_row34_html("Покупатель:", client_name)
+        row4_order = ""
+        if is_drogeri:
+            order_no = _buyer_order_for_pallet(items, pal, order_buyer)
+            row4_order = _generic_row34_html("Номер заказа:", order_no)
+        row5 = (
+            '<div class="generic-row5-wrap">'
+            + _build_pallet_lines_table_html(
+                items, pal, header_extra_pt=drogeri_header_extra_pt
+            )
+            + "</div>"
         )
-        row4 = (
-            '<div class="generic-row34">'
-            '<span class="generic-r34-label">Покупатель:</span>'
-            f'<span class="generic-r34-center">{buyer_e}</span>'
-            "</div>"
+        sections.append(
+            f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row4_order}{row5}</div>'
         )
-        row5 = '<div class="generic-row5-wrap">' + _build_pallet_lines_table_html(items, pal) + "</div>"
-        sections.append(f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row5}</div>')
 
     styles = _load_styles()
     doc = (

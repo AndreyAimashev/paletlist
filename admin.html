@@ -1158,21 +1158,6 @@
         margin-bottom: 10px;
       }
 
-      .orders-import-status {
-        font-size: 13px;
-        color: var(--text-muted);
-        max-width: min(520px, 100%);
-        line-height: 1.4;
-      }
-
-      .orders-import-status.is-error {
-        color: #ff8da1;
-      }
-
-      .orders-import-status.is-ok {
-        color: var(--accent-teal);
-      }
-
       .orders-qty-cell {
         display: flex;
         flex-direction: column;
@@ -3978,7 +3963,6 @@
                 accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 hidden
               />
-              <span id="orders-import-excel-status" class="orders-import-status" hidden></span>
             </div>
             <div class="orders-names-toolbar muted">
               <div class="orders-names-unit-toggle" role="group" aria-label="Единицы для суммы по заказу">
@@ -6005,7 +5989,6 @@
       const ordersImportDrogeriExcelInput = document.getElementById(
         "orders-import-drogeri-excel-input",
       );
-      const ordersImportExcelStatus = document.getElementById("orders-import-excel-status");
       const newOrderOverlay = document.getElementById("new-order-overlay");
       const newOrderDialog = document.getElementById("new-order-dialog");
       const newOrderForm = document.getElementById("new-order-form");
@@ -13770,30 +13753,13 @@
         }
       });
 
-      function setOrdersImportExcelStatus(message, kind) {
-        if (!ordersImportExcelStatus) {
-          return;
-        }
-        if (!message) {
-          ordersImportExcelStatus.hidden = true;
-          ordersImportExcelStatus.textContent = "";
-          ordersImportExcelStatus.classList.remove("is-error", "is-ok");
-          return;
-        }
-        ordersImportExcelStatus.hidden = false;
-        ordersImportExcelStatus.textContent = message;
-        ordersImportExcelStatus.classList.toggle("is-error", kind === "error");
-        ordersImportExcelStatus.classList.toggle("is-ok", kind === "ok");
-      }
-
       async function exportFilteredOrdersBatchesPdf() {
         const filtered = getOrdersRowsForDisplay();
         if (!filtered.length) {
-          setOrdersImportExcelStatus("Нет заказов по текущим фильтрам.", "error");
+          window.alert("Нет заказов по текущим фильтрам.");
           return;
         }
         setOrdersImportToolbarBusy(true);
-        setOrdersImportExcelStatus("Подготовка выгрузки партий…", null);
         const ordersPayload = [];
         try {
           for (const row of filtered) {
@@ -13814,19 +13780,15 @@
             });
           }
         } catch (e) {
-          setOrdersImportExcelStatus("Не удалось подготовить данные для выгрузки.", "error");
+          window.alert("Не удалось подготовить данные для выгрузки.");
           setOrdersImportToolbarBusy(false);
           return;
         }
         if (!ordersPayload.length) {
-          setOrdersImportExcelStatus(
-            "Нет заказов с указанными партиями по текущим фильтрам.",
-            "error",
-          );
+          window.alert("Нет заказов с указанными партиями по текущим фильтрам.");
           setOrdersImportToolbarBusy(false);
           return;
         }
-        setOrdersImportExcelStatus("Формирование PDF…", null);
         try {
           const res = await fetch("/api/orders/batches-export-pdf", {
             method: "POST",
@@ -13843,7 +13805,7 @@
             } catch (e2) {
               /* ignore */
             }
-            setOrdersImportExcelStatus(msg, "error");
+            window.alert(msg);
             return;
           }
           const blob = await res.blob();
@@ -13858,13 +13820,8 @@
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
-          const n = ordersPayload.length;
-          setOrdersImportExcelStatus(
-            n === 1 ? "Выгружен 1 заказ с партиями." : `Выгружено заказов с партиями: ${n}.`,
-            "ok",
-          );
         } catch (e) {
-          setOrdersImportExcelStatus("Нет связи с сервером при выгрузке партий.", "error");
+          window.alert("Нет связи с сервером при выгрузке партий.");
         } finally {
           setOrdersImportToolbarBusy(false);
         }
@@ -13888,13 +13845,12 @@
         }
       }
 
-      async function uploadOrdersExcelFile(file, endpoint, successLabel) {
+      async function uploadOrdersExcelFile(file, endpoint) {
         const name = (file.name || "").toLowerCase();
         if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
-          setOrdersImportExcelStatus("Выберите файл Excel (.xlsx или .xls).", "error");
+          window.alert("Выберите файл Excel (.xlsx или .xls).");
           return;
         }
-        setOrdersImportExcelStatus("Загрузка и разбор файла…", null);
         setOrdersImportToolbarBusy(true);
         const formData = new FormData();
         formData.append("file", file);
@@ -13905,7 +13861,7 @@
             body: formData,
           });
         } catch (err) {
-          setOrdersImportExcelStatus("Нет связи с сервером при загрузке файла.", "error");
+          window.alert("Нет связи с сервером при загрузке файла.");
           setOrdersImportToolbarBusy(false);
           return;
         }
@@ -13917,30 +13873,17 @@
         }
         setOrdersImportToolbarBusy(false);
         if (response.status === 400 && payload && payload.message) {
-          setOrdersImportExcelStatus(payload.message, "error");
+          window.alert(payload.message);
           return;
         }
         if (response.status === 503 && payload && payload.message) {
-          setOrdersImportExcelStatus(payload.message, "error");
+          window.alert(payload.message);
           return;
         }
         if (!response.ok) {
-          setOrdersImportExcelStatus(
-            `Не удалось импортировать заказы (код ${response.status}).`,
-            "error",
-          );
+          window.alert(`Не удалось импортировать заказы (код ${response.status}).`);
           return;
         }
-        const count = payload && payload.count != null ? Number(payload.count) : 0;
-        const orderId = payload && payload.id != null ? Number(payload.id) : null;
-        const warnings =
-          payload && Array.isArray(payload.errors) ? payload.errors.filter(Boolean) : [];
-        let msg = successLabel(count, orderId);
-        if (warnings.length) {
-          const preview = warnings.slice(0, 2).join(" ");
-          msg += warnings.length > 2 ? ` Предупреждения: ${preview}…` : ` ${preview}`;
-        }
-        setOrdersImportExcelStatus(msg, "ok");
         if (ordersWorkspace.classList.contains("visible")) {
           await loadOrders();
         }
@@ -13956,9 +13899,7 @@
           if (!file) {
             return;
           }
-          void uploadOrdersExcelFile(file, "/api/orders/import-excel", (count) =>
-            count === 1 ? "Создан 1 заказ." : `Создано заказов: ${count}.`,
-          );
+          void uploadOrdersExcelFile(file, "/api/orders/import-excel");
         });
       }
 
@@ -13973,14 +13914,7 @@
           if (!file) {
             return;
           }
-          void uploadOrdersExcelFile(file, "/api/orders/import-drogeri-excel", (count, orderId) => {
-            if (Number.isFinite(orderId)) {
-              return `Создан заказ Дрогери Ритейл №${orderId}.`;
-            }
-            return count === 1
-              ? "Создан заказ Дрогери Ритейл."
-              : `Создано заказов Дрогери Ритейл: ${count}.`;
-          });
+          void uploadOrdersExcelFile(file, "/api/orders/import-drogeri-excel");
         });
       }
 

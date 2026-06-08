@@ -6510,13 +6510,24 @@
         return p;
       }
 
-      function mergeDrogeriAssemblyItems(rawItems) {
+      function clientMergesAssemblyItemsByName(client) {
+        return isDrogeriRetailClient(client) || isLabIndustriesClient(client);
+      }
+
+      function mergeAssemblyItemsByName(rawItems, options = {}) {
+        const mergeLineBuyerOrders = !!options.mergeLineBuyerOrders;
+        const sumTotalOrderQuantity = !!options.sumTotalOrderQuantity;
         const groups = [];
         const keyToGi = new Map();
         (Array.isArray(rawItems) ? rawItems : []).forEach((raw, idx) => {
           const nameKey = drogeriMergeNameKey(raw.name);
           const key = nameKey || `__idx_${idx}`;
           const lineBuyer = String(raw.buyer_order || "").trim();
+          const tqRaw = raw.total_order_quantity;
+          const lineTotalQty =
+            tqRaw != null && tqRaw !== "" && Number.isFinite(Number(tqRaw))
+              ? Number(tqRaw)
+              : 0;
           let gi = keyToGi.get(key);
           if (gi === undefined) {
             gi = groups.length;
@@ -6525,12 +6536,14 @@
               rep: { ...raw },
               sourceIndices: [idx],
               totalPieces: orderLineMaxPieces(raw),
+              totalOrderQty: lineTotalQty,
               buyerOrders: lineBuyer ? [lineBuyer] : [],
             });
           } else {
             const g = groups[gi];
             g.sourceIndices.push(idx);
             g.totalPieces += orderLineMaxPieces(raw);
+            g.totalOrderQty += lineTotalQty;
             if (lineBuyer && !g.buyerOrders.includes(lineBuyer)) {
               g.buyerOrders.push(lineBuyer);
             }
@@ -6539,8 +6552,11 @@
         const merged = groups.map((g) => {
           const rep = { ...g.rep };
           rep.quantity = piecesToOrderQuantity(rep, g.totalPieces);
-          if (g.buyerOrders.length) {
+          if (mergeLineBuyerOrders && g.buyerOrders.length) {
             rep.buyer_order = g.buyerOrders.join(", ");
+          }
+          if (sumTotalOrderQuantity && g.totalOrderQty > 0) {
+            rep.total_order_quantity = g.totalOrderQty;
           }
           return rep;
         });
@@ -6548,6 +6564,26 @@
           merged,
           sourceIndicesByMerged: groups.map((g) => g.sourceIndices),
         };
+      }
+
+      function mergeAssemblyItemsForClient(client, rawItems, orderMeta = {}) {
+        if (isDrogeriRetailClient(client)) {
+          return mergeAssemblyItemsByName(rawItems, { mergeLineBuyerOrders: true });
+        }
+        if (isLabIndustriesClient(client)) {
+          const mode = String(orderMeta.buyer_order_mode || "multiple")
+            .trim()
+            .toLowerCase();
+          return mergeAssemblyItemsByName(rawItems, {
+            mergeLineBuyerOrders: mode !== "single",
+            sumTotalOrderQuantity: true,
+          });
+        }
+        return { merged: rawItems, sourceIndicesByMerged: null };
+      }
+
+      function mergeDrogeriAssemblyItems(rawItems) {
+        return mergeAssemblyItemsForClient("Дрогери Ритейл", rawItems);
       }
 
       function drogeriRemapLineIndex(oldIdx, sourceIndicesByMerged) {
@@ -10687,13 +10723,13 @@
         return assembledPercentFromPieceTotals(allocTotal, maxTotal);
       }
 
-      function computeAssembledPercentForOrder(client, items, pallets) {
+      function computeAssembledPercentForOrder(client, items, pallets, orderMeta = {}) {
         if (!Array.isArray(items) || !items.length) {
           return 0;
         }
         let workItems = items;
-        if (isDrogeriRetailClient(client)) {
-          workItems = mergeDrogeriAssemblyItems(items).merged;
+        if (clientMergesAssemblyItemsByName(client)) {
+          workItems = mergeAssemblyItemsForClient(client, items, orderMeta).merged;
         }
         const workPallets = Array.isArray(pallets)
           ? pallets.map((p) => migratePalletRecord(p))
@@ -11740,7 +11776,9 @@
               if (!items.length) {
                 return { ...o, assemble_pallet_count };
               }
-              const pct = computeAssembledPercentForOrder(o.client || "", items, pallets);
+              const pct = computeAssembledPercentForOrder(o.client || "", items, pallets, {
+                buyer_order_mode: o.buyer_order_mode,
+              });
               return {
                 ...o,
                 assembled_percent: pct,
@@ -12651,11 +12689,13 @@
         }
         const rawItems = Array.isArray(data.items) ? data.items : [];
         let assemblyItems = rawItems;
-        let drogeriSourceIndicesByMerged = null;
-        if (isDrogeriRetailClient(data.client)) {
-          const mergedPack = mergeDrogeriAssemblyItems(rawItems);
+        let assemblySourceIndicesByMerged = null;
+        if (clientMergesAssemblyItemsByName(data.client)) {
+          const mergedPack = mergeAssemblyItemsForClient(data.client, rawItems, {
+            buyer_order_mode: data.buyer_order_mode,
+          });
           assemblyItems = mergedPack.merged;
-          drogeriSourceIndicesByMerged = mergedPack.sourceIndicesByMerged;
+          assemblySourceIndicesByMerged = mergedPack.sourceIndicesByMerged;
         }
         if (!assemblyItems.length) {
           assembleEmptyEl.hidden = false;
@@ -12678,14 +12718,14 @@
               : null,
           lab_sscc_shipped: !!data.lab_sscc_shipped,
           items: assemblyItems,
-          drogeriSourceIndicesByMerged,
+          assemblySourceIndicesByMerged,
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
-        if (drogeriSourceIndicesByMerged) {
+        if (assemblySourceIndicesByMerged) {
           picked.pallets = remapAssemblePalletsForDrogeri(
             picked.pallets,
-            drogeriSourceIndicesByMerged,
+            assemblySourceIndicesByMerged,
           );
         }
         assembleKnownRevision = Number(data.assemble_revision) || 0;

@@ -3513,7 +3513,17 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
     }
 
 
-ORDER_DELIVERY_TYPES = ("Обычный", "Деловые Линии", "Самовывоз")
+ORDER_DELIVERY_TYPES = (
+    "Обычный",
+    "Деловые Линии",
+    "Самовывоз",
+    "Арнест Юнирусь",
+    "ЛАБ Индастриз",
+)
+
+
+def _is_arnest_unirus_client(client: str) -> bool:
+    return _normalize_client_key(client) == "арнест юнирусь"
 
 
 def _normalize_delivery_type(value: str) -> str:
@@ -3524,6 +3534,8 @@ def _normalize_delivery_type(value: str) -> str:
         "обычный": "Обычный",
         "деловые линии": "Деловые Линии",
         "самовывоз": "Самовывоз",
+        "арнест юнирусь": "Арнест Юнирусь",
+        "лаб индастриз": "ЛАБ Индастриз",
     }
     mapped = aliases.get(t.lower())
     if mapped:
@@ -3533,13 +3545,21 @@ def _normalize_delivery_type(value: str) -> str:
     return "Обычный"
 
 
+def _delivery_type_for_client(client: str, requested: str = "") -> str:
+    if _is_arnest_unirus_client(client):
+        return "Арнест Юнирусь"
+    if _is_lab_industries_client(client):
+        return "ЛАБ Индастриз"
+    return _normalize_delivery_type(requested)
+
+
 def insert_order_with_items(body: dict, *, modified_by: str = ""):
     pack = _normalize_order_items_body(body)
     if pack.get("error"):
         return pack
     ship = pack["ship"]
     client_n = pack["client"]
-    delivery_type = _normalize_delivery_type(body.get("extra_info", ""))
+    delivery_type = _delivery_type_for_client(client_n, body.get("extra_info", ""))
     modifier = _normalize_str(modified_by)
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
@@ -3646,8 +3666,9 @@ def _parse_import_skip_extra_info(extra_info: str) -> tuple[int, int, list[str],
     return skipped, baseline, skipped_names, user_text
 
 
-def _order_list_fields_from_extra_info(extra_info: str) -> dict:
+def _order_list_fields_from_extra_info(extra_info: str, client: str = "") -> dict:
     skipped, _baseline, skipped_names, clean = _parse_import_skip_extra_info(extra_info)
+    clean = _delivery_type_for_client(client, clean)
     return {
         "extra_info": clean,
         "import_skipped_lines": skipped,
@@ -3926,7 +3947,10 @@ def parse_orders_from_excel_worksheet(ws):
                     "client": client,
                     "ship_date": ship,
                     "items": items,
-                    "extra_info": _excel_delivery_extra_info_from_texts(delivery_texts),
+                    "extra_info": _delivery_type_for_client(
+                        client,
+                        _excel_delivery_extra_info_from_texts(delivery_texts),
+                    ),
                     "_delivery_texts": list(delivery_texts),
                 }
             )
@@ -4081,7 +4105,10 @@ def merge_parsed_excel_orders(orders: list[dict]) -> list[dict]:
                 "client": b["client"],
                 "ship_date": b["ship_date"],
                 "items": b["items"],
-                "extra_info": _excel_delivery_extra_info_from_texts(delivery_texts),
+                "extra_info": _delivery_type_for_client(
+                    b["client"],
+                    _excel_delivery_extra_info_from_texts(delivery_texts),
+                ),
             }
         )
     return out
@@ -4238,7 +4265,9 @@ def import_orders_from_excel_bytes(data: bytes, *, modified_by: str = ""):
                     continue
                 names_summary = ""
                 baseline = 0
-                delivery_extra = _normalize_str(order.get("extra_info", "")) or "Обычный"
+                delivery_extra = _delivery_type_for_client(
+                    client_n, _normalize_str(order.get("extra_info", "")) or "Обычный"
+                )
                 extra_info = _encode_import_skip_extra_info(
                     skipped_count, baseline, delivery_extra, skipped_names
                 )
@@ -4286,7 +4315,9 @@ def import_orders_from_excel_bytes(data: bytes, *, modified_by: str = ""):
             client_n = pack["client"]
             names_summary = _format_order_names_summary(normalized)
             baseline = len(normalized)
-            delivery_extra = _normalize_str(order.get("extra_info", "")) or "Обычный"
+            delivery_extra = _delivery_type_for_client(
+                client_n, _normalize_str(order.get("extra_info", "")) or "Обычный"
+            )
             extra_info = _encode_import_skip_extra_info(
                 skipped_count, baseline, delivery_extra, skipped_names
             )
@@ -4374,8 +4405,8 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             skipped = 0
             baseline = 0
             skipped_names = []
-        delivery_type = _normalize_delivery_type(
-            body.get("extra_info", user_xinfo)
+        delivery_type = _delivery_type_for_client(
+            client_n, body.get("extra_info", user_xinfo)
         )
         xinfo = _encode_import_skip_extra_info(
             skipped, baseline, delivery_type, skipped_names
@@ -4525,7 +4556,9 @@ def fetch_order_detail(order_id: int):
     items = [_order_item_row_to_dict(ir) for ir in item_rows]
     if not items and (row["names"] or "").strip():
         items = _synthetic_items_from_order_names(row["names"] or "")
-    extra_fields = _order_list_fields_from_extra_info(row["extra_info"] or "")
+    extra_fields = _order_list_fields_from_extra_info(
+        row["extra_info"] or "", row["client"] or ""
+    )
     return {
         "id": int(row["id"]),
         "ship_date": row["ship_date"] or "",
@@ -4642,7 +4675,9 @@ def fetch_orders():
         items = items_by_oid.get(oid, [])
         if not items and (row["names"] or "").strip():
             items = _synthetic_items_from_order_names(row["names"] or "")
-        extra_fields = _order_list_fields_from_extra_info(row["extra_info"] or "")
+        extra_fields = _order_list_fields_from_extra_info(
+            row["extra_info"] or "", row["client"] or ""
+        )
         out.append(
             {
                 "id": oid,

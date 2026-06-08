@@ -2601,6 +2601,14 @@
         font-weight: 600;
       }
 
+      .new-order-delivery-fixed {
+        margin: 0;
+        padding: 8px 0 0;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-main);
+      }
+
       .new-order-items-label {
         margin: 16px 0 8px;
       }
@@ -4844,6 +4852,7 @@
                   Самовывоз
                 </button>
               </div>
+              <p id="new-order-delivery-fixed" class="new-order-delivery-fixed" hidden></p>
             </div>
           </div>
           <p class="muted new-order-items-label">Позиции заказа</p>
@@ -5979,7 +5988,14 @@
       const newOrderShipDate = document.getElementById("new-order-ship-date");
       const newOrderClient = document.getElementById("new-order-client");
       const newOrderDeliveryToggle = document.getElementById("new-order-delivery-toggle");
-      const ORDER_DELIVERY_TYPES = ["Обычный", "Деловые Линии", "Самовывоз"];
+      const newOrderDeliveryFixedEl = document.getElementById("new-order-delivery-fixed");
+      const ORDER_DELIVERY_TYPES = [
+        "Обычный",
+        "Деловые Линии",
+        "Самовывоз",
+        "Арнест Юнирусь",
+        "ЛАБ Индастриз",
+      ];
       const newOrderItems = document.getElementById("new-order-items");
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
@@ -6348,6 +6364,38 @@
         return formatOrderItemSearchInput(art, nam) || "—";
       }
 
+      function getDeliveryTypeForClient(client, requested) {
+        if (isArnestUnirusClient(client)) {
+          return "Арнест Юнирусь";
+        }
+        if (isLabIndustriesClient(client)) {
+          return "ЛАБ Индастриз";
+        }
+        return normalizeOrderDeliveryType(requested);
+      }
+
+      function syncNewOrderDeliveryUi() {
+        const client = newOrderClient ? String(newOrderClient.value || "") : "";
+        const special =
+          isArnestUnirusClient(client) || isLabIndustriesClient(client);
+        const specialType = getDeliveryTypeForClient(client);
+        if (newOrderDeliveryToggle) {
+          newOrderDeliveryToggle.hidden = special;
+        }
+        if (newOrderDeliveryFixedEl) {
+          newOrderDeliveryFixedEl.hidden = !special;
+          newOrderDeliveryFixedEl.textContent = special ? specialType : "";
+        }
+        if (special) {
+          setNewOrderDeliveryType(specialType);
+          return;
+        }
+        const current = getNewOrderDeliveryType();
+        if (current === "Арнест Юнирусь" || current === "ЛАБ Индастриз") {
+          setNewOrderDeliveryType("Обычный");
+        }
+      }
+
       function syncNewOrderLabBuyerUi() {
         const lab = isLabIndustriesClient(newOrderClient.value);
         if (!lab) {
@@ -6366,6 +6414,11 @@
             buyerEl.required = true;
           }
         });
+      }
+
+      function syncNewOrderClientUi() {
+        syncNewOrderLabBuyerUi();
+        syncNewOrderDeliveryUi();
       }
 
       function isAssembleUnirusMode() {
@@ -8777,10 +8830,17 @@
       let ordersFilterExtraInfoSelected = null;
       /** @type {Set<string> | null} */
       let ordersExtraInfoFilterValuesSnapshot = null;
-      const ORDERS_EXTRA_INFO_FILTER_PRESETS = ["Самовывоз", "Деловые Линии", "Обычный"];
+      const ORDERS_EXTRA_INFO_FILTER_PRESETS = [
+        "Обычный",
+        "Деловые Линии",
+        "Самовывоз",
+        "Арнест Юнирусь",
+        "ЛАБ Индастриз",
+      ];
 
       function getOrderExtraInfoFilterLabel(o) {
-        const t = String(o.extra_info || "").trim();
+        const client = o && o.client != null ? String(o.client) : "";
+        const t = getDeliveryTypeForClient(client, o && o.extra_info != null ? o.extra_info : "");
         return t || "—";
       }
 
@@ -13161,7 +13221,9 @@
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
         newOrderClient.value = data.client || "";
-        setNewOrderDeliveryType(data.extra_info || "Обычный");
+        setNewOrderDeliveryType(
+          getDeliveryTypeForClient(data.client || "", data.extra_info || "Обычный"),
+        );
         const legacyOrderBuyer = String(data.buyer_order || "").trim();
         const items = Array.isArray(data.items)
           ? data.items
@@ -13184,7 +13246,7 @@
             fillOrderItemRowFromDetail(newOrderItems.lastElementChild, rowIt);
           }
         }
-        syncNewOrderLabBuyerUi();
+        syncNewOrderClientUi();
         editingOrderSnapshot = captureOrderEditSnapshotFromForm();
         newOrderOverlay.hidden = false;
         requestAnimationFrame(() => syncAllOrderItemSearchHeights());
@@ -13277,10 +13339,20 @@
         if (lower === "самовывоз") {
           return "Самовывоз";
         }
+        if (lower === "арнест юнирусь") {
+          return "Арнест Юнирусь";
+        }
+        if (lower === "лаб индастриз") {
+          return "ЛАБ Индастриз";
+        }
         return "Обычный";
       }
 
       function getNewOrderDeliveryType() {
+        const client = newOrderClient ? String(newOrderClient.value || "") : "";
+        if (isArnestUnirusClient(client) || isLabIndustriesClient(client)) {
+          return getDeliveryTypeForClient(client);
+        }
         if (!newOrderDeliveryToggle) {
           return "Обычный";
         }
@@ -13311,8 +13383,9 @@
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         addOrderItemRow();
-        syncNewOrderLabBuyerUi();
+        syncNewOrderClientUi();
         setNewOrderDeliveryType("Обычный");
+        syncNewOrderDeliveryUi();
         const today = new Date();
         newOrderShipDate.value = today.toISOString().slice(0, 10);
         newOrderOverlay.hidden = false;
@@ -13325,6 +13398,7 @@
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         setNewOrderDeliveryType("Обычный");
+        syncNewOrderDeliveryUi();
         editingOrderId = null;
         editingOrderSnapshot = null;
         newOrderTitle.textContent = "Новый заказ";
@@ -13361,8 +13435,8 @@
       }
 
       if (newOrderClient) {
-        newOrderClient.addEventListener("input", syncNewOrderLabBuyerUi);
-        newOrderClient.addEventListener("change", syncNewOrderLabBuyerUi);
+        newOrderClient.addEventListener("input", syncNewOrderClientUi);
+        newOrderClient.addEventListener("change", syncNewOrderClientUi);
       }
 
       newOrderCancel.addEventListener("click", () => {

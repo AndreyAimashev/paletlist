@@ -456,6 +456,123 @@ def _buyer_order_for_pallet(
     return order_bo if order_bo else "—"
 
 
+def _lab_pieces_to_boxes(it: dict[str, Any], pieces: float) -> float:
+    pib = max(0, int(it.get("pieces_in_box") or 0))
+    if pib <= 0:
+        return 0.0
+    return max(0.0, float(pieces)) / float(pib)
+
+
+def _lab_total_order_qty_for_buyer(
+    source_indices: list[int],
+    raw_items: list[dict[str, Any]],
+    buyer_no: str,
+    order_bo: str,
+    buyer_mode: str,
+) -> float | None:
+    """Общее количество заказа (строка 6) по заказу покупателя для объединённой позиции."""
+    mode = str(buyer_mode or "single").strip().lower()
+    total = 0.0
+    found = False
+    for si in source_indices:
+        if si < 0 or si >= len(raw_items):
+            continue
+        raw = raw_items[si]
+        if mode == "multiple":
+            line_bo = str(raw.get("buyer_order") or "").strip()
+            if line_bo != buyer_no:
+                continue
+        tq_raw = raw.get("total_order_quantity")
+        if tq_raw is None or str(tq_raw).strip() == "":
+            continue
+        try:
+            tq = float(str(tq_raw).replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if tq >= 0:
+            total += tq
+            found = True
+    if not found:
+        return None
+    return total
+
+
+def _lab_append_sheet_row(
+    out: list[dict[str, Any]],
+    *,
+    article: str,
+    name: str,
+    pnum: str,
+    slot_pcs: float,
+    boxes_on_pal: float,
+    vol: float,
+    vol_unit: str,
+    buyer_order: str,
+    total_order_qty: float | None,
+    row7_pallet: str,
+    batch_raw: str,
+    expiry_raw: str,
+    lab_sscc_seq_start: int,
+    lab_sscc_pallet_index: int,
+) -> None:
+    _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(article, batch_raw, expiry_raw)
+    out.append(
+        {
+            "article": article,
+            "name": name,
+            "pallet_number": pnum,
+            "total_pieces": slot_pcs,
+            "volume_ml": vol,
+            "volume_unit": vol_unit,
+            "row3_text": _format_lab_row3_text(slot_pcs, vol, vol_unit),
+            "boxes_on_pallet": boxes_on_pal,
+            "row4_text": _format_lab_row4_boxes(boxes_on_pal),
+            "buyer_order": buyer_order,
+            "total_order_quantity": total_order_qty,
+            "row6_text": _format_lab_row6_total_order(total_order_qty),
+            "row7_text": row7_pallet,
+            "batch_number": batch_raw,
+            "lab_expiry_date": expiry_raw,
+            "row10_batch_text": _format_lab_row10_batch(batch_raw),
+            "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
+            "row11_gs1_hri": gs1_hri or "",
+            "lab_sscc_seq_start": lab_sscc_seq_start,
+            "lab_sscc_pallet_index": lab_sscc_pallet_index,
+        }
+    )
+
+
+def _lab_sheet_splits_for_slot(
+    slot_pcs: float,
+    line_idx: int,
+    source_groups: list[list[int]],
+    raw_items: list[dict[str, Any]],
+    consumed: dict[int, float],
+    order_bo: str,
+    buyer_mode: str,
+) -> list[tuple[str, float]]:
+    """Разбивка штук на слоте по заказам покупателя (FIFO), как у Дрогери."""
+    from packing_sheets_generic import _drogeri_split_pieces_fifo
+
+    if slot_pcs <= 1e-9:
+        return []
+    source_indices = (
+        source_groups[line_idx]
+        if 0 <= line_idx < len(source_groups)
+        else [line_idx]
+    )
+    splits = _drogeri_split_pieces_fifo(
+        slot_pcs, source_indices, raw_items, consumed
+    )
+    if not splits:
+        return []
+    mode = str(buyer_mode or "single").strip().lower()
+    if mode == "single":
+        bo = str(order_bo or "").strip() or splits[0][0] or "—"
+        return [(bo, slot_pcs)]
+    return splits
+
+
 def _format_lab_row3_text(
     total_pieces: float, volume_ml: float, volume_unit: str = "ml"
 ) -> str:
@@ -475,7 +592,11 @@ def _format_lab_row3_text(
 
 def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]]:
     """Строки паллет из assemble_state заказа."""
-    from packing_sheets_generic import sort_assemble_pallets_by_number
+    from packing_sheets_generic import (
+        _drogeri_merge_source_groups,
+        merge_order_items_for_lab,
+        sort_assemble_pallets_by_number,
+    )
 
     st = detail.get("assemble_state")
     if not isinstance(st, dict):
@@ -483,16 +604,19 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
     pallets_raw = st.get("pallets")
     if not isinstance(pallets_raw, list):
         return []
-    items = detail.get("items")
-    if not isinstance(items, list):
-        items = []
+    raw_items = detail.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = []
+    merged_items = merge_order_items_for_lab(raw_items)
+    source_groups = _drogeri_merge_source_groups(raw_items)
     pallets = sort_assemble_pallets_by_number(
         [p for p in pallets_raw if isinstance(p, dict)]
     )
-    totals = _pieces_by_line_index(items, pallets)
+    totals = _pieces_by_line_index(merged_items, pallets)
     order_bo = str(detail.get("buyer_order") or "").strip()
     buyer_mode = str(detail.get("buyer_order_mode") or "single").strip()
     lab_sscc_seq_start = max(1, int(detail.get("lab_sscc_seq_start") or 1))
+    consumed: dict[int, float] = {}
     out: list[dict[str, Any]] = []
     pallet_total = len(pallets)
     for idx, pal in enumerate(pallets, start=1):
@@ -500,99 +624,178 @@ def lab_pallets_from_order_detail(detail: dict[str, Any]) -> list[dict[str, Any]
         if not pnum:
             pnum = str(idx)
         row7_pallet = _format_lab_row7_pallet_seq(idx, pallet_total)
-        productive = _lab_productive_slots(pal, items)
+        productive = _lab_productive_slots(pal, merged_items)
         if not productive:
-            line_idx, article, name = _first_line_on_pallet(pal, items)
+            line_idx, article, name = _first_line_on_pallet(pal, merged_items)
             total_pcs = totals.get(line_idx, 0.0) if line_idx is not None else 0.0
-            boxes_on_pal = _boxes_on_pallet(pal, items)
+            boxes_on_pal = _boxes_on_pallet(pal, merged_items)
             vol = 0.0
             vol_unit = "ml"
-            if line_idx is not None and 0 <= line_idx < len(items):
-                vol = float(items[line_idx].get("volume_ml") or 0)
-                vol_unit = str(items[line_idx].get("volume_unit") or "ml")
-            buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
-            total_order_qty = None
-            if line_idx is not None and 0 <= line_idx < len(items):
-                raw_tq = items[line_idx].get("total_order_quantity")
-                if raw_tq is not None:
-                    try:
-                        total_order_qty = float(raw_tq)
-                    except (TypeError, ValueError):
-                        total_order_qty = None
+            it = None
+            if line_idx is not None and 0 <= line_idx < len(merged_items):
+                it = merged_items[line_idx]
+                vol = float(it.get("volume_ml") or 0)
+                vol_unit = str(it.get("volume_unit") or "ml")
             batch_raw, expiry_raw = _lab_assemble_fields_from_pallet(pal)
-            _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
-                article, batch_raw, expiry_raw
+            if line_idx is None:
+                buyer_order = order_bo or "—"
+                total_order_qty = None
+                _lab_append_sheet_row(
+                    out,
+                    article=article,
+                    name=name,
+                    pnum=pnum,
+                    slot_pcs=total_pcs,
+                    boxes_on_pal=boxes_on_pal,
+                    vol=vol,
+                    vol_unit=vol_unit,
+                    buyer_order=buyer_order,
+                    total_order_qty=total_order_qty,
+                    row7_pallet=row7_pallet,
+                    batch_raw=batch_raw,
+                    expiry_raw=expiry_raw,
+                    lab_sscc_seq_start=lab_sscc_seq_start,
+                    lab_sscc_pallet_index=idx,
+                )
+                continue
+            source_indices = (
+                source_groups[line_idx]
+                if 0 <= line_idx < len(source_groups)
+                else [line_idx]
             )
-            out.append(
-                {
-                    "article": article,
-                    "name": name,
-                    "pallet_number": pnum,
-                    "total_pieces": total_pcs,
-                    "volume_ml": vol,
-                    "volume_unit": vol_unit,
-                    "row3_text": _format_lab_row3_text(total_pcs, vol, vol_unit),
-                    "boxes_on_pallet": boxes_on_pal,
-                    "row4_text": _format_lab_row4_boxes(boxes_on_pal),
-                    "buyer_order": buyer_order,
-                    "total_order_quantity": total_order_qty,
-                    "row6_text": _format_lab_row6_total_order(total_order_qty),
-                    "row7_text": row7_pallet,
-                    "batch_number": batch_raw,
-                    "lab_expiry_date": expiry_raw,
-                    "row10_batch_text": _format_lab_row10_batch(batch_raw),
-                    "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
-                    "row11_gs1_hri": gs1_hri or "",
-                    "lab_sscc_seq_start": lab_sscc_seq_start,
-                    "lab_sscc_pallet_index": idx,
-                }
+            splits = _lab_sheet_splits_for_slot(
+                total_pcs,
+                line_idx,
+                source_groups,
+                raw_items,
+                consumed,
+                order_bo,
+                buyer_mode,
             )
+            if not splits:
+                buyer_order = _buyer_order_for_pallet(
+                    line_idx, merged_items, order_bo, buyer_mode
+                )
+                total_order_qty = _lab_total_order_qty_for_buyer(
+                    source_indices, raw_items, buyer_order, order_bo, buyer_mode
+                )
+                _lab_append_sheet_row(
+                    out,
+                    article=article,
+                    name=name,
+                    pnum=pnum,
+                    slot_pcs=total_pcs,
+                    boxes_on_pal=boxes_on_pal,
+                    vol=vol,
+                    vol_unit=vol_unit,
+                    buyer_order=buyer_order,
+                    total_order_qty=total_order_qty,
+                    row7_pallet=row7_pallet,
+                    batch_raw=batch_raw,
+                    expiry_raw=expiry_raw,
+                    lab_sscc_seq_start=lab_sscc_seq_start,
+                    lab_sscc_pallet_index=idx,
+                )
+                continue
+            for buyer_no, take_pcs in splits:
+                if take_pcs <= 1e-9:
+                    continue
+                take_boxes = (
+                    _lab_pieces_to_boxes(it, take_pcs) if it is not None else boxes_on_pal
+                )
+                total_order_qty = _lab_total_order_qty_for_buyer(
+                    source_indices, raw_items, buyer_no, order_bo, buyer_mode
+                )
+                _lab_append_sheet_row(
+                    out,
+                    article=article,
+                    name=name,
+                    pnum=pnum,
+                    slot_pcs=take_pcs,
+                    boxes_on_pal=take_boxes,
+                    vol=vol,
+                    vol_unit=vol_unit,
+                    buyer_order=buyer_no or "—",
+                    total_order_qty=total_order_qty,
+                    row7_pallet=row7_pallet,
+                    batch_raw=batch_raw,
+                    expiry_raw=expiry_raw,
+                    lab_sscc_seq_start=lab_sscc_seq_start,
+                    lab_sscc_pallet_index=idx,
+                )
             continue
         for _sheet_i, (slot, line_idx) in enumerate(productive, start=1):
-            it = items[line_idx]
+            it = merged_items[line_idx]
             article = str(it.get("article") or "").strip() or "—"
             name = str(it.get("name") or "").strip() or "—"
-            slot_pcs = _pieces_on_slot(items, slot)
-            boxes_on_pal = _boxes_on_slot(items, slot)
+            slot_pcs = _pieces_on_slot(merged_items, slot)
             vol = float(it.get("volume_ml") or 0)
             vol_unit = str(it.get("volume_unit") or "ml")
-            buyer_order = _buyer_order_for_pallet(line_idx, items, order_bo, buyer_mode)
-            total_order_qty = None
-            raw_tq = it.get("total_order_quantity")
-            if raw_tq is not None:
-                try:
-                    total_order_qty = float(raw_tq)
-                except (TypeError, ValueError):
-                    total_order_qty = None
             batch_raw = _lab_normalize_batch_single(str(slot.get("batchNumber") or ""))
             expiry_raw = str(slot.get("labExpiryDate") or "").strip()
-            _gs1_data, gs1_hri, _gs1_err = build_lab_product_gs1_128(
-                article, batch_raw, expiry_raw
+            source_indices = (
+                source_groups[line_idx]
+                if 0 <= line_idx < len(source_groups)
+                else [line_idx]
             )
-            out.append(
-                {
-                    "article": article,
-                    "name": name,
-                    "pallet_number": pnum,
-                    "total_pieces": slot_pcs,
-                    "volume_ml": vol,
-                    "volume_unit": vol_unit,
-                    "row3_text": _format_lab_row3_text(slot_pcs, vol, vol_unit),
-                    "boxes_on_pallet": boxes_on_pal,
-                    "row4_text": _format_lab_row4_boxes(boxes_on_pal),
-                    "buyer_order": buyer_order,
-                    "total_order_quantity": total_order_qty,
-                    "row6_text": _format_lab_row6_total_order(total_order_qty),
-                    "row7_text": row7_pallet,
-                    "batch_number": batch_raw,
-                    "lab_expiry_date": expiry_raw,
-                    "row10_batch_text": _format_lab_row10_batch(batch_raw),
-                    "row10_expiry_text": _format_lab_row10_expiry(expiry_raw),
-                    "row11_gs1_hri": gs1_hri or "",
-                    "lab_sscc_seq_start": lab_sscc_seq_start,
-                    "lab_sscc_pallet_index": idx,
-                }
+            splits = _lab_sheet_splits_for_slot(
+                slot_pcs,
+                line_idx,
+                source_groups,
+                raw_items,
+                consumed,
+                order_bo,
+                buyer_mode,
             )
+            if not splits:
+                buyer_order = _buyer_order_for_pallet(
+                    line_idx, merged_items, order_bo, buyer_mode
+                )
+                total_order_qty = _lab_total_order_qty_for_buyer(
+                    source_indices, raw_items, buyer_order, order_bo, buyer_mode
+                )
+                _lab_append_sheet_row(
+                    out,
+                    article=article,
+                    name=name,
+                    pnum=pnum,
+                    slot_pcs=slot_pcs,
+                    boxes_on_pal=_boxes_on_slot(merged_items, slot),
+                    vol=vol,
+                    vol_unit=vol_unit,
+                    buyer_order=buyer_order,
+                    total_order_qty=total_order_qty,
+                    row7_pallet=row7_pallet,
+                    batch_raw=batch_raw,
+                    expiry_raw=expiry_raw,
+                    lab_sscc_seq_start=lab_sscc_seq_start,
+                    lab_sscc_pallet_index=idx,
+                )
+                continue
+            for buyer_no, take_pcs in splits:
+                if take_pcs <= 1e-9:
+                    continue
+                take_boxes = _lab_pieces_to_boxes(it, take_pcs)
+                total_order_qty = _lab_total_order_qty_for_buyer(
+                    source_indices, raw_items, buyer_no, order_bo, buyer_mode
+                )
+                _lab_append_sheet_row(
+                    out,
+                    article=article,
+                    name=name,
+                    pnum=pnum,
+                    slot_pcs=take_pcs,
+                    boxes_on_pal=take_boxes,
+                    vol=vol,
+                    vol_unit=vol_unit,
+                    buyer_order=buyer_no or "—",
+                    total_order_qty=total_order_qty,
+                    row7_pallet=row7_pallet,
+                    batch_raw=batch_raw,
+                    expiry_raw=expiry_raw,
+                    lab_sscc_seq_start=lab_sscc_seq_start,
+                    lab_sscc_pallet_index=idx,
+                )
     return out
 
 

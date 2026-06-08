@@ -433,6 +433,53 @@ def merge_order_items_for_drogeri(items: list[dict[str, Any]]) -> list[dict[str,
     return merged
 
 
+def merge_order_items_for_lab(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Сборка/листы ЛАБ: одна строка на наименование, количество и total_order_quantity суммируются."""
+    groups: list[dict[str, Any]] = []
+    key_to_gi: dict[str, int] = {}
+    for idx, raw in enumerate(items or []):
+        if not isinstance(raw, dict):
+            continue
+        name_key = _drogeri_merge_name_key(str(raw.get("name") or ""))
+        key = name_key or f"__idx_{idx}"
+        line_buyer = str(raw.get("buyer_order") or "").strip()
+        tq_raw = raw.get("total_order_quantity")
+        line_total_qty = 0.0
+        if tq_raw is not None and str(tq_raw).strip() != "":
+            try:
+                line_total_qty = max(0.0, float(str(tq_raw).replace(",", ".")))
+            except (TypeError, ValueError):
+                line_total_qty = 0.0
+        gi = key_to_gi.get(key)
+        if gi is None:
+            gi = len(groups)
+            key_to_gi[key] = gi
+            groups.append(
+                {
+                    "rep": dict(raw),
+                    "total_pieces": _order_line_max_pieces(raw),
+                    "total_order_qty": line_total_qty,
+                    "buyer_orders": [line_buyer] if line_buyer else [],
+                }
+            )
+        else:
+            g = groups[gi]
+            g["total_pieces"] = float(g["total_pieces"]) + _order_line_max_pieces(raw)
+            g["total_order_qty"] = float(g["total_order_qty"]) + line_total_qty
+            if line_buyer and line_buyer not in g["buyer_orders"]:
+                g["buyer_orders"].append(line_buyer)
+    merged: list[dict[str, Any]] = []
+    for g in groups:
+        rep = dict(g["rep"])
+        rep["quantity"] = _pieces_to_order_quantity(rep, float(g["total_pieces"]))
+        if float(g["total_order_qty"]) > 0:
+            rep["total_order_quantity"] = float(g["total_order_qty"])
+        if g["buyer_orders"]:
+            rep["buyer_order"] = ", ".join(g["buyer_orders"])
+        merged.append(rep)
+    return merged
+
+
 def _generic_row34_html(label: str, value: str) -> str:
     label_e = html.escape(label, quote=True)
     value_e = html.escape(value, quote=True)

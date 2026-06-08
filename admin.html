@@ -6968,6 +6968,116 @@
         return orderBo || "—";
       }
 
+      function labTotalOrderQtyForBuyer(sourceIndices, rawItems, buyerNo, labBuyerCtx) {
+        const mode = String(labBuyerCtx?.buyer_order_mode || "single")
+          .trim()
+          .toLowerCase();
+        let total = 0;
+        let found = false;
+        (sourceIndices || []).forEach((si) => {
+          const raw = rawItems[si];
+          if (!raw) {
+            return;
+          }
+          if (mode === "multiple") {
+            const lineBo = String(raw.buyer_order || "").trim();
+            if (lineBo !== buyerNo) {
+              return;
+            }
+          }
+          const tqRaw = raw.total_order_quantity;
+          if (tqRaw == null || tqRaw === "") {
+            return;
+          }
+          const tq = Number(tqRaw);
+          if (!Number.isFinite(tq) || tq < 0) {
+            return;
+          }
+          total += tq;
+          found = true;
+        });
+        return found ? total : null;
+      }
+
+      function splitAssemblyPiecesFifo(pieces, sourceIndices, rawItems, consumed) {
+        let remaining = Math.max(0, Number(pieces) || 0);
+        if (remaining <= 1e-9 || !sourceIndices?.length) {
+          return [];
+        }
+        const splits = [];
+        for (const si of sourceIndices) {
+          if (remaining <= 1e-9) {
+            break;
+          }
+          const raw = rawItems[si];
+          if (!raw) {
+            continue;
+          }
+          const ordered = orderLineMaxPieces(raw);
+          const already = Number(consumed[si]) || 0;
+          const available = Math.max(0, ordered - already);
+          const take = Math.min(remaining, available);
+          if (take <= 1e-9) {
+            continue;
+          }
+          const bo = String(raw.buyer_order || "").trim() || "—";
+          if (splits.length && splits[splits.length - 1][0] === bo) {
+            splits[splits.length - 1][1] += take;
+          } else {
+            splits.push([bo, take]);
+          }
+          consumed[si] = already + take;
+          remaining -= take;
+        }
+        if (remaining > 1e-9) {
+          const si = sourceIndices[sourceIndices.length - 1];
+          const raw = rawItems[si];
+          const bo = raw ? String(raw.buyer_order || "").trim() || "—" : "—";
+          if (splits.length && splits[splits.length - 1][0] === bo) {
+            splits[splits.length - 1][1] += remaining;
+          } else {
+            splits.push([bo, remaining]);
+          }
+          consumed[si] = (Number(consumed[si]) || 0) + remaining;
+        }
+        return splits;
+      }
+
+      function labSheetSplitsForSlot(
+        slotPcs,
+        lineIdx,
+        sourceGroups,
+        rawItems,
+        consumed,
+        labBuyerCtx,
+      ) {
+        if (slotPcs <= 1e-9) {
+          return [];
+        }
+        const sourceIndices =
+          lineIdx >= 0 && lineIdx < sourceGroups.length
+            ? sourceGroups[lineIdx]
+            : [lineIdx];
+        const splits = splitAssemblyPiecesFifo(
+          slotPcs,
+          sourceIndices,
+          rawItems,
+          consumed,
+        );
+        if (!splits.length) {
+          return [];
+        }
+        const mode = String(labBuyerCtx?.buyer_order_mode || "single")
+          .trim()
+          .toLowerCase();
+        if (mode === "single") {
+          const orderBo = String(labBuyerCtx?.buyer_order || "").trim();
+          const bo = orderBo || splits[0][0] || "—";
+          return [[bo, slotPcs]];
+        }
+        return splits;
+      }
+
       function labProductiveSlotsOnPallet(pal, items) {
         const out = [];
         const slots = Array.isArray(pal?.slots) ? pal.slots : [];
@@ -6989,7 +7099,6 @@
         if (!Array.isArray(draftPallets) || !draftPallets.length) {
           return [];
         }
-        const items = Array.isArray(orderItems) ? orderItems : [];
         const ctx =
           labBuyerCtx ||
           (assembleOrderSnapshot && isLabIndustriesClient(assembleOrderSnapshot.client)
@@ -6997,14 +7106,28 @@
                 buyer_order_mode: assembleOrderSnapshot.buyer_order_mode,
                 buyer_order: assembleOrderSnapshot.buyer_order,
                 lab_sscc_seq_start: assembleOrderSnapshot.lab_sscc_seq_start,
+                rawOrderItems: assembleOrderSnapshot.rawOrderItems,
+                client: assembleOrderSnapshot.client,
               }
             : null);
+        const clientName = String(ctx?.client || assembleOrderSnapshot?.client || "");
+        const rawItems = Array.isArray(ctx?.rawOrderItems)
+          ? ctx.rawOrderItems
+          : Array.isArray(orderItems)
+            ? orderItems
+            : [];
+        const mergedPack = clientMergesAssemblyItemsByName(clientName)
+          ? mergeAssemblyItemsForClient(clientName, rawItems, ctx || {})
+          : { merged: rawItems, sourceIndicesByMerged: [] };
+        const items = mergedPack.merged;
+        const sourceGroups = mergedPack.sourceIndicesByMerged || [];
         const labSsccSeqStart =
           ctx && ctx.lab_sscc_seq_start != null && ctx.lab_sscc_seq_start !== ""
             ? Math.max(1, Number(ctx.lab_sscc_seq_start))
             : 1;
         const sortedPallets = sortAssemblePalletsByNumber(draftPallets);
         const palletTotal = sortedPallets.length;
+        const consumed = {};
         const rows = [];
         sortedPallets.forEach((pal, idx) => {
           let pallet_number = String(pal.palletNumber ?? "").trim();
@@ -7014,19 +7137,10 @@
           const labSsccPalletIndex = idx + 1;
           const row7Pallet = formatLabRow7PalletSeq(idx + 1, palletTotal);
           const productive = labProductiveSlotsOnPallet(pal, items);
-          const buildRow = (lineIdx, slot) => {
-            const it = items[lineIdx];
+          const buildRow = (lineIdx, slot, slotPieces, boxesOnPallet, buyerOrder, totalOrderQty) => {
+            const it = lineIdx !== null && lineIdx >= 0 ? items[lineIdx] : null;
             const article = String(it?.article || "").trim() || "—";
             const name = String(it?.name || "").trim() || "—";
-            const ns = slot ? normalizeSlot(slot) : null;
-            const slotPieces = ns
-              ? allocationToPieces(it, slotToAlloc(ns))
-              : lineIdx !== null
-                ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
-                : 0;
-            const boxesOnPallet = ns
-              ? allocationToBoxes(it, slotToAlloc(ns))
-              : computeArnestPalletBoxesQty(pal, items);
             let volumeMl = Number(it?.volume_ml);
             let volumeUnit = normalizeVolumeUnit(it?.volume_unit);
             if (!Number.isFinite(volumeMl)) {
@@ -7056,16 +7170,9 @@
               row3_text: formatLabRow3Text(slotPieces, volumeMl, volumeUnit),
               boxes_on_pallet: boxesOnPallet,
               row4_text: formatLabRow4Text(boxesOnPallet),
-              buyer_order: resolveLabBuyerOrderForPallet(lineIdx, items, ctx),
-              total_order_quantity:
-                it?.total_order_quantity != null && it?.total_order_quantity !== ""
-                  ? Number(it.total_order_quantity)
-                  : null,
-              row6_text: formatLabRow6Text(
-                it?.total_order_quantity != null && it?.total_order_quantity !== ""
-                  ? it.total_order_quantity
-                  : null,
-              ),
+              buyer_order: buyerOrder,
+              total_order_quantity: totalOrderQty,
+              row6_text: formatLabRow6Text(totalOrderQty),
               row7_text: row7Pallet,
               batch_number: batchRaw,
               lab_expiry_date: expiryRaw,
@@ -7073,6 +7180,68 @@
               row10_expiry_text: formatLabRow10Expiry(expiryRaw),
               row11_gs1_hri: formatLabProductGs1Hri(article, batchRaw, expiryRaw),
             };
+          };
+          const piecesToBoxes = (it, pcs) => {
+            const pib = Math.max(0, Number(it?.pieces_in_box) || 0);
+            if (pib <= 0) {
+              return 0;
+            }
+            return Math.max(0, Number(pcs) || 0) / pib;
+          };
+          const pushSplitRows = (lineIdx, slot, slotPieces) => {
+            if (slotPieces <= 1e-9) {
+              return;
+            }
+            const it = items[lineIdx];
+            const sourceIndices =
+              lineIdx >= 0 && lineIdx < sourceGroups.length
+                ? sourceGroups[lineIdx]
+                : [lineIdx];
+            const splits = labSheetSplitsForSlot(
+              slotPieces,
+              lineIdx,
+              sourceGroups,
+              rawItems,
+              consumed,
+              ctx,
+            );
+            if (!splits.length) {
+              const buyerOrder = resolveLabBuyerOrderForPallet(lineIdx, items, ctx);
+              const totalOrderQty = labTotalOrderQtyForBuyer(
+                sourceIndices,
+                rawItems,
+                buyerOrder,
+                ctx,
+              );
+              const boxesOnPallet = slot
+                ? allocationToBoxes(it, slotToAlloc(normalizeSlot(slot)))
+                : piecesToBoxes(it, slotPieces);
+              rows.push(
+                buildRow(lineIdx, slot, slotPieces, boxesOnPallet, buyerOrder, totalOrderQty),
+              );
+              return;
+            }
+            splits.forEach(([buyerNo, takePcs]) => {
+              if (takePcs <= 1e-9) {
+                return;
+              }
+              const totalOrderQty = labTotalOrderQtyForBuyer(
+                sourceIndices,
+                rawItems,
+                buyerNo,
+                ctx,
+              );
+              rows.push(
+                buildRow(
+                  lineIdx,
+                  slot,
+                  takePcs,
+                  piecesToBoxes(it, takePcs),
+                  buyerNo || "—",
+                  totalOrderQty,
+                ),
+              );
+            });
           };
           if (!productive.length) {
             let lineIdx = null;
@@ -7086,11 +7255,31 @@
                 break;
               }
             }
-            rows.push(buildRow(lineIdx, null));
+            const slotPieces =
+              lineIdx !== null
+                ? lineAllocatedPiecesSumFromDraft(items, draftPallets, lineIdx)
+                : 0;
+            if (lineIdx !== null) {
+              pushSplitRows(lineIdx, null, slotPieces);
+            } else {
+              rows.push(
+                buildRow(
+                  null,
+                  null,
+                  slotPieces,
+                  computeArnestPalletBoxesQty(pal, items),
+                  String(ctx?.buyer_order || "").trim() || "—",
+                  null,
+                ),
+              );
+            }
             return;
           }
           productive.forEach(({ slot, lineIdx }) => {
-            rows.push(buildRow(lineIdx, slot));
+            const it = items[lineIdx];
+            const ns = normalizeSlot(slot);
+            const slotPieces = allocationToPieces(it, slotToAlloc(ns));
+            pushSplitRows(lineIdx, slot, slotPieces);
           });
         });
         return rows;
@@ -7518,6 +7707,8 @@
               labOrder.items || [],
               assemblePallets,
               {
+                client: labOrder.client,
+                rawOrderItems: labOrder.items || [],
                 buyer_order_mode: labOrder.buyer_order_mode,
                 buyer_order: labOrder.buyer_order,
                 lab_sscc_seq_start: labOrder.lab_sscc_seq_start,
@@ -7992,6 +8183,8 @@
             const orderItems = order.items || [];
             if (palletSheetsDownloadKind === "lab") {
               const palletsPayload = buildLabPalletPdfPayloadFromDraft(orderItems, pallets, {
+                client: order.client,
+                rawOrderItems: order.items || orderItems,
                 buyer_order_mode: order.buyer_order_mode,
                 buyer_order: order.buyer_order,
                 lab_sscc_seq_start: order.lab_sscc_seq_start,
@@ -12719,6 +12912,7 @@
           lab_sscc_shipped: !!data.lab_sscc_shipped,
           items: assemblyItems,
           assemblySourceIndicesByMerged,
+          rawOrderItems: rawItems,
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);

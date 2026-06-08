@@ -571,10 +571,11 @@ def _build_drogeri_packing_sheet_sections(
     client_name: str,
     ship_e: str,
 ) -> list[str]:
-    """Один лист на пару (физическая паллета, номер заказа); «N из 1» в шапке."""
+    """Один лист на пару (физическая паллета, номер заказа); «N из M» по числу паллет в сборке."""
     source_groups = _drogeri_merge_source_groups(raw_items)
     consumed: dict[int, float] = {}
     drogeri_header_extra_pt = 28.0
+    total_pallets = len(pallets)
     sections: list[str] = []
     for idx, pal in enumerate(pallets, start=1):
         pnum_raw = str(pal.get("palletNumber") or "").strip()
@@ -591,7 +592,7 @@ def _build_drogeri_packing_sheet_sections(
             ]
             if not order_keys:
                 continue
-            row_head = _generic_row_head_html(ship_e, pallet_disp, 1)
+            row_head = _generic_row_head_html(ship_e, pallet_disp, total_pallets)
             row3 = _generic_row34_html("Поставщик:", SUPPLIER_LINE)
             row4 = _generic_row34_html("Покупатель:", client_name)
             row4_order = _generic_row34_html("Номер заказа:", buyer_no)

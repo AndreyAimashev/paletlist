@@ -3447,6 +3447,10 @@ def _is_lab_industries_client(client: str) -> bool:
     return bool(rec and rec.get("pallet_kind") == "lab")
 
 
+def _is_drogeri_retail_client(client: str) -> bool:
+    return _normalize_client_key(client) == "дрогери ритейл"
+
+
 def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | None | dict:
     """Общее количество заказа по позиции (ЛАБ), для паллетного листа."""
     if not lab_client:
@@ -3518,6 +3522,7 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
             "message": "Укажите дату отгрузки и клиента.",
         }
     lab_client = _is_lab_industries_client(client_n)
+    drogeri_client = _is_drogeri_retail_client(client_n)
     buyer_order_mode = ""
     order_buyer_order = ""
     if lab_client:
@@ -3531,6 +3536,8 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
                 "error": "validation",
                 "message": "Укажите заказ покупателя.",
             }
+    elif drogeri_client:
+        buyer_order_mode = "multiple"
     raw_items = body.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         return {
@@ -3578,6 +3585,12 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
                 return {
                     "error": "validation",
                     "message": "Укажите заказ покупателя по каждой позиции.",
+                }
+        elif drogeri_client:
+            if not line_buyer:
+                return {
+                    "error": "validation",
+                    "message": "Укажите номер заказа по каждой позиции.",
                 }
         elif lab_client:
             line_buyer = ""

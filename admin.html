@@ -2635,28 +2635,27 @@
         display: block;
       }
 
-      .order-item-lab-total-wrap {
+      .order-item-buyer-order-wrap,
+      .order-item-lab-manager-qty-wrap {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
         margin-top: 8px;
+        min-width: 0;
       }
 
-      .order-item-lab-total-wrap[hidden] {
+      .order-item-buyer-order-wrap[hidden],
+      .order-item-lab-manager-qty-wrap[hidden] {
         display: none !important;
       }
 
-      /* Подпись всегда видна (не в шапке таблицы, только у ЛАБ под поиском) */
-      .new-order-dialog .order-item-lab-total-wrap .order-item-field-caption {
+      /* Подпись всегда видна под полем наименования у ЛАБ и Дрогери */
+      .new-order-dialog .order-item-buyer-order-wrap .order-item-field-caption,
+      .new-order-dialog .order-item-lab-manager-qty-wrap .order-item-field-caption {
         display: block;
       }
 
-      .order-items-lab-total-label {
-        font-size: 11px;
-        color: var(--text-muted);
-      }
-
-      .order-items-lab-total-field {
+      .order-items-extra-field {
         display: flex;
         flex-direction: column;
         gap: 6px;
@@ -3817,7 +3816,8 @@
           grid-row: auto;
         }
 
-        .new-order-dialog .order-item-lab-total-wrap {
+        .new-order-dialog .order-item-buyer-order-wrap,
+        .new-order-dialog .order-item-lab-manager-qty-wrap {
           margin-top: 10px;
         }
 
@@ -4893,18 +4893,20 @@
             ></textarea>
             <ul class="order-item-suggestions" hidden></ul>
           </div>
-          <div class="order-item-lab-total-wrap" hidden>
-            <div class="order-items-lab-total-field">
-              <span class="order-item-field-caption">Заказ покупателя</span>
+          <div class="order-item-buyer-order-wrap" hidden>
+            <div class="order-items-extra-field">
+              <span class="order-item-buyer-order-caption order-item-field-caption">Номер заказа</span>
               <input
                 type="text"
                 class="order-item-buyer-order"
                 autocomplete="off"
-                placeholder="Номер заказа покупателя"
-                aria-label="Заказ покупателя"
+                placeholder="Номер заказа клиента"
+                aria-label="Номер заказа"
               />
             </div>
-            <div class="order-items-lab-total-field">
+          </div>
+          <div class="order-item-lab-manager-qty-wrap" hidden>
+            <div class="order-items-extra-field">
               <span class="order-item-field-caption">Общее количество заказа (от менеджера)</span>
               <input
                 type="number"
@@ -6428,22 +6430,40 @@
         }
       }
 
+      function clientRequiresLineBuyerOrder(client) {
+        return isLabIndustriesClient(client) || isDrogeriRetailClient(client);
+      }
+
       function syncNewOrderLabBuyerUi() {
-        const lab = isLabIndustriesClient(newOrderClient.value);
-        if (!lab) {
-          newOrderItems.querySelectorAll(".order-item-lab-total-wrap").forEach((w) => {
-            w.hidden = true;
-          });
-          return;
-        }
+        const client = newOrderClient ? String(newOrderClient.value || "") : "";
+        const lab = isLabIndustriesClient(client);
+        const drogeri = isDrogeriRetailClient(client);
+        const showBuyer = clientRequiresLineBuyerOrder(client);
+        const buyerCaption = drogeri ? "Номер заказа" : "Заказ покупателя";
+        const buyerPlaceholder = drogeri
+          ? "Номер заказа клиента"
+          : "Номер заказа покупателя";
+        const buyerAria = drogeri ? "Номер заказа" : "Заказ покупателя";
         newOrderItems.querySelectorAll(".order-item-row").forEach((row) => {
-          const labWrap = row.querySelector(".order-item-lab-total-wrap");
-          if (labWrap) {
-            labWrap.hidden = false;
+          const buyerWrap = row.querySelector(".order-item-buyer-order-wrap");
+          const labQtyWrap = row.querySelector(".order-item-lab-manager-qty-wrap");
+          if (buyerWrap) {
+            buyerWrap.hidden = !showBuyer;
+          }
+          if (labQtyWrap) {
+            labQtyWrap.hidden = !lab;
+          }
+          const cap = row.querySelector(".order-item-buyer-order-caption");
+          if (cap) {
+            cap.textContent = showBuyer ? buyerCaption : "";
           }
           const buyerEl = row.querySelector(".order-item-buyer-order");
           if (buyerEl) {
-            buyerEl.required = true;
+            buyerEl.required = showBuyer;
+            if (showBuyer) {
+              buyerEl.placeholder = buyerPlaceholder;
+              buyerEl.setAttribute("aria-label", buyerAria);
+            }
           }
         });
       }
@@ -13270,7 +13290,7 @@
             addOrderItemRow();
             const rowIt = { ...it };
             if (
-              isLabIndustriesClient(data.client) &&
+              clientRequiresLineBuyerOrder(data.client) &&
               legacyOrderBuyer &&
               !String(rowIt.buyer_order || "").trim()
             ) {
@@ -13307,9 +13327,11 @@
             ),
             unit: String(r.querySelector(".order-item-unit")?.value || "").trim(),
           };
-          if (isLabIndustriesClient(client)) {
+          if (clientRequiresLineBuyerOrder(client)) {
             const boEl = r.querySelector(".order-item-buyer-order");
             rowPayload.buyer_order = boEl ? String(boEl.value || "").trim() : "";
+          }
+          if (isLabIndustriesClient(client)) {
             const tqEl = r.querySelector(".order-item-total-quantity");
             const tqRaw = tqEl ? String(tqEl.value || "").trim() : "";
             if (tqRaw !== "") {
@@ -13508,9 +13530,11 @@
             quantity: r.querySelector(".order-item-qty").value,
             unit: r.querySelector(".order-item-unit").value,
           };
-          if (isLabIndustriesClient(client)) {
+          if (clientRequiresLineBuyerOrder(client)) {
             const boEl = r.querySelector(".order-item-buyer-order");
             rowPayload.buyer_order = boEl ? String(boEl.value || "").trim() : "";
+          }
+          if (isLabIndustriesClient(client)) {
             const tqEl = r.querySelector(".order-item-total-quantity");
             const tqRaw = tqEl ? String(tqEl.value || "").trim() : "";
             if (tqRaw !== "") {
@@ -13519,10 +13543,14 @@
           }
           return rowPayload;
         });
-        if (isLabIndustriesClient(client)) {
+        if (clientRequiresLineBuyerOrder(client)) {
           const missingBuyer = items.find((it) => !String(it.buyer_order || "").trim());
           if (missingBuyer) {
-            showNewOrderError("Укажите заказ покупателя по каждой позиции.");
+            showNewOrderError(
+              isDrogeriRetailClient(client)
+                ? "Укажите номер заказа по каждой позиции."
+                : "Укажите заказ покупателя по каждой позиции.",
+            );
             return;
           }
         }
@@ -13532,7 +13560,7 @@
           items,
           extra_info: getNewOrderDeliveryType(),
         };
-        if (isLabIndustriesClient(client)) {
+        if (clientRequiresLineBuyerOrder(client)) {
           orderPayload.buyer_order_mode = "multiple";
           orderPayload.buyer_order = "";
         }

@@ -6481,6 +6481,116 @@
         return !!(assembleOrderSnapshot && isLabIndustriesClient(assembleOrderSnapshot.client));
       }
 
+      function isAssembleDrogeriMode() {
+        return !!(assembleOrderSnapshot && isDrogeriRetailClient(assembleOrderSnapshot.client));
+      }
+
+      function drogeriMergeNameKey(name) {
+        return String(name || "")
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLowerCase();
+      }
+
+      function piecesToOrderQuantity(it, pieces) {
+        const p = Number(pieces);
+        if (!Number.isFinite(p) || p < 0) {
+          return 0;
+        }
+        const pib = Math.max(0, Number(it.pieces_in_box) || 0);
+        const pps = Math.max(1, Number(it.pieces_per_set) || 1);
+        const u = String(it.unit || "piece").toLowerCase();
+        if (u === "box") {
+          return pib > 0 ? p / pib : p;
+        }
+        if (u === "set") {
+          return p / pps;
+        }
+        return p;
+      }
+
+      function mergeDrogeriAssemblyItems(rawItems) {
+        const groups = [];
+        const keyToGi = new Map();
+        (Array.isArray(rawItems) ? rawItems : []).forEach((raw, idx) => {
+          const nameKey = drogeriMergeNameKey(raw.name);
+          const key = nameKey || `__idx_${idx}`;
+          const lineBuyer = String(raw.buyer_order || "").trim();
+          let gi = keyToGi.get(key);
+          if (gi === undefined) {
+            gi = groups.length;
+            keyToGi.set(key, gi);
+            groups.push({
+              rep: { ...raw },
+              sourceIndices: [idx],
+              totalPieces: orderLineMaxPieces(raw),
+              buyerOrders: lineBuyer ? [lineBuyer] : [],
+            });
+          } else {
+            const g = groups[gi];
+            g.sourceIndices.push(idx);
+            g.totalPieces += orderLineMaxPieces(raw);
+            if (lineBuyer && !g.buyerOrders.includes(lineBuyer)) {
+              g.buyerOrders.push(lineBuyer);
+            }
+          }
+        });
+        const merged = groups.map((g) => {
+          const rep = { ...g.rep };
+          rep.quantity = piecesToOrderQuantity(rep, g.totalPieces);
+          if (g.buyerOrders.length) {
+            rep.buyer_order = g.buyerOrders.join(", ");
+          }
+          return rep;
+        });
+        return {
+          merged,
+          sourceIndicesByMerged: groups.map((g) => g.sourceIndices),
+        };
+      }
+
+      function drogeriRemapLineIndex(oldIdx, sourceIndicesByMerged) {
+        const o = Number(oldIdx);
+        if (!Number.isFinite(o) || o < 0) {
+          return null;
+        }
+        if (!Array.isArray(sourceIndicesByMerged) || !sourceIndicesByMerged.length) {
+          return o;
+        }
+        for (let mi = 0; mi < sourceIndicesByMerged.length; mi += 1) {
+          if (sourceIndicesByMerged[mi].includes(o)) {
+            return mi;
+          }
+        }
+        if (o < sourceIndicesByMerged.length) {
+          return o;
+        }
+        return null;
+      }
+
+      function remapAssemblePalletsForDrogeri(pallets, sourceIndicesByMerged) {
+        if (!Array.isArray(pallets) || !sourceIndicesByMerged?.length) {
+          return pallets;
+        }
+        return pallets.map((pal) => {
+          const migrated = migratePalletRecord(pal);
+          migrated.slots = (migrated.slots || []).map((s) => {
+            const slot = normalizeSlot({ ...s });
+            if (slot.lineIndex !== "" && Number.isFinite(Number(slot.lineIndex))) {
+              const mapped = drogeriRemapLineIndex(
+                Number(slot.lineIndex),
+                sourceIndicesByMerged,
+              );
+              if (mapped !== null) {
+                slot.lineIndex = mapped;
+              }
+            }
+            return slot;
+          });
+          return migrated;
+        });
+      }
+
       function palletHasSelectedOrderLine(pal, itemCount) {
         const slots = Array.isArray(pal.slots) ? pal.slots : [];
         return slots.some((slot) => {
@@ -12523,8 +12633,15 @@
           });
           return;
         }
-        const items = Array.isArray(data.items) ? data.items : [];
-        if (!items.length) {
+        const rawItems = Array.isArray(data.items) ? data.items : [];
+        let assemblyItems = rawItems;
+        let drogeriSourceIndicesByMerged = null;
+        if (isDrogeriRetailClient(data.client)) {
+          const mergedPack = mergeDrogeriAssemblyItems(rawItems);
+          assemblyItems = mergedPack.merged;
+          drogeriSourceIndicesByMerged = mergedPack.sourceIndicesByMerged;
+        }
+        if (!assemblyItems.length) {
           assembleEmptyEl.hidden = false;
           assembleLoadedEl.hidden = true;
           assembleEmptyEl.innerHTML =
@@ -12544,10 +12661,17 @@
               ? Math.max(1, Number(data.lab_sscc_seq_start))
               : null,
           lab_sscc_shipped: !!data.lab_sscc_shipped,
-          items,
+          items: assemblyItems,
+          drogeriSourceIndicesByMerged,
         };
-        const localDraft = loadAssembleDraft(orderId, items.length);
-        const picked = pickAssemblePalletsOnLoad(data, localDraft, items);
+        const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
+        const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
+        if (drogeriSourceIndicesByMerged) {
+          picked.pallets = remapAssemblePalletsForDrogeri(
+            picked.pallets,
+            drogeriSourceIndicesByMerged,
+          );
+        }
         assembleKnownRevision = Number(data.assemble_revision) || 0;
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;
@@ -12561,7 +12685,7 @@
           assemblePalletsRoot.innerHTML = "";
         }
         assembleAllocState = {
-          pallets: applyDefaultFirstAssemblePalletNumber(picked.pallets, items),
+          pallets: applyDefaultFirstAssemblePalletNumber(picked.pallets, assemblyItems),
         };
         finalizeAssembleSlots();
         const obServer = optionalBatchFromAssembleState(data.assemble_state);

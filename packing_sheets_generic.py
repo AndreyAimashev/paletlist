@@ -261,6 +261,75 @@ def _nomenclature_title(it: dict[str, Any]) -> str:
     return (it.get("name") or "—").strip() or "—"
 
 
+def _drogeri_merge_name_key(name: str) -> str:
+    return re.sub(r"\s+", " ", str(name or "").strip()).lower()
+
+
+def _order_line_max_pieces(it: dict[str, Any]) -> float:
+    try:
+        q = float(str(it.get("quantity") or "").replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+    if q <= 0:
+        return 0.0
+    unit = str(it.get("unit") or "piece").strip().lower()
+    pib = max(0, int(it.get("pieces_in_box") or 0))
+    pps = max(1, int(it.get("pieces_per_set") or 1))
+    if unit == "box":
+        return float(q * pib) if pib > 0 else q
+    if unit == "set":
+        return float(q * pps)
+    return q
+
+
+def _pieces_to_order_quantity(it: dict[str, Any], pieces: float) -> float:
+    p = max(0.0, float(pieces))
+    pib = max(0, int(it.get("pieces_in_box") or 0))
+    pps = max(1, int(it.get("pieces_per_set") or 1))
+    unit = str(it.get("unit") or "piece").strip().lower()
+    if unit == "box":
+        return p / pib if pib > 0 else p
+    if unit == "set":
+        return p / pps
+    return p
+
+
+def merge_order_items_for_drogeri(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Сборка/листы: одна строка на наименование, количество суммируется."""
+    groups: list[dict[str, Any]] = []
+    key_to_gi: dict[str, int] = {}
+    for idx, raw in enumerate(items or []):
+        if not isinstance(raw, dict):
+            continue
+        name_key = _drogeri_merge_name_key(str(raw.get("name") or ""))
+        key = name_key or f"__idx_{idx}"
+        line_buyer = str(raw.get("buyer_order") or "").strip()
+        gi = key_to_gi.get(key)
+        if gi is None:
+            gi = len(groups)
+            key_to_gi[key] = gi
+            groups.append(
+                {
+                    "rep": dict(raw),
+                    "total_pieces": _order_line_max_pieces(raw),
+                    "buyer_orders": [line_buyer] if line_buyer else [],
+                }
+            )
+        else:
+            g = groups[gi]
+            g["total_pieces"] = float(g["total_pieces"]) + _order_line_max_pieces(raw)
+            if line_buyer and line_buyer not in g["buyer_orders"]:
+                g["buyer_orders"].append(line_buyer)
+    merged: list[dict[str, Any]] = []
+    for g in groups:
+        rep = dict(g["rep"])
+        rep["quantity"] = _pieces_to_order_quantity(rep, float(g["total_pieces"]))
+        if g["buyer_orders"]:
+            rep["buyer_order"] = ", ".join(g["buyer_orders"])
+        merged.append(rep)
+    return merged
+
+
 def _buyer_order_for_pallet(
     items: list[dict[str, Any]],
     pal: dict[str, Any],
@@ -400,13 +469,15 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     items = detail.get("items")
     if not isinstance(items, list):
         items = []
+    client_name = str(detail.get("client") or "").strip() or "—"
+    is_drogeri = _is_drogeri_retail_client(client_name)
+    if is_drogeri:
+        items = merge_order_items_for_drogeri(items)
 
     ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
     ship_e = html.escape(ship_ru, quote=True)
     total_pallets = len(pallets)
     total_e = html.escape(str(total_pallets), quote=True)
-    client_name = str(detail.get("client") or "").strip() or "—"
-    is_drogeri = _is_drogeri_retail_client(client_name)
     order_buyer = str(detail.get("buyer_order") or "").strip()
     drogeri_header_extra_pt = 28.0 if is_drogeri else 0.0
 

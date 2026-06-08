@@ -294,6 +294,109 @@ def _pieces_to_order_quantity(it: dict[str, Any], pieces: float) -> float:
     return p
 
 
+def _drogeri_merge_source_groups(raw_items: list[dict[str, Any]]) -> list[list[int]]:
+    """Индексы исходных строк заказа в каждой объединённой позиции сборки."""
+    groups: list[list[int]] = []
+    key_to_gi: dict[str, int] = {}
+    for idx, raw in enumerate(raw_items or []):
+        if not isinstance(raw, dict):
+            continue
+        name_key = _drogeri_merge_name_key(str(raw.get("name") or ""))
+        key = name_key or f"__idx_{idx}"
+        gi = key_to_gi.get(key)
+        if gi is None:
+            gi = len(groups)
+            key_to_gi[key] = gi
+            groups.append([])
+        groups[gi].append(idx)
+    return groups
+
+
+def _drogeri_buyer_order_label(raw_items: list[dict[str, Any]], source_idx: int) -> str:
+    if source_idx < 0 or source_idx >= len(raw_items):
+        return "—"
+    bo = str(raw_items[source_idx].get("buyer_order") or "").strip()
+    return bo if bo else "—"
+
+
+def _drogeri_split_pieces_fifo(
+    pieces: float,
+    source_indices: list[int],
+    raw_items: list[dict[str, Any]],
+    consumed: dict[int, float],
+) -> list[tuple[str, float]]:
+    """Распределяет штуки по номерам заказа в порядке строк заказа (FIFO)."""
+    remaining = max(0.0, float(pieces))
+    if remaining <= 1e-9 or not source_indices:
+        return []
+    splits: list[tuple[str, float]] = []
+    for si in source_indices:
+        if remaining <= 1e-9:
+            break
+        it = raw_items[si] if 0 <= si < len(raw_items) else {}
+        ordered = _order_line_max_pieces(it)
+        already = float(consumed.get(si) or 0.0)
+        available = max(0.0, ordered - already)
+        take = min(remaining, available)
+        if take <= 1e-9:
+            continue
+        bo = _drogeri_buyer_order_label(raw_items, si)
+        if splits and splits[-1][0] == bo:
+            splits[-1] = (bo, splits[-1][1] + take)
+        else:
+            splits.append((bo, take))
+        consumed[si] = already + take
+        remaining -= take
+    if remaining > 1e-9:
+        si = source_indices[-1]
+        bo = _drogeri_buyer_order_label(raw_items, si)
+        if splits and splits[-1][0] == bo:
+            splits[-1] = (bo, splits[-1][1] + remaining)
+        else:
+            splits.append((bo, remaining))
+        consumed[si] = float(consumed.get(si) or 0.0) + remaining
+    return splits
+
+
+def _drogeri_collect_pallet_splits_by_buyer(
+    pal: dict[str, Any],
+    merged_items: list[dict[str, Any]],
+    source_groups: list[list[int]],
+    raw_items: list[dict[str, Any]],
+    consumed: dict[int, float],
+) -> list[tuple[str, dict[int, dict[str, float]]]]:
+    """Группы по номеру заказа на одной физической паллете."""
+    by_buyer: dict[str, dict[int, dict[str, float]]] = {}
+    buyer_order: list[str] = []
+    for slot in pal.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        ns = _normalize_slot(slot)
+        li = ns["lineIndex"]
+        if li is None or li < 0 or li >= len(merged_items):
+            continue
+        if li >= len(source_groups):
+            continue
+        it = merged_items[li]
+        pcs = _allocation_to_pieces(it, _slot_to_alloc(ns))
+        if pcs <= 1e-9:
+            continue
+        for bo, take_pcs in _drogeri_split_pieces_fifo(
+            pcs, source_groups[li], raw_items, consumed
+        ):
+            if take_pcs <= 1e-9:
+                continue
+            pib = max(0, int(it.get("pieces_in_box") or 0))
+            take_boxes = take_pcs / pib if pib > 0 else 0.0
+            if bo not in by_buyer:
+                by_buyer[bo] = {}
+                buyer_order.append(bo)
+            row = by_buyer[bo].setdefault(li, {"pcs": 0.0, "boxes": 0.0})
+            row["pcs"] += take_pcs
+            row["boxes"] += take_boxes
+    return [(bo, by_buyer[bo]) for bo in buyer_order if by_buyer.get(bo)]
+
+
 def merge_order_items_for_drogeri(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Сборка/листы: одна строка на наименование, количество суммируется."""
     groups: list[dict[str, Any]] = []
@@ -330,21 +433,6 @@ def merge_order_items_for_drogeri(items: list[dict[str, Any]]) -> list[dict[str,
     return merged
 
 
-def _buyer_order_for_pallet(
-    items: list[dict[str, Any]],
-    pal: dict[str, Any],
-    order_buyer_order: str,
-) -> str:
-    """Номер заказа клиента по позициям на паллете (Дрогери Ритейл)."""
-    order_keys, _ = _aggregate_pallet_lines(items, pal)
-    for li in order_keys:
-        line_bo = str(items[li].get("buyer_order") or "").strip()
-        if line_bo:
-            return line_bo
-    order_bo = str(order_buyer_order or "").strip()
-    return order_bo if order_bo else "—"
-
-
 def _generic_row34_html(label: str, value: str) -> str:
     label_e = html.escape(label, quote=True)
     value_e = html.escape(value, quote=True)
@@ -356,14 +444,39 @@ def _generic_row34_html(label: str, value: str) -> str:
     )
 
 
-def _build_pallet_lines_table_html(
+def _generic_row_head_html(ship_e: str, pallet_disp: str, total_pallets: int) -> str:
+    pallet_disp_e = html.escape(pallet_disp, quote=True)
+    total_e = html.escape(str(max(1, int(total_pallets))), quote=True)
+    return (
+        '<table class="generic-row-head" role="presentation" aria-label="Номер паллеты и дата">'
+        "<tr>"
+        '<td class="generic-row-head-left">'
+        '<span class="generic-r2-label">Номер паллета</span>'
+        "</td>"
+        '<td class="generic-row-head-center">'
+        '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
+        "<tr>"
+        f'<td class="generic-r2-cell generic-r2-cell--side">{pallet_disp_e}</td>'
+        '<td class="generic-r2-cell generic-r2-cell--mid">из</td>'
+        f'<td class="generic-r2-cell generic-r2-cell--side">{total_e}</td>'
+        "</tr></table>"
+        "</td>"
+        '<td class="generic-row-head-right">'
+        '<span class="generic-r1-label">Дата</span> '
+        f'<span class="generic-r1-frame">{ship_e}</span>'
+        "</td>"
+        "</tr></table>"
+    )
+
+
+def _build_table_html_from_line_agg(
     items: list[dict[str, Any]],
-    pal: dict[str, Any],
+    order_keys: list[int],
+    agg: dict[int, dict[str, float]],
     *,
     header_extra_pt: float = 0.0,
 ) -> str:
-    """Таблица строки 5: агрегат по строкам заказа (lineIndex) на паллете."""
-    order_keys, agg = _aggregate_pallet_lines(items, pal)
+    """Таблица номенклатуры по готовому агрегату pcs/boxes."""
     title_lens = [len(_nomenclature_title(items[li])) for li in order_keys]
     table_font_pt = _fit_generic_table_font_pt(
         title_lens, header_extra_pt=header_extra_pt
@@ -437,6 +550,67 @@ def _build_pallet_lines_table_html(
     return head + "".join(body_parts) + "</tbody>" + foot + "</table>"
 
 
+def _build_pallet_lines_table_html(
+    items: list[dict[str, Any]],
+    pal: dict[str, Any],
+    *,
+    header_extra_pt: float = 0.0,
+) -> str:
+    """Таблица строки 5: агрегат по строкам заказа (lineIndex) на паллете."""
+    order_keys, agg = _aggregate_pallet_lines(items, pal)
+    return _build_table_html_from_line_agg(
+        items, order_keys, agg, header_extra_pt=header_extra_pt
+    )
+
+
+def _build_drogeri_packing_sheet_sections(
+    *,
+    pallets: list[dict[str, Any]],
+    raw_items: list[dict[str, Any]],
+    merged_items: list[dict[str, Any]],
+    client_name: str,
+    ship_e: str,
+) -> list[str]:
+    """Один лист на пару (физическая паллета, номер заказа); «N из 1» в шапке."""
+    source_groups = _drogeri_merge_source_groups(raw_items)
+    consumed: dict[int, float] = {}
+    drogeri_header_extra_pt = 28.0
+    sections: list[str] = []
+    for idx, pal in enumerate(pallets, start=1):
+        pnum_raw = str(pal.get("palletNumber") or "").strip()
+        pallet_disp = _pallet_no_display(pnum_raw, idx)
+        splits = _drogeri_collect_pallet_splits_by_buyer(
+            pal, merged_items, source_groups, raw_items, consumed
+        )
+        for buyer_no, line_agg in splits:
+            order_keys = [
+                li
+                for li in line_agg
+                if float(line_agg[li].get("pcs") or 0.0) > 1e-9
+                or float(line_agg[li].get("boxes") or 0.0) > 1e-9
+            ]
+            if not order_keys:
+                continue
+            row_head = _generic_row_head_html(ship_e, pallet_disp, 1)
+            row3 = _generic_row34_html("Поставщик:", SUPPLIER_LINE)
+            row4 = _generic_row34_html("Покупатель:", client_name)
+            row4_order = _generic_row34_html("Номер заказа:", buyer_no)
+            row5 = (
+                '<div class="generic-row5-wrap">'
+                + _build_table_html_from_line_agg(
+                    merged_items,
+                    order_keys,
+                    line_agg,
+                    header_extra_pt=drogeri_header_extra_pt,
+                )
+                + "</div>"
+            )
+            sections.append(
+                f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row4_order}{row5}</div>'
+            )
+    return sections
+
+
 def _load_styles() -> str:
     if STYLES_PATH.is_file():
         return STYLES_PATH.read_text(encoding="utf-8")
@@ -466,63 +640,44 @@ def build_generic_packing_sheets_html(detail: dict[str, Any]) -> tuple[str | Non
     if not pallets:
         return None, "no_pallets"
 
-    items = detail.get("items")
-    if not isinstance(items, list):
-        items = []
+    raw_items = detail.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = []
     client_name = str(detail.get("client") or "").strip() or "—"
     is_drogeri = _is_drogeri_retail_client(client_name)
-    if is_drogeri:
-        items = merge_order_items_for_drogeri(items)
 
     ship_ru = _ship_date_ru(str(detail.get("ship_date") or ""))
     ship_e = html.escape(ship_ru, quote=True)
-    total_pallets = len(pallets)
-    total_e = html.escape(str(total_pallets), quote=True)
-    order_buyer = str(detail.get("buyer_order") or "").strip()
-    drogeri_header_extra_pt = 28.0 if is_drogeri else 0.0
 
-    sections: list[str] = []
-    for idx, pal in enumerate(pallets, start=1):
-        pnum_raw = str(pal.get("palletNumber") or "").strip()
-        pallet_disp = _pallet_no_display(pnum_raw, idx)
-        pallet_disp_e = html.escape(pallet_disp, quote=True)
-
-        row_head = (
-            '<table class="generic-row-head" role="presentation" aria-label="Номер паллеты и дата">'
-            "<tr>"
-            '<td class="generic-row-head-left">'
-            '<span class="generic-r2-label">Номер паллета</span>'
-            "</td>"
-            '<td class="generic-row-head-center">'
-            '<table class="generic-r2-triplet" role="presentation" aria-label="Номер паллеты из общего числа">'
-            "<tr>"
-            f'<td class="generic-r2-cell generic-r2-cell--side">{pallet_disp_e}</td>'
-            '<td class="generic-r2-cell generic-r2-cell--mid">из</td>'
-            f'<td class="generic-r2-cell generic-r2-cell--side">{total_e}</td>'
-            "</tr></table>"
-            "</td>"
-            '<td class="generic-row-head-right">'
-            '<span class="generic-r1-label">Дата</span> '
-            f'<span class="generic-r1-frame">{ship_e}</span>'
-            "</td>"
-            "</tr></table>"
+    if is_drogeri:
+        merged_items = merge_order_items_for_drogeri(raw_items)
+        sections = _build_drogeri_packing_sheet_sections(
+            pallets=pallets,
+            raw_items=raw_items,
+            merged_items=merged_items,
+            client_name=client_name,
+            ship_e=ship_e,
         )
-        row3 = _generic_row34_html("Поставщик:", SUPPLIER_LINE)
-        row4 = _generic_row34_html("Покупатель:", client_name)
-        row4_order = ""
-        if is_drogeri:
-            order_no = _buyer_order_for_pallet(items, pal, order_buyer)
-            row4_order = _generic_row34_html("Номер заказа:", order_no)
-        row5 = (
-            '<div class="generic-row5-wrap">'
-            + _build_pallet_lines_table_html(
-                items, pal, header_extra_pt=drogeri_header_extra_pt
+        if not sections:
+            return None, "no_pallets"
+    else:
+        items = raw_items
+        total_pallets = len(pallets)
+        sections = []
+        for idx, pal in enumerate(pallets, start=1):
+            pnum_raw = str(pal.get("palletNumber") or "").strip()
+            pallet_disp = _pallet_no_display(pnum_raw, idx)
+            row_head = _generic_row_head_html(ship_e, pallet_disp, total_pallets)
+            row3 = _generic_row34_html("Поставщик:", SUPPLIER_LINE)
+            row4 = _generic_row34_html("Покупатель:", client_name)
+            row5 = (
+                '<div class="generic-row5-wrap">'
+                + _build_pallet_lines_table_html(items, pal)
+                + "</div>"
             )
-            + "</div>"
-        )
-        sections.append(
-            f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row4_order}{row5}</div>'
-        )
+            sections.append(
+                f'<div class="generic-pallet-sheet">{row_head}{row3}{row4}{row5}</div>'
+            )
 
     styles = _load_styles()
     doc = (

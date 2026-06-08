@@ -2570,6 +2570,10 @@
         gap: 6px;
       }
 
+      .new-order-delivery-toggle[hidden] {
+        display: none !important;
+      }
+
       .new-order-delivery-btn {
         margin: 0;
         padding: 8px 12px;
@@ -6374,20 +6378,26 @@
         return normalizeOrderDeliveryType(requested);
       }
 
+      function isNewOrderSpecialClient(client) {
+        return isArnestUnirusClient(client) || isLabIndustriesClient(client);
+      }
+
       function syncNewOrderDeliveryUi() {
         const client = newOrderClient ? String(newOrderClient.value || "") : "";
-        const special =
-          isArnestUnirusClient(client) || isLabIndustriesClient(client);
+        const special = isNewOrderSpecialClient(client);
         const specialType = getDeliveryTypeForClient(client);
         if (newOrderDeliveryToggle) {
           newOrderDeliveryToggle.hidden = special;
+          newOrderDeliveryToggle.querySelectorAll(".new-order-delivery-btn").forEach((btn) => {
+            btn.disabled = special;
+            btn.tabIndex = special ? -1 : 0;
+          });
         }
         if (newOrderDeliveryFixedEl) {
           newOrderDeliveryFixedEl.hidden = !special;
           newOrderDeliveryFixedEl.textContent = special ? specialType : "";
         }
         if (special) {
-          setNewOrderDeliveryType(specialType);
           return;
         }
         const current = getNewOrderDeliveryType();
@@ -13367,6 +13377,10 @@
         if (!newOrderDeliveryToggle) {
           return;
         }
+        const client = newOrderClient ? String(newOrderClient.value || "") : "";
+        if (isNewOrderSpecialClient(client)) {
+          return;
+        }
         const normalized = normalizeOrderDeliveryType(value);
         newOrderDeliveryToggle.querySelectorAll(".new-order-delivery-btn").forEach((btn) => {
           const delivery = btn.getAttribute("data-delivery") || "";
@@ -13383,9 +13397,8 @@
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         addOrderItemRow();
-        syncNewOrderClientUi();
         setNewOrderDeliveryType("Обычный");
-        syncNewOrderDeliveryUi();
+        syncNewOrderClientUi();
         const today = new Date();
         newOrderShipDate.value = today.toISOString().slice(0, 10);
         newOrderOverlay.hidden = false;
@@ -13423,8 +13436,12 @@
 
       if (newOrderDeliveryToggle) {
         newOrderDeliveryToggle.addEventListener("click", (event) => {
+          const client = newOrderClient ? String(newOrderClient.value || "") : "";
+          if (isNewOrderSpecialClient(client)) {
+            return;
+          }
           const btn = event.target.closest(".new-order-delivery-btn");
-          if (!btn || !newOrderDeliveryToggle.contains(btn)) {
+          if (!btn || !newOrderDeliveryToggle.contains(btn) || btn.disabled) {
             return;
           }
           const delivery = btn.getAttribute("data-delivery");

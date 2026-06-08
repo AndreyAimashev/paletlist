@@ -838,6 +838,10 @@ def _is_orders_import_excel_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders/import-excel"
 
 
+def _is_orders_import_drogeri_excel_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/orders/import-drogeri-excel"
+
+
 def _is_orders_batches_export_pdf_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/orders/batches-export-pdf"
 
@@ -2117,6 +2121,7 @@ def _path_needs_orders_permission(path: str) -> bool:
     if (
         _is_orders_list_path(path)
         or _is_orders_import_excel_path(path)
+        or _is_orders_import_drogeri_excel_path(path)
         or _is_orders_batches_export_pdf_path(path)
     ):
         return True
@@ -4012,6 +4017,318 @@ def _parse_excel_unit(value) -> str:
     if "шт" in raw or "штук" in raw:
         return "piece"
     return "piece"
+
+
+_DROGERI_EXCEL_CLIENT = "Дрогери Ритейл"
+
+
+def _drogeri_excel_header_key(value) -> str:
+    s = str(value or "").strip().lower().replace("ё", "е")
+    s = s.replace("\u00a0", " ").replace("\u202f", " ")
+    s = re.sub(r"\s+", "", s)
+    s = re.sub(r"[^\wа-я]", "", s)
+    return s
+
+
+def _drogeri_excel_match_header(value) -> str | None:
+    key = _drogeri_excel_header_key(value)
+    if not key:
+        return None
+    if "номерзаказа" in key:
+        return "buyer_order"
+    if "наименование" in key:
+        return "name"
+    if key in ("колво", "количество") or key.startswith("колво") or key.startswith("количество"):
+        return "qty"
+    if key in ("едизм", "единицаизмерения") or key.startswith("едизм") or "единицаизмерения" in key:
+        return "unit"
+    return None
+
+
+def _excel_cell_at(ws, col_idx: int, row: int):
+    return ws[f"{get_column_letter(col_idx)}{row}"].value
+
+
+def _find_drogeri_excel_column_map(ws) -> tuple[dict[str, tuple[int, int]], list[str]]:
+    """Колонки по подписям: поле → (номер колонки, строка заголовка)."""
+    found: dict[str, tuple[int, int]] = {}
+    max_row = min(int(ws.max_row or 0), 120)
+    max_col = min(int(ws.max_column or 0), 60) if ws.max_column else 60
+    if max_row <= 0:
+        return {}, ["Лист Excel пустой."]
+    for row in range(1, max_row + 1):
+        for col in range(1, max_col + 1):
+            kind = _drogeri_excel_match_header(_excel_cell_at(ws, col, row))
+            if kind and kind not in found:
+                found[kind] = (col, row)
+    errors: list[str] = []
+    labels = {
+        "buyer_order": "Номер заказа",
+        "name": "Наименование",
+        "qty": "Кол-во / Количество",
+        "unit": "Ед. изм. / Единица измерения",
+    }
+    for field, label in labels.items():
+        if field not in found:
+            errors.append(f"Не найдена колонка «{label}».")
+    return found, errors
+
+
+def _drogeri_excel_data_row_empty(ws, row: int, columns: dict[str, tuple[int, int]]) -> bool:
+    for field in ("name", "qty", "buyer_order", "unit"):
+        col, _ = columns[field]
+        val = _excel_cell_at(ws, col, row)
+        if val is not None and str(val).strip() != "":
+            return False
+    return True
+
+
+def _parse_drogeri_excel_buyer_order(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if not math.isfinite(num):
+            return ""
+        if num == int(num):
+            return str(int(num))
+        return str(num).rstrip("0").rstrip(".")
+    s = str(value).strip()
+    if not s:
+        return ""
+    digits = re.sub(r"\D", "", s)
+    if digits:
+        return digits
+    qty, ok = _parse_excel_quantity(value)
+    if ok and qty > 0:
+        if qty == int(qty):
+            return str(int(qty))
+        return str(qty).rstrip("0").rstrip(".")
+    return ""
+
+
+def parse_drogeri_order_from_excel_worksheet(ws):
+    """Один заказ «Дрогери Ритейл» по подписям колонок в Excel."""
+    columns, col_errors = _find_drogeri_excel_column_map(ws)
+    if col_errors:
+        return None, col_errors
+    header_row = max(row for _, row in columns.values())
+    max_row = int(ws.max_row or 0)
+    items: list[dict] = []
+    errors: list[str] = []
+    empty_streak = 0
+    name_col = columns["name"][0]
+    qty_col = columns["qty"][0]
+    buyer_col = columns["buyer_order"][0]
+    unit_col = columns["unit"][0]
+
+    for row in range(header_row + 1, max_row + 1):
+        if _drogeri_excel_data_row_empty(ws, row, columns):
+            empty_streak += 1
+            if empty_streak >= 3:
+                break
+            continue
+        empty_streak = 0
+
+        product_raw = _excel_cell_at(ws, name_col, row)
+        product_s = (
+            _strip_trailing_name_suffix(_normalize_str(product_raw))
+            if product_raw is not None and str(product_raw).strip() != ""
+            else ""
+        )
+        qty_raw = _excel_cell_at(ws, qty_col, row)
+        qty, qty_recognized = _parse_excel_quantity(qty_raw)
+        buyer_order = _parse_drogeri_excel_buyer_order(_excel_cell_at(ws, buyer_col, row))
+        unit = _parse_excel_unit(_excel_cell_at(ws, unit_col, row))
+
+        if not product_s and not qty_recognized:
+            continue
+        if not product_s:
+            errors.append(f"Строка {row}: не указано наименование.")
+            continue
+        if not qty_recognized or qty <= 0:
+            errors.append(f"Строка {row}: «{product_s}» — не распознано количество.")
+            continue
+        if not buyer_order:
+            errors.append(f"Строка {row}: «{product_s}» — не указан номер заказа.")
+            continue
+        items.append(
+            {
+                "name": product_s,
+                "quantity": qty,
+                "unit": unit,
+                "buyer_order": buyer_order,
+            }
+        )
+
+    if not items:
+        msg = "В файле нет позиций для заказа Дрогери Ритейл."
+        if errors:
+            msg = errors[0]
+        return None, errors or [msg]
+
+    return (
+        {
+            "client": _DROGERI_EXCEL_CLIENT,
+            "ship_date": datetime.date.today().isoformat(),
+            "items": items,
+        },
+        errors,
+    )
+
+
+def import_drogeri_order_from_excel_bytes(data: bytes, *, modified_by: str = ""):
+    if not HAVE_OPENPYXL or load_workbook is None:
+        return {
+            "error": "no_openpyxl",
+            "message": "На сервере не установлен openpyxl (pip install openpyxl).",
+        }
+    if not data:
+        return {"error": "validation", "message": "Файл пустой."}
+    try:
+        wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception:
+        return {
+            "error": "invalid_file",
+            "message": "Не удалось прочитать Excel. Используйте файл .xlsx.",
+        }
+    try:
+        ws = wb.active
+        order, parse_errors = parse_drogeri_order_from_excel_worksheet(ws)
+    finally:
+        wb.close()
+    if not order:
+        msg = "Не удалось разобрать файл для Дрогери Ритейл."
+        if parse_errors:
+            msg = parse_errors[0]
+        return {
+            "error": "validation",
+            "message": msg,
+            "details": parse_errors,
+        }
+
+    import_errors: list[str] = list(parse_errors)
+    modifier = _normalize_str(modified_by)
+    items_payload: list[dict] = []
+    skipped_count = 0
+    skipped_names: list[str] = []
+
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        name_lookup = _build_product_name_import_lookup(cur)
+        for it in order["items"]:
+            pid, article, pname = _resolve_product_id_for_excel_import(
+                cur, it["name"], name_lookup=name_lookup
+            )
+            excel_name = _normalize_str(it.get("name", ""))
+            if pid is None:
+                skipped_count += 1
+                skipped_names.append(excel_name)
+                items_payload.append(
+                    {
+                        "product_id": None,
+                        "article": "",
+                        "name": excel_name,
+                        "quantity": float(it.get("quantity") or 0),
+                        "unit": it.get("unit") or "piece",
+                        "buyer_order": _normalize_str(it.get("buyer_order") or ""),
+                    }
+                )
+                continue
+            items_payload.append(
+                {
+                    "product_id": pid,
+                    "article": article,
+                    "name": pname,
+                    "quantity": it["quantity"],
+                    "unit": it["unit"],
+                    "buyer_order": _normalize_str(it.get("buyer_order") or ""),
+                }
+            )
+
+        if not items_payload:
+            con.close()
+            return {
+                "error": "validation",
+                "message": "В файле нет позиций для заказа.",
+                "details": import_errors,
+            }
+
+        body = {
+            "ship_date": order["ship_date"],
+            "client": order["client"],
+            "items": items_payload,
+        }
+        pack = _normalize_order_items_body(body, allow_zero_quantity=True)
+        if pack.get("error"):
+            con.close()
+            return {
+                "error": "validation",
+                "message": pack.get("message", "ошибка валидации"),
+                "details": import_errors,
+            }
+        normalized = pack["normalized"]
+        normalized, res_err = _resolve_normalized_product_ids(
+            normalized, cur, allow_unresolved=True
+        )
+        if res_err:
+            con.close()
+            return {
+                "error": "validation",
+                "message": res_err.get("message", "ошибка"),
+                "details": import_errors,
+            }
+        ship = pack["ship"]
+        client_n = pack["client"]
+        names_summary = _format_order_names_summary(normalized)
+        baseline = len(normalized)
+        delivery_extra = _delivery_type_for_client(client_n, "Обычный")
+        extra_info = _encode_import_skip_extra_info(
+            skipped_count, baseline, delivery_extra, skipped_names
+        )
+        cur.execute(
+            """
+            INSERT INTO orders (
+              ship_date, client, assembled_percent, names, extra_info,
+              buyer_order_mode, last_edited_by
+            )
+            VALUES (?, ?, 0, ?, ?, ?, ?)
+            """,
+            (ship, client_n, names_summary, extra_info, "multiple", modifier),
+        )
+        oid = int(cur.lastrowid)
+        for pid, article, name, qty, unit, line_buyer, line_total_qty in normalized:
+            cur.execute(
+                """
+                INSERT INTO order_items (
+                  order_id, product_id, article, name, quantity, unit, buyer_order,
+                  total_order_quantity
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (oid, pid, article, name, qty, unit, line_buyer, line_total_qty),
+            )
+        con.commit()
+        con.close()
+
+    if skipped_count > 0:
+        import_errors.append(
+            _format_excel_import_skipped_message(client_n, skipped_count, skipped_names)
+        )
+
+    return {
+        "ok": True,
+        "id": oid,
+        "created_ids": [oid],
+        "count": 1,
+        "errors": import_errors,
+    }
 
 
 def parse_orders_from_excel_worksheet(ws):
@@ -6245,6 +6562,27 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             try:
                 result = import_orders_from_excel_bytes(
+                    data, modified_by=_auth_display_name(self._auth_session)
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "no_openpyxl":
+                self._send_json(503, result)
+                return
+            if err in ("validation", "invalid_file"):
+                self._send_json(400, result)
+                return
+            self._send_json(201, result)
+            return
+        if _is_orders_import_drogeri_excel_path(path):
+            data, read_err = self._read_multipart_file_field("file")
+            if read_err:
+                self._send_json(400, read_err)
+                return
+            try:
+                result = import_drogeri_order_from_excel_bytes(
                     data, modified_by=_auth_display_name(self._auth_session)
                 )
             except sqlite3.Error as exc:

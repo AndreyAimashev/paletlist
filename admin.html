@@ -153,12 +153,19 @@
       }
 
       .menu-button.menu-button--feedback {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
+        position: relative;
+        text-align: center;
+      }
+
+      .feedback-menu-btn__label {
+        display: inline-block;
       }
 
       .feedback-menu-btn__unread-icon {
+        position: absolute;
+        right: 14px;
+        top: 50%;
+        transform: translateY(-50%);
         display: none;
         align-items: center;
         justify-content: center;

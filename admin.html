@@ -1992,12 +1992,16 @@
         justify-content: center;
       }
 
-      .feedback-thread-status-icon--open {
+      .feedback-thread-status-icon--in_progress {
         color: rgba(0, 200, 160, 0.92);
       }
 
-      .feedback-thread-status-icon--closed {
-        color: rgba(170, 180, 200, 0.9);
+      .feedback-thread-status-icon--resolved {
+        color: rgba(80, 220, 140, 0.95);
+      }
+
+      .feedback-thread-status-icon--rejected {
+        color: rgba(255, 120, 120, 0.92);
       }
 
       .feedback-thread-status-icon--unread {
@@ -4437,8 +4441,9 @@
             <div id="feedback-thread-view" hidden>
               <div class="feedback-toolbar">
                 <button type="button" id="feedback-back-list-btn" class="users-btn">К списку бесед</button>
-                <button type="button" id="feedback-close-thread-btn" class="users-btn" hidden>Закрыть тему</button>
-                <button type="button" id="feedback-open-thread-btn" class="users-btn" hidden>Открыть тему</button>
+                <button type="button" id="feedback-task-in-progress-btn" class="users-btn" hidden>Задача в работе</button>
+                <button type="button" id="feedback-task-resolved-btn" class="users-btn" hidden>Задача решена</button>
+                <button type="button" id="feedback-task-rejected-btn" class="users-btn" hidden>Задача отклонена</button>
               </div>
               <div class="feedback-thread-head">
                 <div class="feedback-thread-head__row">
@@ -4447,9 +4452,6 @@
                 </div>
                 <p id="feedback-thread-meta" class="muted"></p>
               </div>
-              <p id="feedback-thread-closed-note" class="feedback-thread-closed-note" hidden>
-                Тема закрыта. Откройте тему, чтобы отправить сообщение.
-              </p>
               <ul id="feedback-messages" class="feedback-messages"></ul>
               <form id="feedback-reply-form" class="feedback-reply-form">
                 <div class="feedback-form-field">
@@ -5570,9 +5572,33 @@
         }
       }
 
-      const FEEDBACK_ICON_TOPIC_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
-      const FEEDBACK_ICON_TOPIC_CLOSED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      const FEEDBACK_ICON_TASK_IN_PROGRESS = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+      const FEEDBACK_ICON_TASK_RESOLVED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+      const FEEDBACK_ICON_TASK_REJECTED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+      const FEEDBACK_TASK_STATUSES = {
+        in_progress: {
+          label: "Задача в работе",
+          icon: FEEDBACK_ICON_TASK_IN_PROGRESS,
+        },
+        resolved: {
+          label: "Задача решена",
+          icon: FEEDBACK_ICON_TASK_RESOLVED,
+        },
+        rejected: {
+          label: "Задача отклонена",
+          icon: FEEDBACK_ICON_TASK_REJECTED,
+        },
+      };
       const FEEDBACK_ICON_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`;
+
+      function feedbackNormalizeTaskStatus(taskStatus) {
+        const key = String(taskStatus || "").trim();
+        return FEEDBACK_TASK_STATUSES[key] ? key : "in_progress";
+      }
+
+      function feedbackTaskStatusMeta(taskStatus) {
+        return FEEDBACK_TASK_STATUSES[feedbackNormalizeTaskStatus(taskStatus)];
+      }
 
       function feedbackThreadsHaveUnread(threads) {
         return (Array.isArray(threads) ? threads : []).some((thread) => !!thread.has_unread);
@@ -5591,50 +5617,47 @@
       }
 
       function feedbackThreadStatusIconsHtml(thread) {
-        const closed = !!(thread && thread.is_closed);
+        const taskStatus = feedbackNormalizeTaskStatus(thread && thread.task_status);
+        const statusMeta = feedbackTaskStatusMeta(taskStatus);
         const unread = !!(thread && thread.has_unread);
-        const stateTitle = closed ? "Тема закрыта" : "Тема открыта";
-        const stateClass = closed
-          ? "feedback-thread-status-icon--closed"
-          : "feedback-thread-status-icon--open";
-        const stateIcon = closed ? FEEDBACK_ICON_TOPIC_CLOSED : FEEDBACK_ICON_TOPIC_OPEN;
+        const statusHtml = `<span class="feedback-thread-status-icon feedback-thread-status-icon--${taskStatus}" title="${escapeXml(statusMeta.label)}">${statusMeta.icon}</span>`;
         const unreadHtml = unread
           ? `<span class="feedback-thread-status-icon feedback-thread-status-icon--unread" title="Есть непрочитанные сообщения">${FEEDBACK_ICON_UNREAD}</span>`
           : "";
-        return `<span class="feedback-thread-status-icon ${stateClass}" title="${stateTitle}">${stateIcon}</span>${unreadHtml}`;
+        return `${statusHtml}${unreadHtml}`;
       }
 
       function syncFeedbackThreadToolbar(thread) {
-        const closed = !!(thread && thread.is_closed);
-        if (feedbackCloseThreadBtn) {
-          feedbackCloseThreadBtn.hidden = closed;
+        const admin = isAdminUser();
+        if (feedbackTaskInProgressBtn) {
+          feedbackTaskInProgressBtn.hidden = !admin;
         }
-        if (feedbackOpenThreadBtn) {
-          feedbackOpenThreadBtn.hidden = !closed;
+        if (feedbackTaskResolvedBtn) {
+          feedbackTaskResolvedBtn.hidden = !admin;
+        }
+        if (feedbackTaskRejectedBtn) {
+          feedbackTaskRejectedBtn.hidden = !admin;
         }
         if (feedbackThreadStatusIconsEl) {
           feedbackThreadStatusIconsEl.innerHTML = feedbackThreadStatusIconsHtml(thread);
         }
-        const userBlocked = closed && !isAdminUser();
-        if (feedbackThreadClosedNote) {
-          feedbackThreadClosedNote.hidden = !userBlocked;
-        }
         if (feedbackReplyForm) {
-          feedbackReplyForm.hidden = userBlocked;
+          feedbackReplyForm.hidden = false;
         }
       }
 
-      async function setFeedbackThreadClosed(isClosed) {
+      async function setFeedbackTaskStatus(taskStatus) {
         const tid = feedbackActiveThreadId;
         if (tid == null) {
           return;
         }
+        const normalized = feedbackNormalizeTaskStatus(taskStatus);
         let res;
         try {
           res = await fetch(`/api/feedback/threads/${tid}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ is_closed: !!isClosed }),
+            body: JSON.stringify({ task_status: normalized }),
           });
         } catch (error) {
           setFeedbackStatus("Нет связи с сервером.", true);
@@ -5648,7 +5671,7 @@
         }
         if (!res.ok) {
           setFeedbackStatus(
-            (data && data.message) || `Не удалось изменить статус темы (код ${res.status}).`,
+            (data && data.message) || `Не удалось изменить статус задачи (код ${res.status}).`,
             true,
           );
           return;
@@ -5740,7 +5763,7 @@
         return (Array.isArray(threads) ? threads : [])
           .map(
             (thread) =>
-              `${Number(thread.id)}:${thread.updated_at || ""}:${Number(thread.message_count) || 0}:${thread.is_closed ? 1 : 0}:${thread.has_unread ? 1 : 0}`,
+              `${Number(thread.id)}:${thread.updated_at || ""}:${Number(thread.message_count) || 0}:${feedbackNormalizeTaskStatus(thread.task_status)}:${thread.has_unread ? 1 : 0}`,
           )
           .join("|");
       }
@@ -5757,7 +5780,7 @@
         }
         return [
           data.updated_at || "",
-          data.is_closed ? 1 : 0,
+          feedbackNormalizeTaskStatus(data.task_status),
           feedbackMessagesSignature(data.messages),
         ].join("|");
       }
@@ -5811,6 +5834,7 @@
             feedbackThreadsCache[cacheIdx] = {
               ...feedbackThreadsCache[cacheIdx],
               has_unread: !!data.has_unread,
+              task_status: feedbackNormalizeTaskStatus(data.task_status),
             };
           }
           syncFeedbackMenuUnreadIndicator();
@@ -6198,12 +6222,12 @@
       const feedbackStatusEl = document.getElementById("feedback-status");
       const feedbackNewBtn = document.getElementById("feedback-new-btn");
       const feedbackBackListBtn = document.getElementById("feedback-back-list-btn");
-      const feedbackCloseThreadBtn = document.getElementById("feedback-close-thread-btn");
-      const feedbackOpenThreadBtn = document.getElementById("feedback-open-thread-btn");
+      const feedbackTaskInProgressBtn = document.getElementById("feedback-task-in-progress-btn");
+      const feedbackTaskResolvedBtn = document.getElementById("feedback-task-resolved-btn");
+      const feedbackTaskRejectedBtn = document.getElementById("feedback-task-rejected-btn");
       const feedbackThreadSubjectEl = document.getElementById("feedback-thread-subject");
       const feedbackThreadMetaEl = document.getElementById("feedback-thread-meta");
       const feedbackThreadStatusIconsEl = document.getElementById("feedback-thread-status-icons");
-      const feedbackThreadClosedNote = document.getElementById("feedback-thread-closed-note");
       const feedbackMessagesEl = document.getElementById("feedback-messages");
       const feedbackReplyForm = document.getElementById("feedback-reply-form");
       const feedbackReplyText = document.getElementById("feedback-reply-text");
@@ -8524,14 +8548,19 @@
           void loadFeedbackThreads();
         });
       }
-      if (feedbackCloseThreadBtn) {
-        feedbackCloseThreadBtn.addEventListener("click", () => {
-          void setFeedbackThreadClosed(true);
+      if (feedbackTaskInProgressBtn) {
+        feedbackTaskInProgressBtn.addEventListener("click", () => {
+          void setFeedbackTaskStatus("in_progress");
         });
       }
-      if (feedbackOpenThreadBtn) {
-        feedbackOpenThreadBtn.addEventListener("click", () => {
-          void setFeedbackThreadClosed(false);
+      if (feedbackTaskResolvedBtn) {
+        feedbackTaskResolvedBtn.addEventListener("click", () => {
+          void setFeedbackTaskStatus("resolved");
+        });
+      }
+      if (feedbackTaskRejectedBtn) {
+        feedbackTaskRejectedBtn.addEventListener("click", () => {
+          void setFeedbackTaskStatus("rejected");
         });
       }
       if (feedbackThreadList) {

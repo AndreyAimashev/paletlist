@@ -178,7 +178,7 @@
           0 0 10px rgba(0, 224, 176, 0.55);
         line-height: 0;
         color: #ffffff;
-        animation: feedback-menu-mail-glow 1.1s ease-in-out infinite;
+        animation: feedback-unread-mail-glow 1.1s ease-in-out infinite;
       }
 
       .feedback-menu-btn__unread-icon svg {
@@ -191,7 +191,7 @@
         display: inline-flex;
       }
 
-      @keyframes feedback-menu-mail-glow {
+      @keyframes feedback-unread-mail-glow {
         0%,
         100% {
           box-shadow:
@@ -2001,7 +2001,21 @@
       }
 
       .feedback-thread-status-icon--unread {
-        color: #00e0b0;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: rgba(9, 17, 30, 0.42);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.55),
+          0 0 10px rgba(0, 224, 176, 0.55);
+        color: #ffffff;
+        animation: feedback-unread-mail-glow 1.1s ease-in-out infinite;
+      }
+
+      .feedback-thread-status-icon--unread svg {
+        width: 14px;
+        height: 14px;
+        stroke-width: 2.6;
       }
 
       .feedback-thread-head {
@@ -5558,7 +5572,7 @@
 
       const FEEDBACK_ICON_TOPIC_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
       const FEEDBACK_ICON_TOPIC_CLOSED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
-      const FEEDBACK_ICON_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>`;
+      const FEEDBACK_ICON_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`;
 
       function feedbackThreadsHaveUnread(threads) {
         return (Array.isArray(threads) ? threads : []).some((thread) => !!thread.has_unread);

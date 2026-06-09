@@ -1918,6 +1918,129 @@
         margin-bottom: 12px;
       }
 
+      .feedback-thread-toolbar {
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 200, 160, 0.18);
+        background: rgba(10, 14, 23, 0.52);
+      }
+
+      .feedback-thread-toolbar__statuses {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+        margin-left: auto;
+      }
+
+      .feedback-toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 8px 14px;
+        font-family: "Roboto", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.2;
+        letter-spacing: 0.01em;
+        border-radius: 10px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .feedback-toolbar-btn:focus-visible {
+        outline: 2px solid rgba(0, 200, 160, 0.55);
+        outline-offset: 2px;
+      }
+
+      .feedback-toolbar-btn__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 0;
+        flex-shrink: 0;
+      }
+
+      .feedback-toolbar-btn__icon svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .feedback-toolbar-btn--back {
+        color: var(--text-muted);
+        background: rgba(12, 18, 28, 0.78);
+        border: 1px solid rgba(0, 200, 160, 0.24);
+      }
+
+      .feedback-toolbar-btn--back:hover {
+        color: var(--text-main);
+        border-color: rgba(0, 200, 160, 0.42);
+        background: rgba(0, 200, 160, 0.08);
+        transform: translateY(-1px);
+      }
+
+      .feedback-toolbar-btn--status {
+        color: var(--text-main);
+        background: rgba(12, 18, 28, 0.88);
+        border: 1px solid rgba(160, 160, 192, 0.22);
+      }
+
+      .feedback-toolbar-btn--status:hover {
+        transform: translateY(-1px);
+      }
+
+      .feedback-toolbar-btn--in-progress {
+        color: rgba(190, 255, 242, 0.96);
+        border-color: rgba(0, 200, 160, 0.34);
+      }
+
+      .feedback-toolbar-btn--in-progress:hover,
+      .feedback-toolbar-btn--in-progress.is-active {
+        border-color: rgba(0, 200, 160, 0.62);
+        background: rgba(0, 200, 160, 0.12);
+        box-shadow: 0 0 14px rgba(0, 200, 160, 0.16);
+      }
+
+      .feedback-toolbar-btn--resolved {
+        color: rgba(200, 255, 220, 0.96);
+        border-color: rgba(80, 220, 140, 0.34);
+      }
+
+      .feedback-toolbar-btn--resolved:hover,
+      .feedback-toolbar-btn--resolved.is-active {
+        border-color: rgba(80, 220, 140, 0.62);
+        background: rgba(80, 220, 140, 0.1);
+        box-shadow: 0 0 14px rgba(80, 220, 140, 0.14);
+      }
+
+      .feedback-toolbar-btn--rejected {
+        color: rgba(255, 210, 210, 0.96);
+        border-color: rgba(255, 120, 120, 0.34);
+      }
+
+      .feedback-toolbar-btn--rejected:hover,
+      .feedback-toolbar-btn--rejected.is-active {
+        border-color: rgba(255, 120, 120, 0.62);
+        background: rgba(255, 120, 120, 0.1);
+        box-shadow: 0 0 14px rgba(255, 120, 120, 0.14);
+      }
+
+      .feedback-toolbar-btn--status.is-active {
+        font-weight: 600;
+      }
+
       .feedback-thread-list {
         margin: 0;
         padding: 0;
@@ -3297,6 +3420,25 @@
           line-height: 1.2;
         }
 
+        .feedback-thread-toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .feedback-thread-toolbar__statuses {
+          margin-left: 0;
+          justify-content: stretch;
+        }
+
+        .feedback-toolbar-btn--back {
+          width: 100%;
+        }
+
+        .feedback-thread-toolbar__statuses .feedback-toolbar-btn {
+          flex: 1 1 calc(50% - 4px);
+          min-width: 140px;
+        }
+
         /* display без !important: не перебивать style.display:none на экранах «Заказы» и т.п. */
         .menu-items > .menu-button:not(.menu-step),
         .menu-items > .menu-step.visible {
@@ -4439,11 +4581,45 @@
               </ul>
             </div>
             <div id="feedback-thread-view" hidden>
-              <div class="feedback-toolbar">
-                <button type="button" id="feedback-back-list-btn" class="users-btn">К списку бесед</button>
-                <button type="button" id="feedback-task-in-progress-btn" class="users-btn" hidden>Задача в работе</button>
-                <button type="button" id="feedback-task-resolved-btn" class="users-btn" hidden>Задача решена</button>
-                <button type="button" id="feedback-task-rejected-btn" class="users-btn" hidden>Задача отклонена</button>
+              <div class="feedback-toolbar feedback-thread-toolbar">
+                <button type="button" id="feedback-back-list-btn" class="feedback-toolbar-btn feedback-toolbar-btn--back">
+                  <span class="feedback-toolbar-btn__icon" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="m15 18-6-6 6-6"/>
+                    </svg>
+                  </span>
+                  К списку бесед
+                </button>
+                <div id="feedback-task-status-toolbar" class="feedback-thread-toolbar__statuses" hidden>
+                  <button type="button" id="feedback-task-in-progress-btn" class="feedback-toolbar-btn feedback-toolbar-btn--status feedback-toolbar-btn--in-progress" data-task-status="in_progress">
+                    <span class="feedback-toolbar-btn__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                    </span>
+                    Задача в работе
+                  </button>
+                  <button type="button" id="feedback-task-resolved-btn" class="feedback-toolbar-btn feedback-toolbar-btn--status feedback-toolbar-btn--resolved" data-task-status="resolved">
+                    <span class="feedback-toolbar-btn__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                      </svg>
+                    </span>
+                    Задача решена
+                  </button>
+                  <button type="button" id="feedback-task-rejected-btn" class="feedback-toolbar-btn feedback-toolbar-btn--status feedback-toolbar-btn--rejected" data-task-status="rejected">
+                    <span class="feedback-toolbar-btn__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                      </svg>
+                    </span>
+                    Задача отклонена
+                  </button>
+                </div>
               </div>
               <div class="feedback-thread-head">
                 <div class="feedback-thread-head__row">
@@ -5629,14 +5805,18 @@
 
       function syncFeedbackThreadToolbar(thread) {
         const admin = isAdminUser();
+        const taskStatus = feedbackNormalizeTaskStatus(thread && thread.task_status);
+        if (feedbackTaskStatusToolbar) {
+          feedbackTaskStatusToolbar.hidden = !admin;
+        }
         if (feedbackTaskInProgressBtn) {
-          feedbackTaskInProgressBtn.hidden = !admin;
+          feedbackTaskInProgressBtn.classList.toggle("is-active", taskStatus === "in_progress");
         }
         if (feedbackTaskResolvedBtn) {
-          feedbackTaskResolvedBtn.hidden = !admin;
+          feedbackTaskResolvedBtn.classList.toggle("is-active", taskStatus === "resolved");
         }
         if (feedbackTaskRejectedBtn) {
-          feedbackTaskRejectedBtn.hidden = !admin;
+          feedbackTaskRejectedBtn.classList.toggle("is-active", taskStatus === "rejected");
         }
         if (feedbackThreadStatusIconsEl) {
           feedbackThreadStatusIconsEl.innerHTML = feedbackThreadStatusIconsHtml(thread);
@@ -6222,6 +6402,7 @@
       const feedbackStatusEl = document.getElementById("feedback-status");
       const feedbackNewBtn = document.getElementById("feedback-new-btn");
       const feedbackBackListBtn = document.getElementById("feedback-back-list-btn");
+      const feedbackTaskStatusToolbar = document.getElementById("feedback-task-status-toolbar");
       const feedbackTaskInProgressBtn = document.getElementById("feedback-task-in-progress-btn");
       const feedbackTaskResolvedBtn = document.getElementById("feedback-task-resolved-btn");
       const feedbackTaskRejectedBtn = document.getElementById("feedback-task-rejected-btn");

@@ -1928,6 +1928,10 @@
         background: rgba(10, 14, 23, 0.52);
       }
 
+      .feedback-thread-toolbar__statuses[hidden] {
+        display: none !important;
+      }
+
       .feedback-thread-toolbar__statuses {
         display: flex;
         flex-wrap: wrap;
@@ -5431,6 +5435,7 @@
         if (mainMenuTools) {
           mainMenuTools.style.display = st === "main" ? "" : "none";
         }
+        syncFeedbackAdminControls();
         renderNavOrder();
       }
 
@@ -5803,12 +5808,16 @@
         return `${statusHtml}${unreadHtml}`;
       }
 
-      function syncFeedbackThreadToolbar(thread) {
+      function syncFeedbackAdminControls() {
         const admin = isAdminUser();
-        const taskStatus = feedbackNormalizeTaskStatus(thread && thread.task_status);
         if (feedbackTaskStatusToolbar) {
           feedbackTaskStatusToolbar.hidden = !admin;
         }
+      }
+
+      function syncFeedbackThreadToolbar(thread) {
+        syncFeedbackAdminControls();
+        const taskStatus = feedbackNormalizeTaskStatus(thread && thread.task_status);
         if (feedbackTaskInProgressBtn) {
           feedbackTaskInProgressBtn.classList.toggle("is-active", taskStatus === "in_progress");
         }
@@ -5827,6 +5836,9 @@
       }
 
       async function setFeedbackTaskStatus(taskStatus) {
+        if (!isAdminUser()) {
+          return;
+        }
         const tid = feedbackActiveThreadId;
         if (tid == null) {
           return;
@@ -5937,6 +5949,7 @@
         if (feedbackNewView) {
           feedbackNewView.hidden = true;
         }
+        syncFeedbackAdminControls();
       }
 
       function feedbackThreadsSignature(threads) {
@@ -6284,6 +6297,7 @@
       function refreshFeedbackStage() {
         showFeedbackListView();
         setFeedbackStatus("");
+        syncFeedbackAdminControls();
         void loadFeedbackThreads();
       }
 
@@ -8731,16 +8745,25 @@
       }
       if (feedbackTaskInProgressBtn) {
         feedbackTaskInProgressBtn.addEventListener("click", () => {
+          if (!isAdminUser()) {
+            return;
+          }
           void setFeedbackTaskStatus("in_progress");
         });
       }
       if (feedbackTaskResolvedBtn) {
         feedbackTaskResolvedBtn.addEventListener("click", () => {
+          if (!isAdminUser()) {
+            return;
+          }
           void setFeedbackTaskStatus("resolved");
         });
       }
       if (feedbackTaskRejectedBtn) {
         feedbackTaskRejectedBtn.addEventListener("click", () => {
+          if (!isAdminUser()) {
+            return;
+          }
           void setFeedbackTaskStatus("rejected");
         });
       }
@@ -15432,6 +15455,7 @@
 
       renderNavOrder();
       applyMainMenuPermissions("main");
+      syncFeedbackAdminControls();
       void refreshAuthPermissionsFromServer();
       syncMobileLayoutState();
       applyAssembleMobileNavSyncVisual("is-idle");

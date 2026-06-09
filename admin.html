@@ -2490,7 +2490,7 @@
       }
 
       .users-perm-toggle {
-        max-width: 280px;
+        max-width: 340px;
       }
 
       .users-perm-btn:hover:not(:disabled) {
@@ -5539,22 +5539,28 @@
         orders: "Заказы",
         nomenclature: "Номенклатура",
         manage_users: "Управление пользователями",
+        feedback: "Жалоба/предложение",
       };
 
       function getAuthPermissions() {
         const auth = window.__PALETLIST_AUTH;
         if (!auth) {
-          return { orders: false, nomenclature: false, manage_users: false };
+          return { orders: false, nomenclature: false, manage_users: false, feedback: false };
         }
         if (auth.is_admin) {
-          return { orders: true, nomenclature: true, manage_users: true };
+          return { orders: true, nomenclature: true, manage_users: true, feedback: true };
         }
         const p = auth.permissions || {};
         return {
           orders: !!p.orders,
           nomenclature: !!p.nomenclature,
           manage_users: !!p.manage_users,
+          feedback: !!p.feedback,
         };
+      }
+
+      function canAccessFeedback() {
+        return isAdminUser() || getAuthPermissions().feedback;
       }
 
       function canManageUsersPanel() {
@@ -5569,6 +5575,7 @@
             orders: !!p.orders,
             nomenclature: !!p.nomenclature,
             manage_users: !!p.manage_users,
+            feedback: !!p.feedback,
           },
         };
       }
@@ -5590,16 +5597,19 @@
               orders: true,
               nomenclature: true,
               manage_users: true,
+              feedback: true,
             };
           } else if (data.permissions) {
             auth.permissions = {
               orders: !!data.permissions.orders,
               nomenclature: !!data.permissions.nomenclature,
               manage_users: !!data.permissions.manage_users,
+              feedback: !!data.permissions.feedback,
             };
           }
           applyMainMenuPermissions(currentStage);
           syncUpdatesAdminControls();
+          syncFeedbackAdminControls();
           if (currentStage === "users") {
             syncUsersWorkspaceView();
           }
@@ -5629,7 +5639,7 @@
         }
         if (feedbackUserButton) {
           feedbackUserButton.style.display =
-            st === "main" && !isAdminUser() ? "" : "none";
+            st === "main" && !isAdminUser() && perms.feedback ? "" : "none";
         }
         if (feedbackAdminButton) {
           feedbackAdminButton.style.display =
@@ -6520,6 +6530,9 @@
           return "main";
         }
         if (stage === "nomenclature" && !perms.nomenclature) {
+          return "main";
+        }
+        if (stage === "feedback" && !canAccessFeedback()) {
           return "main";
         }
         return stage;
@@ -9183,6 +9196,7 @@
               ${renderUserPermToggle(id, "orders", !!perms.orders)}
               ${renderUserPermToggle(id, "nomenclature", !!perms.nomenclature)}
               ${renderUserPermToggle(id, "manage_users", !!perms.manage_users)}
+              ${renderUserPermToggle(id, "feedback", !!perms.feedback)}
             </div>`;
             return `<tr data-user-id="${id}">
               <td>${login}</td>
@@ -9235,8 +9249,10 @@
               orders: !!data.user.permissions.orders,
               nomenclature: !!data.user.permissions.nomenclature,
               manage_users: !!data.user.permissions.manage_users,
+              feedback: !!data.user.permissions.feedback,
             };
             applyMainMenuPermissions(currentStage);
+            syncFeedbackAdminControls();
             if (currentStage === "users") {
               syncUsersWorkspaceView();
             }
@@ -11957,7 +11973,7 @@
 
       function startFeedbackMenuBadgePoll() {
         stopFeedbackMenuBadgePoll();
-        if (currentStage === "feedback") {
+        if (currentStage === "feedback" || !canAccessFeedback()) {
           return;
         }
         void pollFeedbackMenuBadge();
@@ -11970,7 +11986,7 @@
       }
 
       async function pollFeedbackMenuBadge() {
-        if (currentStage === "feedback" || feedbackMenuBadgePollInFlight) {
+        if (currentStage === "feedback" || feedbackMenuBadgePollInFlight || !canAccessFeedback()) {
           return;
         }
         feedbackMenuBadgePollInFlight = true;

@@ -70,8 +70,8 @@
   var perms = user.permissions;
   if (!perms || typeof perms !== "object") {
     perms = user.is_admin
-      ? { orders: true, nomenclature: true, manage_users: true }
-      : { orders: true, nomenclature: true, manage_users: false };
+      ? { orders: true, nomenclature: true, manage_users: true, feedback: true }
+      : { orders: true, nomenclature: true, manage_users: false, feedback: true };
   }
   window.__PALETLIST_AUTH = {
     token: token,
@@ -83,6 +83,7 @@
       orders: !!perms.orders,
       nomenclature: !!perms.nomenclature,
       manage_users: !!perms.manage_users,
+      feedback: !!perms.feedback,
     },
   };
 

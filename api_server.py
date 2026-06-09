@@ -190,7 +190,7 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         row = cur.execute(
             """
             SELECT id, login, password_hash, display_name,
-                   perm_orders, perm_nomenclature, perm_manage_users
+                   perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
             FROM app_users
             WHERE login = ? COLLATE NOCASE
             """,
@@ -419,6 +419,7 @@ def _migrate_app_users_permissions(cur) -> None:
         ("perm_orders", 1),
         ("perm_nomenclature", 1),
         ("perm_manage_users", 0),
+        ("perm_feedback", 1),
     ):
         if col not in cols:
             cur.execute(
@@ -444,6 +445,7 @@ def _permissions_from_row(row) -> dict:
         "orders": _perm_cell_bool(row, "perm_orders", 1),
         "nomenclature": _perm_cell_bool(row, "perm_nomenclature", 1),
         "manage_users": _perm_cell_bool(row, "perm_manage_users", 0),
+        "feedback": _perm_cell_bool(row, "perm_feedback", 1),
     }
 
 
@@ -467,6 +469,7 @@ def sync_auth_sessions_permissions_for_user(user_id: int, permissions: dict) -> 
         "orders": bool(permissions.get("orders")),
         "nomenclature": bool(permissions.get("nomenclature")),
         "manage_users": bool(permissions.get("manage_users")),
+        "feedback": bool(permissions.get("feedback")),
     }
     with _AUTH_SESSIONS_LOCK:
         for session in _AUTH_SESSIONS.values():
@@ -475,7 +478,12 @@ def sync_auth_sessions_permissions_for_user(user_id: int, permissions: dict) -> 
 
 
 def _admin_permissions() -> dict:
-    return {"orders": True, "nomenclature": True, "manage_users": True}
+    return {
+        "orders": True,
+        "nomenclature": True,
+        "manage_users": True,
+        "feedback": True,
+    }
 
 
 def _parse_permissions_patch(body: dict) -> dict | None:
@@ -489,6 +497,7 @@ def _parse_permissions_patch(body: dict) -> dict | None:
         ("orders", "perm_orders"),
         ("nomenclature", "perm_nomenclature"),
         ("manage_users", "perm_manage_users"),
+        ("feedback", "perm_feedback"),
     ):
         if key in raw:
             out[col] = 1 if raw[key] else 0
@@ -507,7 +516,7 @@ def _user_row_to_api(row) -> dict:
 
 _APP_USER_SELECT = """
     SELECT id, login, display_name, created_at,
-           perm_orders, perm_nomenclature, perm_manage_users
+           perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
     FROM app_users
 """
 
@@ -555,6 +564,7 @@ def create_app_user(body: dict) -> dict:
     perm_orders = perm_patch.get("perm_orders", 1)
     perm_nomenclature = perm_patch.get("perm_nomenclature", 1)
     perm_manage_users = perm_patch.get("perm_manage_users", 0)
+    perm_feedback = perm_patch.get("perm_feedback", 1)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -563,9 +573,9 @@ def create_app_user(body: dict) -> dict:
                 """
                 INSERT INTO app_users (
                   login, password_hash, display_name, created_at,
-                  perm_orders, perm_nomenclature, perm_manage_users
+                  perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     login,
@@ -575,6 +585,7 @@ def create_app_user(body: dict) -> dict:
                     perm_orders,
                     perm_nomenclature,
                     perm_manage_users,
+                    perm_feedback,
                 ),
             )
             uid = int(cur.lastrowid)
@@ -5974,8 +5985,17 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "orders": bool(perms.get("orders")),
                 "nomenclature": bool(perms.get("nomenclature")),
                 "manage_users": bool(perms.get("manage_users")),
+                "feedback": bool(perms.get("feedback")),
             }
-        return {"orders": True, "nomenclature": True, "manage_users": False}
+        return {"orders": True, "nomenclature": True, "manage_users": False, "feedback": True}
+
+    def _ensure_feedback_permission(self) -> bool:
+        session = self._auth_session or {}
+        if session.get("is_admin"):
+            return True
+        return self._require_permission(
+            "feedback", "Нет доступа к жалобам и предложениям."
+        )
 
     def _require_permission(self, key: str, message: str) -> bool:
         if self._session_permissions().get(key):
@@ -6293,6 +6313,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, fetch_unique_clients())
             return
         if _is_feedback_threads_list_path(path):
+            if not self._ensure_feedback_permission():
+                return
             result = fetch_feedback_threads(self._auth_session)
             err = result.get("error")
             if err == "unauthorized":
@@ -6302,6 +6324,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         feedback_tid = _parse_feedback_thread_detail_id(path)
         if feedback_tid is not None:
+            if not self._ensure_feedback_permission():
+                return
             result = fetch_feedback_thread_detail(self._auth_session, feedback_tid)
             err = result.get("error")
             if err == "not_found":
@@ -6501,6 +6525,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not self._ensure_authenticated():
             return
         if _is_feedback_threads_list_path(path):
+            if not self._ensure_feedback_permission():
+                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:
@@ -6522,6 +6548,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         feedback_msg_tid = _parse_feedback_thread_messages_id(path)
         if feedback_msg_tid is not None:
+            if not self._ensure_feedback_permission():
+                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:
@@ -6989,6 +7017,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         path = parsed.path
         feedback_tid = _parse_feedback_thread_detail_id(path)
         if feedback_tid is not None:
+            if not self._ensure_feedback_permission():
+                return
             try:
                 body = self._read_json_body()
             except json.JSONDecodeError:

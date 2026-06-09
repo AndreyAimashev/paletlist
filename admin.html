@@ -6628,6 +6628,43 @@
         });
       }
 
+      function assembleStateUsesMergedLineIndices(meta) {
+        return String(meta?.assembly_line_indices || "").trim().toLowerCase() === "merged";
+      }
+
+      /** Remap only legacy drafts that still store raw order line indices. */
+      function assemblePalletsNeedLegacyLineIndexRemap(pallets, mergedCount) {
+        if (!mergedCount) {
+          return false;
+        }
+        for (const pal of pallets || []) {
+          for (const slot of pal.slots || []) {
+            const li = Number(slot.lineIndex);
+            if (Number.isFinite(li) && li >= mergedCount) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function maybeRemapAssemblePalletsForMergedClient(
+        pallets,
+        sourceIndicesByMerged,
+        meta,
+      ) {
+        if (!Array.isArray(pallets) || !sourceIndicesByMerged?.length) {
+          return pallets;
+        }
+        if (assembleStateUsesMergedLineIndices(meta)) {
+          return pallets;
+        }
+        if (!assemblePalletsNeedLegacyLineIndexRemap(pallets, sourceIndicesByMerged.length)) {
+          return pallets;
+        }
+        return remapAssemblePalletsForDrogeri(pallets, sourceIndicesByMerged);
+      }
+
       function palletHasSelectedOrderLine(pal, itemCount) {
         const slots = Array.isArray(pal.slots) ? pal.slots : [];
         return slots.some((slot) => {
@@ -11036,6 +11073,7 @@
               revision: sameAsServer ? serverRev : localRev,
               pushToServer: !sameAsServer,
               serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
+              source: sameAsServer ? "server" : "local",
             };
           }
           return {
@@ -11043,6 +11081,7 @@
             revision: serverRev,
             pushToServer: false,
             serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
+            source: "server",
           };
         }
         if (localHas) {
@@ -11053,6 +11092,7 @@
             revision: Math.max(localRev, serverRev),
             pushToServer: !sameAsDefault,
             serverHadContent: false,
+            source: "local",
           };
         }
         return {
@@ -11060,6 +11100,7 @@
           revision: serverRev,
           pushToServer: false,
           serverHadContent: false,
+          source: "default",
         };
       }
 
@@ -11359,6 +11400,11 @@
               assemble_revision:
                 revision != null ? revision : payload.revision,
               optional_batch_enabled: !!payload.optional_batch_enabled,
+              assembly_line_indices: clientMergesAssemblyItemsByName(
+                payload.client || "",
+              )
+                ? "merged"
+                : undefined,
             }),
           );
         } catch (e) {
@@ -11383,6 +11429,9 @@
           pallets,
           optional_batch_enabled: !!payload.optional_batch_enabled,
         };
+        if (clientMergesAssemblyItemsByName(payload.client || "")) {
+          assemble_state.assembly_line_indices = "merged";
+        }
         try {
           const res = await fetch(`/api/orders/${oid}`, {
             method: "PATCH",
@@ -12059,6 +12108,9 @@
               pallets: assembleAllocState.pallets,
               assemble_revision: assembleKnownRevision,
               optional_batch_enabled: !!assembleOptionalBatchEnabled,
+              assembly_line_indices: assembleOrderSnapshot.assemblySourceIndicesByMerged
+                ? "merged"
+                : undefined,
             }),
           );
         } catch (e) {
@@ -12917,9 +12969,14 @@
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
         if (assemblySourceIndicesByMerged) {
-          picked.pallets = remapAssemblePalletsForDrogeri(
+          const remapMeta =
+            picked.source === "local"
+              ? localDraft
+              : data.assemble_state || null;
+          picked.pallets = maybeRemapAssemblePalletsForMergedClient(
             picked.pallets,
             assemblySourceIndicesByMerged,
+            remapMeta,
           );
         }
         assembleKnownRevision = Number(data.assemble_revision) || 0;

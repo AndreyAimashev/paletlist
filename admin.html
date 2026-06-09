@@ -152,6 +152,38 @@
         box-shadow: 0 10px 20px rgba(0, 200, 160, 0.35);
       }
 
+      .menu-button.menu-button--feedback {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .feedback-menu-btn__unread-icon {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        line-height: 0;
+        color: #ffffff;
+        filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.85));
+        animation: feedback-menu-mail-glow 1.6s ease-in-out infinite;
+      }
+
+      .menu-button.menu-button--feedback.has-unread-mail .feedback-menu-btn__unread-icon {
+        display: inline-flex;
+      }
+
+      @keyframes feedback-menu-mail-glow {
+        0%,
+        100% {
+          filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.55));
+          opacity: 0.82;
+        }
+        50% {
+          filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1));
+          opacity: 1;
+        }
+      }
+
       .main-menu-tools {
         display: flex;
         flex-wrap: wrap;
@@ -3910,11 +3942,23 @@
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
             <button id="users-button" class="menu-button" type="button">Управление пользователями</button>
-            <button id="feedback-user-button" class="menu-button" type="button" hidden>
-              Жалоба/предложение
+            <button id="feedback-user-button" class="menu-button menu-button--feedback" type="button" hidden>
+              <span class="feedback-menu-btn__label">Жалоба/предложение</span>
+              <span class="feedback-menu-btn__unread-icon" hidden aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect width="20" height="16" x="2" y="4" rx="2"/>
+                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                </svg>
+              </span>
             </button>
-            <button id="feedback-admin-button" class="menu-button" type="button" hidden>
-              Жалобы/предложения
+            <button id="feedback-admin-button" class="menu-button menu-button--feedback" type="button" hidden>
+              <span class="feedback-menu-btn__label">Жалобы/предложения</span>
+              <span class="feedback-menu-btn__unread-icon" hidden aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect width="20" height="16" x="2" y="4" rx="2"/>
+                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                </svg>
+              </span>
             </button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
@@ -5487,6 +5531,22 @@
       const FEEDBACK_ICON_TOPIC_CLOSED = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
       const FEEDBACK_ICON_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>`;
 
+      function feedbackThreadsHaveUnread(threads) {
+        return (Array.isArray(threads) ? threads : []).some((thread) => !!thread.has_unread);
+      }
+
+      function syncFeedbackMenuUnreadIndicator() {
+        const hasUnread = feedbackThreadsHaveUnread(feedbackThreadsCache);
+        const btn = isAdminUser() ? feedbackAdminButton : feedbackUserButton;
+        if (btn) {
+          btn.classList.toggle("has-unread-mail", hasUnread);
+          const icon = btn.querySelector(".feedback-menu-btn__unread-icon");
+          if (icon) {
+            icon.hidden = !hasUnread;
+          }
+        }
+      }
+
       function feedbackThreadStatusIconsHtml(thread) {
         const closed = !!(thread && thread.is_closed);
         const unread = !!(thread && thread.has_unread);
@@ -5700,6 +5760,18 @@
         }
         feedbackActiveThreadData = data;
         syncFeedbackThreadToolbar(data);
+        if (feedbackActiveThreadId != null) {
+          const cacheIdx = feedbackThreadsCache.findIndex(
+            (thread) => Number(thread.id) === Number(feedbackActiveThreadId),
+          );
+          if (cacheIdx >= 0) {
+            feedbackThreadsCache[cacheIdx] = {
+              ...feedbackThreadsCache[cacheIdx],
+              has_unread: !!data.has_unread,
+            };
+          }
+          syncFeedbackMenuUnreadIndicator();
+        }
       }
 
       function renderFeedbackThreadList(threads) {
@@ -5786,6 +5858,7 @@
           return;
         }
         feedbackThreadsCache = newThreads;
+        syncFeedbackMenuUnreadIndicator();
         if (feedbackListView && !feedbackListView.hidden) {
           renderFeedbackThreadList(feedbackThreadsCache);
         }
@@ -8208,8 +8281,10 @@
         }
         if (stage === "feedback") {
           startFeedbackSyncPoll();
+          stopFeedbackMenuBadgePoll();
         } else {
           stopFeedbackSyncPoll();
+          startFeedbackMenuBadgePoll();
         }
         if (stage !== "assemble") {
           stopAssembleSyncPoll();
@@ -10367,6 +10442,8 @@
       let nomenclatureListSyncPollTimer = null;
       let feedbackSyncPollTimer = null;
       let feedbackSyncPollInFlight = false;
+      let feedbackMenuBadgePollTimer = null;
+      let feedbackMenuBadgePollInFlight = false;
       const ASSEMBLE_CLIENT_ID_STORAGE = "paletlist_assemble_client_id";
       const assembleSyncChannel =
         typeof BroadcastChannel !== "undefined"
@@ -11287,6 +11364,39 @@
         }
       }
 
+      function stopFeedbackMenuBadgePoll() {
+        if (feedbackMenuBadgePollTimer) {
+          clearInterval(feedbackMenuBadgePollTimer);
+          feedbackMenuBadgePollTimer = null;
+        }
+      }
+
+      function startFeedbackMenuBadgePoll() {
+        stopFeedbackMenuBadgePoll();
+        if (currentStage === "feedback") {
+          return;
+        }
+        void pollFeedbackMenuBadge();
+        feedbackMenuBadgePollTimer = setInterval(() => {
+          if (currentStage === "feedback") {
+            return;
+          }
+          void pollFeedbackMenuBadge();
+        }, FEEDBACK_SYNC_POLL_MS);
+      }
+
+      async function pollFeedbackMenuBadge() {
+        if (currentStage === "feedback" || feedbackMenuBadgePollInFlight) {
+          return;
+        }
+        feedbackMenuBadgePollInFlight = true;
+        try {
+          await loadFeedbackThreads({ quiet: true });
+        } finally {
+          feedbackMenuBadgePollInFlight = false;
+        }
+      }
+
       function startFeedbackSyncPoll() {
         stopFeedbackSyncPoll();
         feedbackSyncPollTimer = setInterval(() => {
@@ -11313,6 +11423,7 @@
           } else if (feedbackListView && !feedbackListView.hidden) {
             renderFeedbackThreadList(feedbackThreadsCache);
           }
+          syncFeedbackMenuUnreadIndicator();
         } finally {
           feedbackSyncPollInFlight = false;
         }

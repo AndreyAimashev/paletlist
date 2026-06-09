@@ -2617,6 +2617,10 @@ def _init_orders_table(cur):
             "ALTER TABLE orders ADD COLUMN last_modified_by TEXT NOT NULL DEFAULT ''"
         )
     order_cols = {r[1] for r in cur.execute("PRAGMA table_info(orders)").fetchall()}
+    if "client_city" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN client_city TEXT NOT NULL DEFAULT ''"
+        )
     if "last_edited_by" not in order_cols:
         cur.execute(
             "ALTER TABLE orders ADD COLUMN last_edited_by TEXT NOT NULL DEFAULT ''"
@@ -3543,6 +3547,7 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
             }
     elif drogeri_client:
         buyer_order_mode = "multiple"
+    client_city = _normalize_str(body.get("client_city") or "") if drogeri_client else ""
     raw_items = body.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         return {
@@ -3615,6 +3620,7 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
         "normalized": normalized,
         "buyer_order_mode": buyer_order_mode,
         "buyer_order": order_buyer_order,
+        "client_city": client_city,
     }
 
 
@@ -3671,6 +3677,7 @@ def insert_order_with_items(body: dict, *, modified_by: str = ""):
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
+    client_city = pack.get("client_city") or ""
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -3683,9 +3690,9 @@ def insert_order_with_items(body: dict, *, modified_by: str = ""):
             """
             INSERT INTO orders (
               ship_date, client, assembled_percent, names, extra_info,
-              buyer_order_mode, buyer_order, last_edited_by
+              buyer_order_mode, buyer_order, client_city, last_edited_by
             )
-            VALUES (?, ?, 0, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ship,
@@ -3694,6 +3701,7 @@ def insert_order_with_items(body: dict, *, modified_by: str = ""):
                 delivery_type,
                 buyer_order_mode,
                 order_buyer_order,
+                client_city,
                 modifier,
             ),
         )
@@ -4820,6 +4828,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
     normalized = pack["normalized"]
     buyer_order_mode = pack.get("buyer_order_mode") or ""
     order_buyer_order = pack.get("buyer_order") or ""
+    client_city = pack.get("client_city") or ""
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -4831,7 +4840,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order
+                   buyer_order_mode, buyer_order, client_city
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -4861,6 +4870,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             and _normalize_str(row["client"] or "") == client_n
             and (row["buyer_order_mode"] or "") == buyer_order_mode
             and (row["buyer_order"] or "") == order_buyer_order
+            and _normalize_str(row["client_city"] or "") == client_city
             and (row["extra_info"] or "") == xinfo
             and old_item_sigs == new_item_sigs
         ):
@@ -4871,6 +4881,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
               extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
+              client_city = ?,
               last_edited_by = CASE WHEN ? != '' THEN ? ELSE last_edited_by END
             WHERE id = ?
             """,
@@ -4883,6 +4894,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
                 xasm,
                 buyer_order_mode,
                 order_buyer_order,
+                client_city,
                 modifier,
                 modifier,
                 order_id,
@@ -4948,7 +4960,7 @@ def fetch_order_detail(order_id: int):
         row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, total_order_quantity,
+                   buyer_order_mode, buyer_order, client_city, total_order_quantity,
                    lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
                    assemble_revision, assemble_state_updated_at,
                    last_edited_by, last_assembled_by, last_modified_by
@@ -4966,7 +4978,7 @@ def fetch_order_detail(order_id: int):
             row = cur.execute(
                 """
                 SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                       buyer_order_mode, buyer_order, total_order_quantity,
+                       buyer_order_mode, buyer_order, client_city, total_order_quantity,
                        lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
                        assemble_revision, assemble_state_updated_at,
                        last_edited_by, last_assembled_by, last_modified_by
@@ -5019,6 +5031,9 @@ def fetch_order_detail(order_id: int):
         else "",
         "buyer_order": (row["buyer_order"] or "").strip()
         if "buyer_order" in row.keys()
+        else "",
+        "client_city": (row["client_city"] or "").strip()
+        if "client_city" in row.keys()
         else "",
         "total_order_quantity": float(row["total_order_quantity"])
         if row["total_order_quantity"] is not None
@@ -5076,7 +5091,7 @@ def fetch_orders():
         rows = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   lab_sscc_seq_start, lab_sscc_shipped,
+                   client_city, lab_sscc_seq_start, lab_sscc_shipped,
                    assemble_revision, assemble_state_updated_at,
                    last_edited_by, last_assembled_by, last_modified_by
             FROM orders ORDER BY id DESC
@@ -5125,6 +5140,9 @@ def fetch_orders():
                 "id": oid,
                 "ship_date": row["ship_date"] or "",
                 "client": row["client"] or "",
+                "client_city": (row["client_city"] or "").strip()
+                if "client_city" in row.keys()
+                else "",
                 "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
                 "names": row["names"] or "",
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),

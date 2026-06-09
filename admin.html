@@ -1446,6 +1446,27 @@
         word-break: break-word;
       }
 
+      .orders-client-city {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .new-order-client-city-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 4px;
+      }
+
+      .new-order-client-city-wrap[hidden] {
+        display: none !important;
+      }
+
       .orders-table .col-actions {
         width: 1%;
         white-space: nowrap;
@@ -4836,6 +4857,16 @@
                 <option value="ЛАБ Индастриз"></option>
                 <option value="Дрогери Ритейл"></option>
               </datalist>
+              <div id="new-order-client-city-wrap" class="new-order-client-city-wrap" hidden>
+                <label for="new-order-client-city">Город</label>
+                <input
+                  id="new-order-client-city"
+                  name="client_city"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Например: Москва"
+                />
+              </div>
             </div>
             <div class="arnest-field" style="grid-column: 1 / -1">
               <label>Тип отгрузки</label>
@@ -5995,6 +6026,8 @@
       const newOrderError = document.getElementById("new-order-error");
       const newOrderShipDate = document.getElementById("new-order-ship-date");
       const newOrderClient = document.getElementById("new-order-client");
+      const newOrderClientCityWrap = document.getElementById("new-order-client-city-wrap");
+      const newOrderClientCity = document.getElementById("new-order-client-city");
       const newOrderDeliveryToggle = document.getElementById("new-order-delivery-toggle");
       const newOrderDeliveryFixedEl = document.getElementById("new-order-delivery-fixed");
       const ORDER_DELIVERY_TYPES = [
@@ -6469,9 +6502,32 @@
         });
       }
 
+      function syncNewOrderClientCityUi() {
+        const client = newOrderClient ? String(newOrderClient.value || "") : "";
+        const showCity = isDrogeriRetailClient(client);
+        if (newOrderClientCityWrap) {
+          newOrderClientCityWrap.hidden = !showCity;
+        }
+        if (newOrderClientCity && !showCity) {
+          newOrderClientCity.value = "";
+        }
+      }
+
       function syncNewOrderClientUi() {
         syncNewOrderLabBuyerUi();
         syncNewOrderDeliveryUi();
+        syncNewOrderClientCityUi();
+      }
+
+      function formatOrderClientCityLine(orderRow) {
+        if (!isDrogeriRetailClient(orderRow?.client)) {
+          return "";
+        }
+        const city = String(orderRow?.client_city || "").trim();
+        if (!city) {
+          return "";
+        }
+        return `<span class="orders-client-city">${escapeXml(city)}</span>`;
       }
 
       function isAssembleUnirusMode() {
@@ -10205,7 +10261,7 @@
                   <td class="col-client">
                     <div class="orders-client-cell">
                       <div class="orders-client-cell-main">
-                        <span class="orders-client-text">${escapeXml(o.client || "—")}</span>
+                        <span class="orders-client-text">${escapeXml(o.client || "—")}${formatOrderClientCityLine(o)}</span>
                         ${labShipBtn}
                       </div>
                       ${actionsMobileClientHtml}
@@ -13733,6 +13789,9 @@
         const today = new Date().toISOString().slice(0, 10);
         newOrderShipDate.value = parsedDate || today;
         newOrderClient.value = data.client || "";
+        if (newOrderClientCity) {
+          newOrderClientCity.value = String(data.client_city || "").trim();
+        }
         setNewOrderDeliveryType(
           getDeliveryTypeForClient(data.client || "", data.extra_info || "Обычный"),
         );
@@ -13799,12 +13858,18 @@
           }
           return rowPayload;
         });
-        return {
+        const snapshot = {
           ship_date: String(newOrderShipDate?.value || "").trim(),
           client,
           extra_info: getNewOrderDeliveryType(),
           items,
         };
+        if (isDrogeriRetailClient(client)) {
+          snapshot.client_city = newOrderClientCity
+            ? String(newOrderClientCity.value || "").trim()
+            : "";
+        }
+        return snapshot;
       }
 
       function orderEditSnapshotsEqual(left, right) {
@@ -13814,7 +13879,8 @@
         if (
           left.ship_date !== right.ship_date ||
           left.client !== right.client ||
-          left.extra_info !== right.extra_info
+          left.extra_info !== right.extra_info ||
+          String(left.client_city || "") !== String(right.client_city || "")
         ) {
           return false;
         }
@@ -14019,6 +14085,11 @@
           items,
           extra_info: getNewOrderDeliveryType(),
         };
+        if (isDrogeriRetailClient(client)) {
+          orderPayload.client_city = newOrderClientCity
+            ? String(newOrderClientCity.value || "").trim()
+            : "";
+        }
         if (clientRequiresLineBuyerOrder(client)) {
           orderPayload.buyer_order_mode = "multiple";
           orderPayload.buyer_order = "";

@@ -3881,11 +3881,59 @@
         }
 
         .assemble-summary-table {
+          table-layout: fixed;
+          width: 100%;
           font-size: 18px;
+        }
+
+        #assemble-lines-summary-wrap {
+          max-width: 100%;
+          overflow-x: clip;
+        }
+
+        .assemble-summary-table th,
+        .assemble-summary-table td {
+          padding-left: 5px;
+          padding-right: 5px;
+        }
+
+        .assemble-summary-table th {
+          line-height: 1.15;
+          white-space: normal;
+          word-break: break-word;
+        }
+
+        .assemble-summary-table th:nth-child(1),
+        .assemble-summary-table td:nth-child(1) {
+          width: 8%;
+          padding-left: 3px;
+          padding-right: 3px;
+        }
+
+        .assemble-summary-table th:nth-child(2),
+        .assemble-summary-table td:nth-child(2) {
+          width: 30%;
+        }
+
+        .assemble-summary-table th:nth-child(3),
+        .assemble-summary-table th:nth-child(4),
+        .assemble-summary-table th:nth-child(5),
+        .assemble-summary-table td:nth-child(3),
+        .assemble-summary-table td:nth-child(4),
+        .assemble-summary-table td:nth-child(5) {
+          width: 20.666%;
+          text-align: right;
         }
 
         .assemble-summary-table th {
           font-size: 15px;
+        }
+
+        .assemble-summary-table th:nth-child(3),
+        .assemble-summary-table th:nth-child(4),
+        .assemble-summary-table th:nth-child(5) {
+          font-size: 11px;
+          line-height: 1.1;
         }
 
         .assemble-summary-pallets-cell {
@@ -6692,6 +6740,7 @@
       function syncMobileLayoutState() {
         document.body.classList.toggle("is-mobile-layout", isMobileLayout());
         syncAssemblePalletNavVisibility();
+        updateAssembleSummaryTableHeaders();
         closeMobileNavDrawer();
         if (!isMobileLayout()) {
           sidebar.style.width = "";
@@ -13049,6 +13098,19 @@
       function updateAssembleSummaryTableHeaders() {
         const u = ASSEMBLE_SUMMARY_UNITS[assembleSummaryDisplayUnit];
         const lab = u ? u.label : "штуки";
+        const shortLab = u ? u.short : "шт";
+        if (isMobileLayout()) {
+          if (assembleSummaryThOrder) {
+            assembleSummaryThOrder.textContent = `Заказ, ${shortLab}`;
+          }
+          if (assembleSummaryThAlloc) {
+            assembleSummaryThAlloc.textContent = `Распр., ${shortLab}`;
+          }
+          if (assembleSummaryThRest) {
+            assembleSummaryThRest.textContent = `Ост., ${shortLab}`;
+          }
+          return;
+        }
         if (assembleSummaryThOrder) {
           assembleSummaryThOrder.textContent = `По заказу, ${lab}`;
         }

@@ -153,7 +153,10 @@
       }
 
       .menu-button.menu-button--feedback {
-        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
         text-align: center;
       }
 
@@ -162,17 +165,26 @@
       }
 
       .feedback-menu-btn__unread-icon {
-        position: absolute;
-        right: 14px;
-        top: 50%;
-        transform: translateY(-50%);
         display: none;
         align-items: center;
         justify-content: center;
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: rgba(9, 17, 30, 0.42);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.55),
+          0 0 10px rgba(0, 224, 176, 0.55);
         line-height: 0;
         color: #ffffff;
-        filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.85));
-        animation: feedback-menu-mail-glow 1.6s ease-in-out infinite;
+        animation: feedback-menu-mail-glow 1.1s ease-in-out infinite;
+      }
+
+      .feedback-menu-btn__unread-icon svg {
+        width: 14px;
+        height: 14px;
+        stroke-width: 2.6;
       }
 
       .menu-button.menu-button--feedback.has-unread-mail .feedback-menu-btn__unread-icon {
@@ -182,12 +194,17 @@
       @keyframes feedback-menu-mail-glow {
         0%,
         100% {
-          filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.55));
-          opacity: 0.82;
+          box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.55),
+            0 0 8px rgba(0, 224, 176, 0.45);
+          transform: scale(1);
         }
         50% {
-          filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1));
-          opacity: 1;
+          box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.95),
+            0 0 14px rgba(0, 255, 210, 0.95),
+            0 0 22px rgba(0, 224, 176, 0.65);
+          transform: scale(1.1);
         }
       }
 
@@ -3275,6 +3292,11 @@
           font-size: 12px;
         }
 
+        .menu-items > .menu-button.menu-button--feedback:not(.menu-step) {
+          display: inline-flex;
+          justify-content: center;
+        }
+
         .menu-items {
           margin-top: 14px;
           gap: 8px;
@@ -3952,7 +3974,7 @@
             <button id="feedback-user-button" class="menu-button menu-button--feedback" type="button" hidden>
               <span class="feedback-menu-btn__label">Жалоба/предложение</span>
               <span class="feedback-menu-btn__unread-icon" hidden aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="20" height="16" x="2" y="4" rx="2"/>
                   <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
                 </svg>
@@ -3961,7 +3983,7 @@
             <button id="feedback-admin-button" class="menu-button menu-button--feedback" type="button" hidden>
               <span class="feedback-menu-btn__label">Жалобы/предложения</span>
               <span class="feedback-menu-btn__unread-icon" hidden aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="20" height="16" x="2" y="4" rx="2"/>
                   <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
                 </svg>

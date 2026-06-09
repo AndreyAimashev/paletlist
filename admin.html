@@ -1131,6 +1131,71 @@
         font-weight: 600;
       }
 
+      .assemble-summary-line-row td {
+        border-bottom: none;
+        padding-bottom: 4px;
+      }
+
+      .assemble-summary-pallets-row td {
+        padding-top: 0;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      .assemble-summary-pallets-cell {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .assemble-summary-pallets-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 10px;
+      }
+
+      .assemble-summary-pallets-count {
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+
+      .assemble-summary-pallets-list {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .assemble-summary-pallet-link {
+        margin: 0;
+        padding: 2px 8px;
+        font-family: "Roboto", sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.3;
+        color: rgba(180, 255, 240, 0.96);
+        background: rgba(0, 200, 160, 0.1);
+        border: 1px solid rgba(0, 200, 160, 0.32);
+        border-radius: 6px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .assemble-summary-pallet-link:hover {
+        color: #ffffff;
+        background: rgba(0, 200, 160, 0.18);
+        border-color: rgba(0, 200, 160, 0.55);
+        box-shadow: 0 0 10px rgba(0, 200, 160, 0.12);
+      }
+
+      .assemble-summary-pallet-link:focus-visible {
+        outline: 2px solid rgba(0, 200, 160, 0.55);
+        outline-offset: 2px;
+      }
+
       .assemble-alert {
         margin: 0 0 12px;
         padding: 10px 12px;
@@ -11014,17 +11079,8 @@
         return found;
       }
 
-      function jumpToAssemblePalletByNumber(raw) {
-        const rawS = String(raw ?? "").trim();
-        if (!rawS) {
-          setAssemblePalletNavMessage("Введите номер паллета.");
-          return;
-        }
-        const card = findAssemblePalletCardByNumber(rawS);
+      function jumpToAssemblePalletCard(card) {
         if (!card) {
-          const nums = getAssemblePalletNumbersForNav();
-          const hint = nums.length ? ` Есть: ${nums.join(", ")}.` : "";
-          setAssemblePalletNavMessage(`Паллет №${rawS} не найден.${hint}`);
           return;
         }
         setAssemblePalletNavMessage("");
@@ -11045,6 +11101,34 @@
             }
           }, 400);
         }
+      }
+
+      function jumpToAssemblePalletByNumber(raw) {
+        const rawS = String(raw ?? "").trim();
+        if (!rawS) {
+          setAssemblePalletNavMessage("Введите номер паллета.");
+          return;
+        }
+        const card = findAssemblePalletCardByNumber(rawS);
+        if (!card) {
+          const nums = getAssemblePalletNumbersForNav();
+          const hint = nums.length ? ` Есть: ${nums.join(", ")}.` : "";
+          setAssemblePalletNavMessage(`Паллет №${rawS} не найден.${hint}`);
+          return;
+        }
+        jumpToAssemblePalletCard(card);
+      }
+
+      function jumpToAssemblePalletByIndex(pIdx) {
+        if (!assemblePalletsRoot || !Number.isFinite(pIdx)) {
+          return;
+        }
+        const card = assemblePalletsRoot.querySelector(`[data-pallet-card="${pIdx}"]`);
+        if (!card) {
+          setAssemblePalletNavMessage("Паллет не найден.");
+          return;
+        }
+        jumpToAssemblePalletCard(card);
       }
 
       function assembleDuplicatePalletNumberIndices(pallets) {
@@ -11324,6 +11408,80 @@
           });
         });
         return s;
+      }
+
+      function linePiecesOnPallet(pal, lineIdx, item) {
+        let s = 0;
+        (pal.slots || []).forEach((slot) => {
+          if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
+            return;
+          }
+          if (Number(slot.lineIndex) !== lineIdx) {
+            return;
+          }
+          s += allocationToPieces(item, slotToAlloc(slot));
+        });
+        return s;
+      }
+
+      function linePalletPlacementRefs(lineIdx) {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return [];
+        }
+        const item = assembleOrderSnapshot.items[lineIdx];
+        if (!item) {
+          return [];
+        }
+        const refs = [];
+        assembleAllocState.pallets.forEach((pal, pIdx) => {
+          const pieces = linePiecesOnPallet(pal, lineIdx, item);
+          if (pieces <= 1e-6) {
+            return;
+          }
+          const numRaw = String(pal.palletNumber ?? "").trim();
+          refs.push({
+            pIdx,
+            palletNumber: numRaw,
+            label: numRaw || String(pIdx + 1),
+            sortKey: palletSortKey(pal, pIdx),
+          });
+        });
+        refs.sort((a, b) => {
+          const ka = a.sortKey;
+          const kb = b.sortKey;
+          if (ka[0] !== kb[0]) {
+            return ka[0] - kb[0];
+          }
+          if (ka[1] !== kb[1]) {
+            return ka[1] - kb[1];
+          }
+          return ka[2].localeCompare(kb[2]);
+        });
+        return refs;
+      }
+
+      function formatAssembleSummaryPalletsMeta(lineIdx) {
+        const refs = linePalletPlacementRefs(lineIdx);
+        const count = refs.length;
+        if (!count) {
+          return `<div class="assemble-summary-pallets-meta"><span class="assemble-summary-pallets-count">На паллетах: 0</span></div>`;
+        }
+        const links = refs
+          .map((ref) => {
+            const label = escapeXml(ref.label);
+            const title = ref.palletNumber
+              ? `Перейти к паллету №${label}`
+              : `Перейти к паллету (позиция ${label})`;
+            const attrs = ref.palletNumber
+              ? ` data-assemble-summary-pallet-num="${escapeXml(ref.palletNumber)}"`
+              : ` data-assemble-summary-pallet-idx="${ref.pIdx}"`;
+            return `<button type="button" class="assemble-summary-pallet-link" title="${escapeXml(title)}"${attrs}>${label}</button>`;
+          })
+          .join("");
+        return `<div class="assemble-summary-pallets-meta">
+          <span class="assemble-summary-pallets-count">На паллетах: ${count}</span>
+          <span class="assemble-summary-pallets-list">${links}</span>
+        </div>`;
       }
 
       function lineAllocatedPiecesSumFromDraft(items, pallets, lineIdx) {
@@ -12848,12 +13006,17 @@
             const qRest = summaryPiecesToUnit(it, restP, unit);
             const bad = allocP > maxP + 1e-4;
             const title = escapeXml(formatAssembleProductLabel(it, assembleOrderSnapshot));
-            return `<tr>
+            const palletsMeta = formatAssembleSummaryPalletsMeta(li);
+            return `<tr class="assemble-summary-line-row">
               <td>${li + 1}</td>
               <td>${title}</td>
               <td>${escapeXml(formatSummaryQty(qOrd, fine))}</td>
               <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qAlloc, fine))}</td>
               <td style="color:${restP < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qRest, fine))}</td>
+            </tr>
+            <tr class="assemble-summary-pallets-row">
+              <td></td>
+              <td colspan="4" class="assemble-summary-pallets-cell">${palletsMeta}</td>
             </tr>`;
           })
           .join("");
@@ -13234,6 +13397,8 @@
             syncAssembleStateFromDom();
             saveAssembleDraft();
             refreshAssemblePalletNumberDuplicateStyles();
+            renderAssembleSummary();
+            updateAssemblePalletDatalists();
             return;
           }
           if (
@@ -13571,6 +13736,26 @@
           if (u === "piece" || u === "box" || u === "set") {
             ev.preventDefault();
             setAssembleSummaryDisplayUnit(u);
+          }
+        });
+      }
+      if (assembleLinesSummaryBody) {
+        assembleLinesSummaryBody.addEventListener("click", (ev) => {
+          const btn = ev.target.closest(
+            "[data-assemble-summary-pallet-num], [data-assemble-summary-pallet-idx]",
+          );
+          if (!btn) {
+            return;
+          }
+          ev.preventDefault();
+          const num = btn.getAttribute("data-assemble-summary-pallet-num");
+          if (num != null && String(num).trim()) {
+            jumpToAssemblePalletByNumber(num);
+            return;
+          }
+          const pIdx = Number(btn.getAttribute("data-assemble-summary-pallet-idx"));
+          if (Number.isFinite(pIdx)) {
+            jumpToAssemblePalletByIndex(pIdx);
           }
         });
       }

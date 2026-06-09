@@ -6605,7 +6605,7 @@
         return null;
       }
 
-      function remapAssemblePalletsForDrogeri(pallets, sourceIndicesByMerged) {
+      function remapAssemblePalletsLegacyLineIndices(pallets, sourceIndicesByMerged) {
         if (!Array.isArray(pallets) || !sourceIndicesByMerged?.length) {
           return pallets;
         }
@@ -6662,7 +6662,27 @@
         if (!assemblePalletsNeedLegacyLineIndexRemap(pallets, sourceIndicesByMerged.length)) {
           return pallets;
         }
-        return remapAssemblePalletsForDrogeri(pallets, sourceIndicesByMerged);
+        return remapAssemblePalletsLegacyLineIndices(pallets, sourceIndicesByMerged);
+      }
+
+      /** Дрогери и ЛАБ: merged-индексы в сборке; remap только для старых черновиков с raw-индексами. */
+      function normalizeAssemblePalletsForOrderClient(orderRow, pallets, meta) {
+        if (!Array.isArray(pallets)) {
+          return pallets;
+        }
+        const client = String(orderRow?.client || "").trim();
+        const rawItems = Array.isArray(orderRow?.items) ? orderRow.items : [];
+        if (!clientMergesAssemblyItemsByName(client) || !rawItems.length) {
+          return pallets;
+        }
+        const mergedPack = mergeAssemblyItemsForClient(client, rawItems, {
+          buyer_order_mode: orderRow?.buyer_order_mode,
+        });
+        return maybeRemapAssemblePalletsForMergedClient(
+          pallets,
+          mergedPack.sourceIndicesByMerged,
+          meta,
+        );
       }
 
       function palletHasSelectedOrderLine(pal, itemCount) {
@@ -11031,10 +11051,22 @@
       }
 
       function getAssemblePalletsFromOrderOrStorage(orderRow, orderId) {
+        let pallets = null;
+        let meta = null;
         if (orderRow && orderHasStoredAssembleState(orderRow)) {
-          return orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
+          pallets = orderRow.assemble_state.pallets.map((p) => migratePalletRecord(p));
+          meta = orderRow.assemble_state;
+        } else {
+          const draft = loadAssembleDraft(orderId);
+          if (draft && Array.isArray(draft.pallets)) {
+            pallets = draft.pallets.map((p) => migratePalletRecord(p));
+            meta = draft;
+          }
         }
-        return tryGetAssembleDraftPallets(orderId);
+        if (!pallets) {
+          return null;
+        }
+        return normalizeAssemblePalletsForOrderClient(orderRow || {}, pallets, meta);
       }
 
       function normalizePalletsForCompare(pallets) {
@@ -12968,17 +13000,13 @@
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
-        if (assemblySourceIndicesByMerged) {
-          const remapMeta =
-            picked.source === "local"
-              ? localDraft
-              : data.assemble_state || null;
-          picked.pallets = maybeRemapAssemblePalletsForMergedClient(
-            picked.pallets,
-            assemblySourceIndicesByMerged,
-            remapMeta,
-          );
-        }
+        const remapMeta =
+          picked.source === "local" ? localDraft : data.assemble_state || null;
+        picked.pallets = normalizeAssemblePalletsForOrderClient(
+          data,
+          picked.pallets,
+          remapMeta,
+        );
         assembleKnownRevision = Number(data.assemble_revision) || 0;
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;

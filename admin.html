@@ -1136,6 +1136,18 @@
         padding-bottom: 4px;
       }
 
+      .assemble-summary-name-row {
+        display: none;
+      }
+
+      .assemble-summary-mobile-article {
+        display: none;
+      }
+
+      .assemble-summary-desktop-label {
+        display: inline;
+      }
+
       .assemble-summary-pallets-row td {
         padding-top: 0;
         padding-bottom: 10px;
@@ -3862,6 +3874,42 @@
 
         .assemble-summary-unit-toggle {
           width: 100%;
+        }
+
+        .assemble-summary-name-row {
+          display: table-row;
+        }
+
+        .assemble-summary-name-row td {
+          border-bottom: none;
+          padding: 8px 10px 4px;
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 1.35;
+          color: var(--text-main);
+        }
+
+        .assemble-summary-line-row td {
+          padding-top: 2px;
+        }
+
+        .assemble-summary-article-cell {
+          max-width: 22vw;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .assemble-summary-desktop-label {
+          display: none;
+        }
+
+        .assemble-summary-mobile-article {
+          display: inline;
+        }
+
+        .assemble-summary-table thead th:nth-child(2) {
+          max-width: 22vw;
         }
 
         .icon-btn {
@@ -13005,18 +13053,30 @@
             const qAlloc = summaryPiecesToUnit(it, allocP, unit);
             const qRest = summaryPiecesToUnit(it, restP, unit);
             const bad = allocP > maxP + 1e-4;
-            const title = escapeXml(formatAssembleProductLabel(it, assembleOrderSnapshot));
+            const artRaw = String(it?.article || "").trim();
+            const namRaw = String(it?.name || "").trim();
+            const art = escapeXml(artRaw || "—");
+            const nam = escapeXml(namRaw || artRaw || "—");
+            const fullTitle = escapeXml(formatAssembleProductLabel(it, assembleOrderSnapshot));
             const palletsMeta = formatAssembleSummaryPalletsMeta(li);
-            return `<tr class="assemble-summary-line-row">
+            const nameRow =
+              namRaw && namRaw !== artRaw
+                ? `<tr class="assemble-summary-name-row">
+              <td colspan="5" class="assemble-summary-name-cell">${nam}</td>
+            </tr>`
+                : "";
+            return `${nameRow}<tr class="assemble-summary-line-row">
               <td>${li + 1}</td>
-              <td>${title}</td>
+              <td class="assemble-summary-article-cell">
+                <span class="assemble-summary-desktop-label">${fullTitle}</span>
+                <span class="assemble-summary-mobile-article">${art}</span>
+              </td>
               <td>${escapeXml(formatSummaryQty(qOrd, fine))}</td>
               <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qAlloc, fine))}</td>
               <td style="color:${restP < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qRest, fine))}</td>
             </tr>
             <tr class="assemble-summary-pallets-row">
-              <td></td>
-              <td colspan="4" class="assemble-summary-pallets-cell">${palletsMeta}</td>
+              <td colspan="5" class="assemble-summary-pallets-cell">${palletsMeta}</td>
             </tr>`;
           })
           .join("");

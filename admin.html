@@ -1427,10 +1427,6 @@
         margin-top: 4px;
       }
 
-      .orders-mobile-col-width-tuner {
-        display: none;
-      }
-
       .orders-table {
         width: 100%;
         border-collapse: separate;
@@ -3750,79 +3746,6 @@
           display: none;
         }
 
-        .orders-mobile-col-width-tuner:not([hidden]) {
-          display: block;
-          margin: 0 0 10px;
-          padding: 10px 12px;
-          border: 1px dashed rgba(255, 196, 86, 0.65);
-          border-radius: 10px;
-          background: rgba(255, 196, 86, 0.08);
-          font-size: 14px;
-          line-height: 1.35;
-        }
-
-        .orders-mobile-col-width-tuner-head {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: baseline;
-          gap: 6px 10px;
-          margin-bottom: 8px;
-        }
-
-        .orders-mobile-col-width-tuner-head strong {
-          font-size: 14px;
-          color: #ffd89a;
-        }
-
-        .orders-mobile-col-width-tuner-head .muted {
-          font-size: 12px;
-        }
-
-        .orders-mobile-col-width-tuner-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px 10px;
-        }
-
-        .orders-mobile-col-width-field {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 0;
-          font-size: 13px;
-        }
-
-        .orders-mobile-col-width-field span {
-          color: var(--text-muted);
-        }
-
-        .orders-mobile-col-width-field input {
-          width: 100%;
-          margin: 0;
-          padding: 6px 8px;
-          font-family: "Roboto Mono", "Consolas", monospace;
-          font-size: 14px;
-          color: var(--text-main);
-          background: rgba(10, 14, 23, 0.75);
-          border: 1px solid rgba(0, 200, 160, 0.28);
-          border-radius: 8px;
-          box-sizing: border-box;
-        }
-
-        .orders-mobile-col-width-snippet {
-          margin: 8px 0 0;
-          padding: 8px 10px;
-          font-family: "Roboto Mono", "Consolas", monospace;
-          font-size: 11px;
-          line-height: 1.4;
-          white-space: pre-wrap;
-          word-break: break-word;
-          color: #b8f0dc;
-          background: rgba(8, 12, 20, 0.85);
-          border: 1px solid rgba(0, 200, 160, 0.18);
-          border-radius: 8px;
-        }
-
         .orders-table-wrap {
           max-height: min(62vh, 640px);
           overflow: auto;
@@ -3830,6 +3753,8 @@
         }
 
         .orders-table {
+          table-layout: fixed;
+          width: 100%;
           min-width: 600px;
           font-size: 18px;
           border-collapse: separate;
@@ -4100,12 +4025,13 @@
 
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: 1%;
-          min-width: 5rem;
-          max-width: 5.5rem;
-          padding-left: 3px;
-          padding-right: 3px;
+          width: 3rem;
+          min-width: 3rem;
+          max-width: 3rem;
+          padding-left: 2px;
+          padding-right: 2px;
           vertical-align: top;
+          box-sizing: border-box;
         }
 
         .orders-table thead th.col-date .orders-th-title {
@@ -4224,7 +4150,7 @@
 
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
-          width: 1%;
+          width: 8rem;
           min-width: 8rem;
           max-width: 8rem;
           padding-left: 4px;
@@ -4240,11 +4166,12 @@
 
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
-          width: 1%;
+          width: 3.5rem;
           min-width: 3.5rem;
-          max-width: 16vw;
+          max-width: 3.5rem;
           padding-left: 4px;
           padding-right: 4px;
+          box-sizing: border-box;
         }
 
         .orders-table thead th.col-pct .orders-th-title,
@@ -4267,22 +4194,24 @@
 
         .orders-table thead th.col-extra-info,
         .orders-table tbody td.col-extra-info {
-          width: 1%;
+          width: 5rem;
           min-width: 5rem;
-          max-width: 32vw;
+          max-width: 5rem;
           padding-left: 4px;
           padding-right: 4px;
           vertical-align: top;
+          box-sizing: border-box;
         }
 
         .orders-table thead th.col-qty,
         .orders-table tbody td.col-qty {
-          width: 1%;
+          width: 3.25rem;
           min-width: 3.25rem;
-          max-width: 4rem;
+          max-width: 3.25rem;
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
+          box-sizing: border-box;
         }
 
         .orders-qty-cell,
@@ -4568,40 +4497,6 @@
                   Наборы
                 </button>
               </div>
-            </div>
-            <div
-              id="orders-mobile-col-width-tuner"
-              class="orders-mobile-col-width-tuner"
-              hidden
-              aria-label="Временная настройка ширины столбцов таблицы заказов"
-            >
-              <div class="orders-mobile-col-width-tuner-head">
-                <strong>Временно: ширина столбцов</strong>
-                <span class="muted">только админ · моб.</span>
-              </div>
-              <div class="orders-mobile-col-width-tuner-grid">
-                <label class="orders-mobile-col-width-field">
-                  <span>Дата</span>
-                  <input type="text" data-orders-mobile-col="date" value="5rem" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="orders-mobile-col-width-field">
-                  <span>Клиент</span>
-                  <input type="text" data-orders-mobile-col="client" value="8rem" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="orders-mobile-col-width-field">
-                  <span>%</span>
-                  <input type="text" data-orders-mobile-col="pct" value="3.5rem" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="orders-mobile-col-width-field">
-                  <span>Кол-во</span>
-                  <input type="text" data-orders-mobile-col="qty" value="3.25rem" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="orders-mobile-col-width-field">
-                  <span>Доп.</span>
-                  <input type="text" data-orders-mobile-col="extra-info" value="5rem" autocomplete="off" spellcheck="false" />
-                </label>
-              </div>
-              <pre id="orders-mobile-col-width-snippet" class="orders-mobile-col-width-snippet" aria-live="polite"></pre>
             </div>
             <div class="orders-table-wrap">
               <table class="orders-table">
@@ -10640,165 +10535,6 @@
         return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · всего ${escapeXml(qtyPart)}</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(qtyShort)}</span></span>`;
       }
 
-      const ORDERS_MOBILE_COL_WIDTH_STORAGE = "paletlist_orders_mobile_col_widths_v1";
-      const ORDERS_MOBILE_COL_WIDTH_KEYS = [
-        { key: "date", cls: "col-date", label: "Дата" },
-        { key: "client", cls: "col-client", label: "Клиент" },
-        { key: "pct", cls: "col-pct", label: "%" },
-        { key: "qty", cls: "col-qty", label: "Кол-во" },
-        { key: "extra-info", cls: "col-extra-info", label: "Доп." },
-      ];
-      const ordersMobileColWidthTuner = document.getElementById("orders-mobile-col-width-tuner");
-      const ordersMobileColWidthSnippet = document.getElementById("orders-mobile-col-width-snippet");
-      const ordersMobileColWidthMq = window.matchMedia("(max-width: 768px)");
-
-      function normalizeOrdersMobileColWidth(raw) {
-        const s = String(raw || "").trim();
-        if (!s) {
-          return "";
-        }
-        if (/^\d+(\.\d+)?$/.test(s)) {
-          return `${s}rem`;
-        }
-        return s;
-      }
-
-      function loadOrdersMobileColWidthInputs() {
-        if (!ordersMobileColWidthTuner) {
-          return;
-        }
-        let saved = null;
-        try {
-          const raw = sessionStorage.getItem(ORDERS_MOBILE_COL_WIDTH_STORAGE);
-          if (raw) {
-            saved = JSON.parse(raw);
-          }
-        } catch (e) {
-          /* ignore */
-        }
-        if (!saved || typeof saved !== "object") {
-          return;
-        }
-        ordersMobileColWidthTuner.querySelectorAll("[data-orders-mobile-col]").forEach((input) => {
-          const key = input.dataset.ordersMobileCol;
-          if (key && Object.prototype.hasOwnProperty.call(saved, key)) {
-            input.value = String(saved[key] ?? "");
-          }
-        });
-      }
-
-      function saveOrdersMobileColWidthInputs() {
-        if (!ordersMobileColWidthTuner) {
-          return;
-        }
-        const payload = {};
-        ordersMobileColWidthTuner.querySelectorAll("[data-orders-mobile-col]").forEach((input) => {
-          payload[input.dataset.ordersMobileCol] = input.value.trim();
-        });
-        try {
-          sessionStorage.setItem(ORDERS_MOBILE_COL_WIDTH_STORAGE, JSON.stringify(payload));
-        } catch (e) {
-          /* ignore */
-        }
-      }
-
-      function buildOrdersMobileColWidthSnippet() {
-        const lines = ORDERS_MOBILE_COL_WIDTH_KEYS.map(({ key, cls, label }) => {
-          const input = ordersMobileColWidthTuner
-            ? ordersMobileColWidthTuner.querySelector(`[data-orders-mobile-col="${key}"]`)
-            : null;
-          const raw = input ? input.value.trim() : "";
-          const width = normalizeOrdersMobileColWidth(raw);
-          return width
-            ? `.orders-table thead th.${cls},\n.orders-table tbody td.${cls} { width: ${width}; min-width: ${width}; max-width: ${width}; } /* ${label} */`
-            : `/* ${label}: CSS по умолчанию */`;
-        });
-        return lines.join("\n\n");
-      }
-
-      function applyOrdersMobileColWidths() {
-        const table = document.querySelector("#orders-workspace .orders-table");
-        if (!table) {
-          return;
-        }
-        if (!isAdminUser() || !ordersMobileColWidthMq.matches) {
-          table.style.removeProperty("table-layout");
-          ORDERS_MOBILE_COL_WIDTH_KEYS.forEach(({ cls }) => {
-            table.querySelectorAll(`thead th.${cls}, tbody td.${cls}`).forEach((el) => {
-              el.style.removeProperty("width");
-              el.style.removeProperty("min-width");
-              el.style.removeProperty("max-width");
-            });
-          });
-          if (ordersMobileColWidthSnippet) {
-            ordersMobileColWidthSnippet.textContent = "";
-          }
-          return;
-        }
-        let anySet = false;
-        ORDERS_MOBILE_COL_WIDTH_KEYS.forEach(({ key, cls }) => {
-          const input = ordersMobileColWidthTuner
-            ? ordersMobileColWidthTuner.querySelector(`[data-orders-mobile-col="${key}"]`)
-            : null;
-          const width = normalizeOrdersMobileColWidth(input ? input.value : "");
-          const cells = table.querySelectorAll(`thead th.${cls}, tbody td.${cls}`);
-          if (!width) {
-            cells.forEach((el) => {
-              el.style.removeProperty("width");
-              el.style.removeProperty("min-width");
-              el.style.removeProperty("max-width");
-            });
-            return;
-          }
-          anySet = true;
-          cells.forEach((el) => {
-            el.style.width = width;
-            el.style.minWidth = width;
-            el.style.maxWidth = width;
-          });
-        });
-        if (anySet) {
-          table.style.tableLayout = "fixed";
-        } else {
-          table.style.removeProperty("table-layout");
-        }
-        if (ordersMobileColWidthSnippet) {
-          ordersMobileColWidthSnippet.textContent = buildOrdersMobileColWidthSnippet();
-        }
-      }
-
-      function syncOrdersMobileColWidthTunerVisibility() {
-        if (!ordersMobileColWidthTuner) {
-          return;
-        }
-        const show = isAdminUser() && ordersMobileColWidthMq.matches;
-        ordersMobileColWidthTuner.hidden = !show;
-        applyOrdersMobileColWidths();
-      }
-
-      function initOrdersMobileColWidthTuner() {
-        if (!ordersMobileColWidthTuner) {
-          return;
-        }
-        loadOrdersMobileColWidthInputs();
-        syncOrdersMobileColWidthTunerVisibility();
-        ordersMobileColWidthTuner.addEventListener("input", (ev) => {
-          if (!ev.target.matches("[data-orders-mobile-col]")) {
-            return;
-          }
-          saveOrdersMobileColWidthInputs();
-          applyOrdersMobileColWidths();
-        });
-        if (typeof ordersMobileColWidthMq.addEventListener === "function") {
-          ordersMobileColWidthMq.addEventListener("change", syncOrdersMobileColWidthTunerVisibility);
-        } else if (typeof ordersMobileColWidthMq.addListener === "function") {
-          ordersMobileColWidthMq.addListener(syncOrdersMobileColWidthTunerVisibility);
-        }
-        window.addEventListener("resize", syncOrdersMobileColWidthTunerVisibility);
-      }
-
-      initOrdersMobileColWidthTuner();
-
       function syncOrdersNamesUnitButtons() {
         if (!ordersWorkspace) {
           return;
@@ -11159,20 +10895,17 @@
         updateOrdersClientFilterToggle();
         syncOrdersSortIndicators();
         if (!ordersTableBody) {
-          applyOrdersMobileColWidths();
           return;
         }
         if (!cachedOrdersListRows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Заказов пока нет.</td></tr>";
-          applyOrdersMobileColWidths();
           return;
         }
         const rows = getOrdersRowsForDisplay();
         if (!rows.length) {
           ordersTableBody.innerHTML =
             "<tr><td colspan=\"6\" class=\"muted\">Нет заказов по текущим фильтрам.</td></tr>";
-          applyOrdersMobileColWidths();
           return;
         }
         ordersTableBody.innerHTML = rows
@@ -11215,7 +10948,6 @@
                 </tr>`;
           })
           .join("");
-        applyOrdersMobileColWidths();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";

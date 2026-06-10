@@ -1302,6 +1302,10 @@
         gap: 8px;
       }
 
+      .orders-qty-line--mobile {
+        display: none;
+      }
+
       .orders-import-skipped-note {
         display: block;
         margin-top: 0;
@@ -4192,6 +4196,19 @@
         .orders-qty-cell,
         .orders-qty-cell .muted {
           font-size: 18px;
+        }
+
+        .orders-qty-line--desktop {
+          display: none;
+        }
+
+        .orders-qty-line--mobile {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0;
+          line-height: 1.35;
+          white-space: nowrap;
         }
 
         .nomenclature-workspace-scroll {
@@ -10461,15 +10478,18 @@
         });
         const suf = unit === "box" ? "кор" : unit === "set" ? "наб" : "шт";
         const countPart = `${nLines} ${ruOrderLineCountLabel(nLines)}`;
+        const countShort = `${nLines} наим.`;
         if (!anyFinite) {
-          return `${escapeXml(countPart)} · —`;
+          return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · —</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>—</span></span>`;
         }
         const rounded = Math.round(sum);
         const numStr =
           Math.abs(sum - rounded) < 1e-9
             ? String(rounded)
             : sum.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
-        return `${escapeXml(countPart)} · всего ${escapeXml(numStr)} ${escapeXml(suf)}`;
+        const qtyPart = `${numStr} ${suf}`;
+        const qtyShort = `${numStr} ${suf}.`;
+        return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · всего ${escapeXml(qtyPart)}</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(qtyShort)}</span></span>`;
       }
 
       function syncOrdersNamesUnitButtons() {

@@ -3743,20 +3743,7 @@
         }
 
         .orders-names-toolbar {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        .orders-names-unit-toggle {
-          width: 100%;
-          justify-content: stretch;
-        }
-
-        .orders-names-unit-btn {
-          flex: 1;
-          min-width: 0;
-          text-align: center;
-          padding: 10px 8px;
+          display: none;
         }
 
         .orders-table-wrap {
@@ -3766,8 +3753,6 @@
         }
 
         .orders-table {
-          table-layout: fixed;
-          width: 100%;
           min-width: 600px;
           font-size: 18px;
           border-collapse: separate;
@@ -4038,9 +4023,9 @@
 
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: 2.625rem;
-          min-width: 2.625rem;
-          max-width: 2.625rem;
+          width: 1%;
+          min-width: 3rem;
+          max-width: 3.5rem;
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
@@ -4157,7 +4142,7 @@
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
           width: auto;
-          min-width: 0;
+          min-width: 5.5rem;
           max-width: none;
           padding-left: 4px;
           padding-right: 4px;
@@ -4208,9 +4193,9 @@
 
         .orders-table thead th.col-qty,
         .orders-table tbody td.col-qty {
-          width: 3.125rem;
-          min-width: 3.125rem;
-          max-width: 3.125rem;
+          width: 1%;
+          min-width: 3.25rem;
+          max-width: 4rem;
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
@@ -10491,28 +10476,49 @@
           return escapeXml(String(o.names || "").trim() || "—");
         }
         const nLines = items.length;
-        let sum = 0;
-        let anyFinite = false;
-        items.forEach((it) => {
-          const v = orderItemQuantityInDisplayUnit(it, unit);
-          if (v !== null && Number.isFinite(v)) {
-            sum += v;
-            anyFinite = true;
-          }
-        });
-        const suf = unit === "box" ? "кор" : unit === "set" ? "наб" : "шт";
         const countPart = `${nLines} ${ruOrderLineCountLabel(nLines)}`;
         const countShort = `${nLines} наим.`;
-        if (!anyFinite) {
-          return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · —</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>—</span></span>`;
+
+        function sumInUnit(u) {
+          let sum = 0;
+          let anyFinite = false;
+          items.forEach((it) => {
+            const v = orderItemQuantityInDisplayUnit(it, u);
+            if (v !== null && Number.isFinite(v)) {
+              sum += v;
+              anyFinite = true;
+            }
+          });
+          return { sum, anyFinite };
         }
-        const rounded = Math.round(sum);
+
+        function formatQtyShort(sum, anyFinite, suf) {
+          if (!anyFinite) {
+            return "—";
+          }
+          const rounded = Math.round(sum);
+          const numStr =
+            Math.abs(sum - rounded) < 1e-9
+              ? String(rounded)
+              : sum.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+          return `${numStr} ${suf}.`;
+        }
+
+        const desktop = sumInUnit(unit);
+        const mobile = sumInUnit("box");
+        const suf = unit === "box" ? "кор" : unit === "set" ? "наб" : "шт";
+
+        if (!desktop.anyFinite) {
+          return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · —</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(formatQtyShort(mobile.sum, mobile.anyFinite, "кор"))}</span></span>`;
+        }
+
+        const rounded = Math.round(desktop.sum);
         const numStr =
-          Math.abs(sum - rounded) < 1e-9
+          Math.abs(desktop.sum - rounded) < 1e-9
             ? String(rounded)
-            : sum.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+            : desktop.sum.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
         const qtyPart = `${numStr} ${suf}`;
-        const qtyShort = `${numStr} ${suf}.`;
+        const qtyShort = formatQtyShort(mobile.sum, mobile.anyFinite, "кор");
         return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · всего ${escapeXml(qtyPart)}</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(qtyShort)}</span></span>`;
       }
 

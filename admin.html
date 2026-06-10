@@ -4063,7 +4063,7 @@
           max-width: 100%;
           min-width: 0;
           position: relative;
-          padding-bottom: 48px;
+          padding-bottom: 92px;
           overflow: visible;
         }
 
@@ -4101,13 +4101,18 @@
           position: absolute;
           left: 0;
           bottom: 0;
-          max-width: none;
+          flex-direction: column;
+          align-items: flex-start;
+          width: 44px;
+          max-width: 44px;
           margin-top: 0;
-          z-index: 2;
+          z-index: 1;
         }
 
         .orders-row-actions.orders-row-actions--mobile-client {
           max-width: 100%;
+          position: relative;
+          z-index: 2;
         }
 
         .orders-row-actions.orders-row-actions--mobile-date .icon-btn,

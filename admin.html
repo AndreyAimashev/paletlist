@@ -1540,6 +1540,10 @@
         white-space: nowrap;
       }
 
+      .orders-date-text--short {
+        display: none;
+      }
+
       /* Дубликаты кнопок в дате / клиенте — только мобильная вёрстка (десктоп скрыт) */
       .orders-row-actions.orders-row-actions--mobile-date,
       .orders-row-actions.orders-row-actions--mobile-client {
@@ -4029,8 +4033,8 @@
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
           width: 1%;
-          min-width: 5.5rem;
-          max-width: 28vw;
+          min-width: 5.75rem;
+          max-width: 7rem;
           padding-left: 4px;
           padding-right: 4px;
           vertical-align: top;
@@ -4061,6 +4065,15 @@
           line-height: 1.4;
           white-space: nowrap;
           max-width: 100%;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .orders-date-text--full {
+          display: none;
+        }
+
+        .orders-date-text--short {
+          display: inline;
         }
 
         /* Кнопки: 2 под датой + 2 под клиентом — в один ряд по вертикали (низ ячейки строки) */
@@ -10498,6 +10511,24 @@
         return Number.isFinite(t2) ? t2 : 0;
       }
 
+      function formatOrderShipDateDayMonth(raw) {
+        const s = String(raw || "").trim();
+        if (!s || s === "—") {
+          return "—";
+        }
+        const dm = /^(\d{1,2})\.(\d{1,2})(?:\.\d{4})?$/.exec(s);
+        if (dm) {
+          const dd = dm[1].padStart(2, "0");
+          const mm = dm[2].padStart(2, "0");
+          return `${dd}.${mm}`;
+        }
+        const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (iso) {
+          return `${iso[3]}.${iso[2]}`;
+        }
+        return s;
+      }
+
       function getOrdersRowsForDisplay() {
         const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows.slice() : [];
         let list = base;
@@ -10833,7 +10864,8 @@
             return `<tr>
                   <td class="col-date">
                     <div class="orders-date-cell">
-                      <span class="orders-date-text">${escapeXml(o.ship_date || "—")}</span>
+                      <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
+                      <span class="orders-date-text orders-date-text--short">${escapeXml(formatOrderShipDateDayMonth(o.ship_date))}</span>
                       ${actionsMobileDateHtml}
                     </div>
                   </td>

@@ -1302,6 +1302,14 @@
         gap: 8px;
       }
 
+      .orders-qty-line--desktop {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+        line-height: 1.35;
+      }
+
       .orders-qty-line--mobile {
         display: none;
       }
@@ -10601,7 +10609,7 @@
         const suf = unit === "box" ? "кор" : unit === "set" ? "наб" : "шт";
 
         if (!desktop.anyFinite) {
-          return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · —</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(formatQtyShort(mobile.sum, mobile.anyFinite, "кор"))}</span></span>`;
+          return `<span class="orders-qty-line orders-qty-line--desktop"><span>${escapeXml(countPart)}</span><span>—</span></span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(formatQtyShort(mobile.sum, mobile.anyFinite, "кор"))}</span></span>`;
         }
 
         const rounded = Math.round(desktop.sum);
@@ -10611,7 +10619,7 @@
             : desktop.sum.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
         const qtyPart = `${numStr} ${suf}`;
         const qtyShort = formatQtyShort(mobile.sum, mobile.anyFinite, "кор");
-        return `<span class="orders-qty-line orders-qty-line--desktop">${escapeXml(countPart)} · всего ${escapeXml(qtyPart)}</span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(qtyShort)}</span></span>`;
+        return `<span class="orders-qty-line orders-qty-line--desktop"><span>${escapeXml(countPart)}</span><span>${escapeXml(qtyPart)}</span></span><span class="orders-qty-line orders-qty-line--mobile"><span>${escapeXml(countShort)}</span><span>${escapeXml(qtyShort)}</span></span>`;
       }
 
       function syncOrdersNamesUnitButtons() {

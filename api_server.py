@@ -1701,6 +1701,51 @@ def build_blank_arnest_unirus_pallet_sheets_pdf(page_count: int) -> tuple[bytes 
     return None, "pdf_build"
 
 
+def _batches_export_pdf_page_bottom(pdf: FPDF, margin: float, footer_h: float) -> float:
+    return pdf.h - margin - footer_h
+
+
+def _batches_export_pdf_row_height(
+    pdf: FPDF,
+    w_name: float,
+    w_batch: float,
+    line_h: float,
+    name: str,
+    batches: str,
+) -> float:
+    name_s = str(name or "—").strip() or "—"
+    batch_s = str(batches or "").strip() or "—"
+    h_name = pdf.multi_cell(w_name, line_h, name_s, dry_run=True, output="HEIGHT")
+    h_batch = pdf.multi_cell(w_batch, line_h, batch_s, dry_run=True, output="HEIGHT")
+    return max(line_h, h_name, h_batch)
+
+
+def _batches_export_pdf_draw_table_header(
+    pdf: FPDF,
+    col_name: float,
+    col_batch: float,
+) -> None:
+    pdf.set_font("PLCalibri", "B", 10)
+    pdf.set_fill_color(228, 238, 234)
+    pdf.cell(col_name, 7, "Наименование", border=1, fill=True)
+    pdf.cell(col_batch, 7, "Партия", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("PLCalibri", "", 10)
+
+
+def _batches_export_pdf_draw_block_intro(
+    pdf: FPDF,
+    ship: str,
+    client: str,
+    col_name: float,
+    col_batch: float,
+) -> None:
+    pdf.set_font("PLCalibri", "B", 11)
+    pdf.cell(0, 6, f"Дата отгрузки: {ship}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, f"Клиент: {client}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    _batches_export_pdf_draw_table_header(pdf, col_name, col_batch)
+
+
 def _batches_export_pdf_draw_row(
     pdf: FPDF,
     x: float,
@@ -1714,15 +1759,23 @@ def _batches_export_pdf_draw_row(
     """Две ячейки в строке; возвращает высоту строки (мм)."""
     name_s = str(name or "—").strip() or "—"
     batch_s = str(batches or "").strip() or "—"
+    h_row = _batches_export_pdf_row_height(pdf, w_name, w_batch, line_h, name_s, batch_s)
+    pdf.rect(x, y, w_name, h_row)
+    pdf.rect(x + w_name, y, w_batch, h_row)
     pdf.set_xy(x, y)
-    pdf.multi_cell(w_name, line_h, name_s, border=1)
-    y2 = pdf.get_y()
-    h_row = max(line_h, y2 - y)
+    pdf.multi_cell(w_name, line_h, name_s, border=0)
     pdf.set_xy(x + w_name, y)
-    pdf.multi_cell(w_batch, line_h, batch_s, border=1)
-    y3 = pdf.get_y()
-    h_row = max(h_row, y3 - y)
+    pdf.multi_cell(w_batch, line_h, batch_s, border=0)
     return h_row
+
+
+class _OrdersBatchesExportPdf(FPDF):
+    _FOOTER_H_MM = 10.0
+
+    def footer(self) -> None:
+        self.set_y(-self._FOOTER_H_MM)
+        self.set_font("PLCalibri", "", 9)
+        self.cell(0, 8, f"Страница {self.page_no()} из {{nb}}", align="C")
 
 
 def build_orders_batches_export_pdf_bytes(body: dict) -> tuple[bytes | None, str | None, str | None]:
@@ -1733,18 +1786,23 @@ def build_orders_batches_export_pdf_bytes(body: dict) -> tuple[bytes | None, str
     if not HAVE_FPDF or FPDF is None:
         return None, "no_fpdf", _arnest_pallet_pdf_error_message("no_fpdf")
     try:
-        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        margin = 12.0
+        footer_h = _OrdersBatchesExportPdf._FOOTER_H_MM
+        pdf = _OrdersBatchesExportPdf(orientation="P", unit="mm", format="A4")
         font_err = _arnest_pdf_register_text_fonts(pdf)
         if font_err:
             return None, font_err, _arnest_pallet_pdf_error_message(font_err)
-        margin = 12.0
-        pdf.set_auto_page_break(auto=True, margin=margin)
+        pdf.alias_nb_pages()
+        pdf.set_auto_page_break(auto=False)
         pdf.set_margins(margin, margin, margin)
         pdf.add_page()
         page_w = pdf.w - 2 * margin
         col_name = page_w * 0.62
         col_batch = page_w - col_name
         line_h = 6.0
+        x0 = pdf.l_margin
+        page_bottom = _batches_export_pdf_page_bottom(pdf, margin, footer_h)
+        block_intro_h = 21.0
 
         pdf.set_font("PLCalibri", "B", 14)
         pdf.cell(0, 10, "Партии по заказам", new_x="LMARGIN", new_y="NEXT", align="C")
@@ -1760,29 +1818,42 @@ def build_orders_batches_export_pdf_bytes(body: dict) -> tuple[bytes | None, str
             lines = [ln for ln in lines_raw if isinstance(ln, dict)]
             if not lines:
                 continue
+
+            ship = str(block.get("ship_date") or "—").strip() or "—"
+            client = str(block.get("client") or "—").strip() or "—"
+            pdf.set_font("PLCalibri", "", 10)
+            row_items: list[tuple[str, str, float]] = []
+            for ln in lines:
+                name = str(ln.get("name") or "—").strip() or "—"
+                batches = str(ln.get("batches") or "").strip() or "—"
+                row_h = _batches_export_pdf_row_height(
+                    pdf, col_name, col_batch, line_h, name, batches
+                )
+                row_items.append((name, batches, row_h))
+
+            gap = 4.0 if wrote_any else 0.0
+            body_h = block_intro_h + sum(r[2] for r in row_items)
+            need_h = gap + body_h
+            y = pdf.get_y()
+            if y + need_h > page_bottom:
+                if body_h <= page_bottom - margin:
+                    pdf.add_page()
+                else:
+                    first_row_h = row_items[0][2] if row_items else 0.0
+                    min_start_h = gap + block_intro_h + first_row_h
+                    if y + min_start_h > page_bottom:
+                        pdf.add_page()
+
             if wrote_any:
                 pdf.ln(4)
             wrote_any = True
 
-            ship = str(block.get("ship_date") or "—").strip() or "—"
-            client = str(block.get("client") or "—").strip() or "—"
-            pdf.set_font("PLCalibri", "B", 11)
-            pdf.cell(0, 6, f"Дата отгрузки: {ship}", new_x="LMARGIN", new_y="NEXT")
-            pdf.cell(0, 6, f"Клиент: {client}", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(2)
-
-            x0 = pdf.l_margin
-            pdf.set_font("PLCalibri", "B", 10)
-            pdf.set_fill_color(228, 238, 234)
-            pdf.cell(col_name, 7, "Наименование", border=1, fill=True)
-            pdf.cell(col_batch, 7, "Партия", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("PLCalibri", "", 10)
-            for ln in lines:
-                name = str(ln.get("name") or "—").strip() or "—"
-                batches = str(ln.get("batches") or "").strip() or "—"
+            _batches_export_pdf_draw_block_intro(pdf, ship, client, col_name, col_batch)
+            for name, batches, row_h in row_items:
                 y = pdf.get_y()
-                if y + line_h > pdf.h - margin:
+                if y + row_h > page_bottom:
                     pdf.add_page()
+                    _batches_export_pdf_draw_block_intro(pdf, ship, client, col_name, col_batch)
                     y = pdf.get_y()
                 h_row = _batches_export_pdf_draw_row(
                     pdf, x0, y, col_name, col_batch, line_h, name, batches

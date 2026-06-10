@@ -1621,8 +1621,9 @@
       }
 
       .orders-table .col-actions {
-        width: 1%;
-        white-space: nowrap;
+        width: auto;
+        min-width: calc(3 * 28px + 2 * 6px);
+        white-space: normal;
         vertical-align: middle;
       }
 
@@ -2764,7 +2765,7 @@
 
       .orders-row-actions {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, auto));
+        grid-template-columns: repeat(3, minmax(0, auto));
         gap: 4px 6px;
         justify-content: start;
         align-items: center;

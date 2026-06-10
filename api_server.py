@@ -2199,6 +2199,22 @@ def _parse_orders_assemble_presence_id(path: str) -> int | None:
         return None
 
 
+def _parse_order_messages_id(path: str) -> int | None:
+    """Для /api/orders/12/messages возвращает 12."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    suffix = "/messages"
+    if not p.startswith(prefix) or not p.endswith(suffix):
+        return None
+    mid = p[len(prefix) : -len(suffix)]
+    if not mid or "/" in mid:
+        return None
+    try:
+        return int(mid)
+    except ValueError:
+        return None
+
+
 def _path_needs_orders_permission(path: str) -> bool:
     if (
         _is_orders_list_path(path)
@@ -2216,6 +2232,8 @@ def _path_needs_orders_permission(path: str) -> bool:
     if _parse_orders_lab_ship_id(path) is not None:
         return True
     if _parse_orders_assemble_presence_id(path) is not None:
+        return True
+    if _parse_order_messages_id(path) is not None:
         return True
     return False
 
@@ -2499,6 +2517,7 @@ def init_db():
         _init_orders_table(cur)
         _init_app_users_table(cur)
         _init_feedback_tables(cur)
+        _init_order_chat_tables(cur)
         _init_unique_clients_table(cur)
         _migrate_strip_trailing_name_suffixes(cur)
         con.commit()
@@ -2568,6 +2587,39 @@ def _init_feedback_tables(cur) -> None:
             WHERE is_closed = 1
             """
         )
+
+
+def _init_order_chat_tables(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_id INTEGER NOT NULL,
+          author_user_id INTEGER NOT NULL DEFAULT 0,
+          author_name TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_chat_reads (
+          order_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL DEFAULT 0,
+          last_read_at TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (order_id, user_id),
+          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_order_messages_order
+        ON order_messages(order_id)
+        """
+    )
 
 
 def _init_unique_clients_table(cur) -> None:
@@ -5176,7 +5228,7 @@ def delete_order(order_id: int) -> bool:
     return n > 0
 
 
-def fetch_orders():
+def fetch_orders(session: dict | None = None):
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -5191,6 +5243,7 @@ def fetch_orders():
             """
         ).fetchall()
         ids = [int(r["id"]) for r in rows]
+        unread_map = _order_chat_unread_map(cur, session, ids) if session else {}
         items_by_oid = {oid: [] for oid in ids}
         if ids:
             placeholders = ",".join("?" * len(ids))
@@ -5254,6 +5307,7 @@ def fetch_orders():
                 else False,
                 **_order_editor_fields_from_row(row),
                 "items": items,
+                "chat_has_unread": bool(unread_map.get(oid, False)),
                 **extra_fields,
             }
         )
@@ -5819,6 +5873,179 @@ def add_feedback_message(session: dict | None, thread_id: int, body: dict) -> di
             "body": message,
             "created_at": now,
             "is_admin": is_admin,
+        },
+    }
+
+
+def _order_chat_read_user_id(session: dict | None) -> int:
+    if not session:
+        return 0
+    return int(session.get("user_id") or 0)
+
+
+def _order_chat_author_name(session: dict | None) -> str:
+    return _auth_display_name(session)
+
+
+def _order_chat_is_own_message(
+    author_user_id: int, author_name: str, session: dict | None
+) -> bool:
+    if not session:
+        return False
+    uid = _order_chat_read_user_id(session)
+    aid = int(author_user_id or 0)
+    if uid > 0 and aid > 0:
+        return uid == aid
+    if uid > 0:
+        return uid == aid
+    return (author_name or "").strip() == _order_chat_author_name(session)
+
+
+def _order_chat_mark_read(cur, order_id: int, session: dict | None) -> None:
+    if not session:
+        return
+    uid = _order_chat_read_user_id(session)
+    now = _utc_now_iso()
+    cur.execute(
+        """
+        INSERT INTO order_chat_reads (order_id, user_id, last_read_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(order_id, user_id) DO UPDATE SET
+          last_read_at = excluded.last_read_at
+        """,
+        (int(order_id), uid, now),
+    )
+
+
+def _order_chat_unread_map(
+    cur, session: dict | None, order_ids: list[int]
+) -> dict[int, bool]:
+    if not session or not order_ids:
+        return {}
+    uid = _order_chat_read_user_id(session)
+    placeholders = ",".join("?" * len(order_ids))
+    rows = cur.execute(
+        f"""
+        SELECT m.order_id, m.author_user_id, m.author_name, m.created_at,
+               COALESCE(r.last_read_at, '') AS last_read_at
+        FROM order_messages m
+        INNER JOIN (
+            SELECT order_id, MAX(id) AS max_id
+            FROM order_messages
+            WHERE order_id IN ({placeholders})
+            GROUP BY order_id
+        ) latest ON latest.max_id = m.id
+        LEFT JOIN order_chat_reads r
+          ON r.order_id = m.order_id AND r.user_id = ?
+        """,
+        (*order_ids, uid),
+    ).fetchall()
+    out: dict[int, bool] = {}
+    for row in rows:
+        oid = int(row["order_id"])
+        if _order_chat_is_own_message(
+            int(row["author_user_id"] or 0),
+            row["author_name"] or "",
+            session,
+        ):
+            out[oid] = False
+            continue
+        last_at = (row["created_at"] or "").strip()
+        read_at = (row["last_read_at"] or "").strip()
+        out[oid] = bool(last_at) and (not read_at or read_at < last_at)
+    return out
+
+
+def fetch_order_chat(session: dict | None, order_id: int) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        exists = cur.execute(
+            "SELECT id FROM orders WHERE id = ?",
+            (int(order_id),),
+        ).fetchone()
+        if not exists:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        rows = cur.execute(
+            """
+            SELECT id, author_user_id, author_name, body, created_at
+            FROM order_messages
+            WHERE order_id = ?
+            ORDER BY id ASC
+            """,
+            (int(order_id),),
+        ).fetchall()
+        _order_chat_mark_read(cur, int(order_id), session)
+        con.commit()
+        con.close()
+    messages = [
+        {
+            "id": int(m["id"]),
+            "author_user_id": int(m["author_user_id"] or 0),
+            "author_name": m["author_name"] or "",
+            "body": m["body"] or "",
+            "created_at": m["created_at"] or "",
+            "is_own": _order_chat_is_own_message(
+                int(m["author_user_id"] or 0),
+                m["author_name"] or "",
+                session,
+            ),
+        }
+        for m in rows
+    ]
+    return {
+        "order_id": int(order_id),
+        "messages": messages,
+        "chat_has_unread": False,
+    }
+
+
+def add_order_message(session: dict | None, order_id: int, body: dict) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    message = _normalize_str(body.get("message", ""))
+    if not message:
+        return {"error": "validation", "message": "Напишите сообщение."}
+    if len(message) > 8000:
+        return {"error": "validation", "message": "Сообщение слишком длинное."}
+    author_user_id = _order_chat_read_user_id(session)
+    author_name = _order_chat_author_name(session)
+    now = _utc_now_iso()
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        exists = cur.execute(
+            "SELECT id FROM orders WHERE id = ?",
+            (int(order_id),),
+        ).fetchone()
+        if not exists:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        cur.execute(
+            """
+            INSERT INTO order_messages (
+              order_id, author_user_id, author_name, body, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(order_id), author_user_id, author_name, message, now),
+        )
+        msg_id = int(cur.lastrowid)
+        _order_chat_mark_read(cur, int(order_id), session)
+        con.commit()
+        con.close()
+    return {
+        "ok": True,
+        "id": msg_id,
+        "message": {
+            "id": msg_id,
+            "author_user_id": author_user_id,
+            "author_name": author_name,
+            "body": message,
+            "created_at": now,
+            "is_own": True,
         },
     }
 
@@ -6555,8 +6782,24 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, detail)
             return
+        order_chat_oid = _parse_order_messages_id(path)
+        if order_chat_oid is not None:
+            if not self._ensure_path_permissions(path):
+                return
+            result = fetch_order_chat(self._auth_session, order_chat_oid)
+            err = result.get("error")
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "unauthorized":
+                self._send_json(401, result)
+                return
+            self._send_json(200, result)
+            return
         if _is_orders_list_path(path):
-            self._send_json(200, fetch_orders())
+            if not self._ensure_path_permissions(path):
+                return
+            self._send_json(200, fetch_orders(session=self._auth_session))
             return
         if _is_users_list_path(path):
             if not self._require_users_manager():
@@ -6645,6 +6888,34 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             if err == "closed":
                 self._send_json(400, result)
+                return
+            self._send_json(201, result)
+            return
+        order_chat_oid = _parse_order_messages_id(path)
+        if order_chat_oid is not None:
+            if not self._ensure_path_permissions(path):
+                return
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                result = add_order_message(
+                    self._auth_session, order_chat_oid, body
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "unauthorized":
+                self._send_json(401, result)
                 return
             self._send_json(201, result)
             return

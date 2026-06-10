@@ -2701,6 +2701,59 @@
         display: block;
       }
 
+      .orders-chat-btn--unread {
+        position: relative;
+        border-color: rgba(255, 196, 86, 0.72);
+        color: #ffd89a;
+      }
+
+      .orders-chat-btn--unread::after {
+        content: "";
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff8da1;
+        box-shadow: 0 0 6px rgba(255, 141, 161, 0.85);
+      }
+
+      .order-chat-dialog {
+        width: min(560px, 100%);
+      }
+
+      .order-chat-meta {
+        margin: 0 0 12px;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .order-chat-reply {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .order-chat-reply textarea {
+        width: 100%;
+        min-height: 72px;
+        box-sizing: border-box;
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-family: inherit;
+        font-size: 14px;
+        resize: vertical;
+      }
+
+      .order-chat-message.is-own {
+        border-color: rgba(0, 200, 160, 0.32);
+        background: rgba(12, 28, 24, 0.72);
+      }
+
       .orders-row-actions {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, auto));
@@ -5440,6 +5493,22 @@
       </div>
     </div>
 
+    <div id="order-chat-overlay" class="modal-overlay" hidden>
+      <div id="order-chat-dialog" class="modal-dialog order-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="order-chat-title">
+        <h3 id="order-chat-title">Чат заказа</h3>
+        <p id="order-chat-meta" class="order-chat-meta"></p>
+        <p id="order-chat-error" class="modal-error" hidden></p>
+        <ul id="order-chat-messages" class="feedback-messages"></ul>
+        <form id="order-chat-form" class="order-chat-reply">
+          <textarea id="order-chat-input" rows="3" placeholder="Сообщение…" maxlength="8000"></textarea>
+          <div class="modal-actions">
+            <button class="menu-button" type="submit">Отправить</button>
+            <button id="order-chat-close" class="menu-button" type="button">Закрыть</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <template id="order-item-row-template">
       <div class="order-item-row">
         <div class="order-item-autocomplete">
@@ -6623,6 +6692,15 @@
       const assembleOptionalBatchRoot = document.getElementById("assemble-optional-batch-root");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
+      const orderChatOverlay = document.getElementById("order-chat-overlay");
+      const orderChatDialog = document.getElementById("order-chat-dialog");
+      const orderChatTitleEl = document.getElementById("order-chat-title");
+      const orderChatMetaEl = document.getElementById("order-chat-meta");
+      const orderChatErrorEl = document.getElementById("order-chat-error");
+      const orderChatMessagesEl = document.getElementById("order-chat-messages");
+      const orderChatForm = document.getElementById("order-chat-form");
+      const orderChatInput = document.getElementById("order-chat-input");
+      const orderChatCloseBtn = document.getElementById("order-chat-close");
       const ordersImportExcelBtn = document.getElementById("orders-import-excel-btn");
       const ordersImportDrogeriExcelBtn = document.getElementById("orders-import-drogeri-excel-btn");
       const ordersExportBatchesBtn = document.getElementById("orders-export-batches-btn");
@@ -6663,6 +6741,7 @@
       const ORDER_ROW_ICON_ASSEMBLE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7.7 12 12.5l8.7-4.8"/><path d="M12 22.5V12.5"/></svg>`;
       const ORDER_ROW_ICON_PALLET = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`;
       const ORDER_ROW_ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
+      const ORDER_ROW_ICON_CHAT = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
       const ORDER_ROW_ICON_SHIP = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><path d="M16 8h6v4"/><path d="M2 8h2"/><circle cx="7" cy="18" r="2"/><path d="M9 18h6"/><circle cx="17" cy="18" r="2"/></svg>`;
       const mainMenuTools = document.querySelector(".main-menu-tools");
       const updatesOpenBtn = document.getElementById("updates-open-btn");
@@ -10871,20 +10950,228 @@
         await loadOrders();
       }
 
-      function renderOrderRowActions(orderId, variant) {
+      function renderOrderChatButton(orderId, hasUnread) {
+        const sid = Number.isFinite(Number(orderId)) ? String(orderId) : "";
+        const cls = hasUnread
+          ? "icon-btn orders-chat-btn orders-chat-btn--unread"
+          : "icon-btn orders-chat-btn";
+        return `<button type="button" class="${cls}" data-order-id="${sid}" data-order-action="chat" title="Чат заказа">${ORDER_ROW_ICON_CHAT}</button>`;
+      }
+
+      function orderChatMessagesSignature(messages) {
+        const list = Array.isArray(messages) ? messages : [];
+        if (!list.length) {
+          return "";
+        }
+        return list.map((m) => `${m.id}:${m.created_at || ""}`).join("|");
+      }
+
+      function isOrderChatModalOpen() {
+        return !!(orderChatOverlay && !orderChatOverlay.hidden && orderChatActiveId != null);
+      }
+
+      function setOrderChatError(message, isError = false) {
+        if (!orderChatErrorEl) {
+          return;
+        }
+        const text = String(message || "").trim();
+        if (!text) {
+          orderChatErrorEl.hidden = true;
+          orderChatErrorEl.textContent = "";
+          orderChatErrorEl.classList.remove("modal-error");
+          return;
+        }
+        orderChatErrorEl.hidden = false;
+        orderChatErrorEl.textContent = text;
+        orderChatErrorEl.classList.toggle("modal-error", !!isError);
+      }
+
+      function renderOrderChatMessages(messages, opts = {}) {
+        if (!orderChatMessagesEl) {
+          return;
+        }
+        const list = Array.isArray(messages) ? messages : [];
+        if (!list.length) {
+          orderChatMessagesEl.innerHTML = '<li class="muted">Сообщений пока нет.</li>';
+          return;
+        }
+        orderChatMessagesEl.innerHTML = list
+          .map((msg) => {
+            const author = escapeXml(msg.author_name || "Пользователь");
+            const body = escapeXml(msg.body || "");
+            const time = escapeXml(formatFeedbackDateTime(msg.created_at));
+            const ownClass = msg.is_own ? " is-own" : "";
+            return `<li class="feedback-message order-chat-message${ownClass}">
+              <span class="feedback-message__author">${author}</span>
+              <p class="feedback-message__body">${body}</p>
+              <span class="feedback-message__time">${time}</span>
+            </li>`;
+          })
+          .join("");
+        if (opts.scrollToBottom !== false) {
+          orderChatMessagesEl.scrollTop = orderChatMessagesEl.scrollHeight;
+        }
+      }
+
+      function markOrderChatReadLocally(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        cachedOrdersListRows = cachedOrdersListRows.map((row) =>
+          row.id === oid ? { ...row, chat_has_unread: false } : row,
+        );
+        if (currentStage === "orders" && ordersTableBody) {
+          ordersTableBody.querySelectorAll(`button[data-order-action="chat"][data-order-id="${oid}"]`).forEach((btn) => {
+            btn.classList.remove("orders-chat-btn--unread");
+          });
+        }
+      }
+
+      function applyOrderChatData(data, opts = {}) {
+        if (!data || data.order_id == null) {
+          return;
+        }
+        orderChatData = data;
+        orderChatActiveId = Number(data.order_id);
+        const row = cachedOrdersListRows.find((o) => o.id === orderChatActiveId);
+        if (orderChatTitleEl) {
+          orderChatTitleEl.textContent = `Чат заказа №${orderChatActiveId}`;
+        }
+        if (orderChatMetaEl) {
+          const client = row && row.client ? String(row.client).trim() : "";
+          const ship = row && row.ship_date ? String(row.ship_date).trim() : "";
+          orderChatMetaEl.textContent = [client, ship ? `отгрузка ${ship}` : ""]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        renderOrderChatMessages(data.messages, opts);
+        markOrderChatReadLocally(orderChatActiveId);
+      }
+
+      function stopOrderChatSyncPoll() {
+        if (orderChatSyncPollTimer) {
+          clearInterval(orderChatSyncPollTimer);
+          orderChatSyncPollTimer = null;
+        }
+      }
+
+      function startOrderChatSyncPoll() {
+        stopOrderChatSyncPoll();
+        orderChatSyncPollTimer = setInterval(() => {
+          if (!isOrderChatModalOpen()) {
+            stopOrderChatSyncPoll();
+            return;
+          }
+          void pollOrderChatSync();
+        }, ORDER_CHAT_SYNC_POLL_MS);
+      }
+
+      async function pollOrderChatSync() {
+        if (!isOrderChatModalOpen() || orderChatPollInFlight || orderChatActiveId == null) {
+          return;
+        }
+        orderChatPollInFlight = true;
+        try {
+          await openOrderChatModal(orderChatActiveId, { quiet: true });
+        } finally {
+          orderChatPollInFlight = false;
+        }
+      }
+
+      async function openOrderChatModal(orderId, opts = {}) {
+        const quiet = !!opts.quiet;
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        if (!quiet) {
+          orderChatActiveId = oid;
+          if (orderChatOverlay) {
+            orderChatOverlay.hidden = false;
+          }
+          if (orderChatTitleEl) {
+            orderChatTitleEl.textContent = `Чат заказа №${oid}`;
+          }
+          if (orderChatMetaEl) {
+            orderChatMetaEl.textContent = "Загрузка…";
+          }
+          if (orderChatMessagesEl) {
+            orderChatMessagesEl.innerHTML = '<li class="muted">Загрузка…</li>';
+          }
+          setOrderChatError("");
+          startOrderChatSyncPoll();
+        }
+        let res;
+        try {
+          res = await fetch(`/api/orders/${oid}/messages`, { cache: "no-store" });
+        } catch (error) {
+          if (!quiet) {
+            setOrderChatError("Нет связи с сервером.", true);
+          }
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          if (!quiet) {
+            setOrderChatError(
+              (data && data.message) || `Не удалось открыть чат (код ${res.status}).`,
+              true,
+            );
+          }
+          return;
+        }
+        if (
+          quiet &&
+          orderChatData &&
+          orderChatMessagesSignature(orderChatData.messages) ===
+            orderChatMessagesSignature(data.messages)
+        ) {
+          return;
+        }
+        const nearBottom = orderChatMessagesEl
+          ? orderChatMessagesEl.scrollHeight -
+              orderChatMessagesEl.scrollTop -
+              orderChatMessagesEl.clientHeight <
+            48
+          : true;
+        applyOrderChatData(data, { scrollToBottom: nearBottom });
+      }
+
+      function closeOrderChatModal() {
+        stopOrderChatSyncPoll();
+        orderChatActiveId = null;
+        orderChatData = null;
+        if (orderChatOverlay) {
+          orderChatOverlay.hidden = true;
+        }
+        if (orderChatInput) {
+          orderChatInput.value = "";
+        }
+        setOrderChatError("");
+      }
+
+      function renderOrderRowActions(orderId, variant, orderRow) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
+        const hasUnread = !!(orderRow && orderRow.chat_has_unread);
         const editBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактировать заказ">${ORDER_ROW_ICON_EDIT}</button>`;
         const assembleBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка заказа">${ORDER_ROW_ICON_ASSEMBLE}</button>`;
         const palletBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Сформировать паллетные листы">${ORDER_ROW_ICON_PALLET}</button>`;
         const deleteBtn = `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
+        const chatBtn = renderOrderChatButton(sid, hasUnread);
         if (variant === "mobile-date") {
           return `<div class="orders-row-actions orders-row-actions--mobile-date">${assembleBtn}</div>`;
         }
         if (variant === "mobile-client") {
-          return `<div class="orders-row-actions orders-row-actions--mobile-client">${editBtn}${palletBtn}${deleteBtn}</div>`;
+          return `<div class="orders-row-actions orders-row-actions--mobile-client">${editBtn}${chatBtn}${palletBtn}${deleteBtn}</div>`;
         }
-        return `<div class="orders-row-actions">${editBtn}${assembleBtn}${palletBtn}${deleteBtn}</div>`;
+        return `<div class="orders-row-actions">${editBtn}${assembleBtn}${palletBtn}${deleteBtn}${chatBtn}</div>`;
       }
 
       function renderOrdersTable() {
@@ -10920,9 +11207,9 @@
             const qtyCellHtml = skippedNote
               ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit)}${skippedNote}</div>`
               : formatOrderQuantityCell(o, ordersNamesDisplayUnit);
-            const actionsHtml = renderOrderRowActions(o.id, "desktop");
-            const actionsMobileDateHtml = renderOrderRowActions(o.id, "mobile-date");
-            const actionsMobileClientHtml = renderOrderRowActions(o.id, "mobile-client");
+            const actionsHtml = renderOrderRowActions(o.id, "desktop", o);
+            const actionsMobileDateHtml = renderOrderRowActions(o.id, "mobile-date", o);
+            const actionsMobileClientHtml = renderOrderRowActions(o.id, "mobile-client", o);
             const labShipBtn = renderLabShipButton(o);
             return `<tr>
                   <td class="col-date">
@@ -10954,6 +11241,7 @@
       const ASSEMBLE_SYNC_POLL_MS = 1000;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
+      const ORDER_CHAT_SYNC_POLL_MS = 1000;
       const NOMENCLATURE_SYNC_POLL_MS = 1000;
       const FEEDBACK_SYNC_POLL_MS = 3000;
       const ASSEMBLE_SUMMARY_UNIT_STORAGE = "paletlist_assemble_summary_unit";
@@ -10975,6 +11263,11 @@
         return "piece";
       })();
       let assembleSummaryNamePopoverCloseHandler = null;
+
+      let orderChatActiveId = null;
+      let orderChatData = null;
+      let orderChatSyncPollTimer = null;
+      let orderChatPollInFlight = false;
 
       let assembleOrderSnapshot = null;
       let assembleAllocState = null;
@@ -12925,7 +13218,20 @@
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
           if (currentStage === "orders" || !quiet) {
-            renderOrdersTable();
+            if (!isOrderChatModalOpen()) {
+              renderOrdersTable();
+            } else {
+              ordersTableBody
+                .querySelectorAll('button[data-order-action="chat"]')
+                .forEach((btn) => {
+                  const oid = Number(btn.dataset.orderId);
+                  const row = enriched.find((o) => o.id === oid);
+                  if (!row) {
+                    return;
+                  }
+                  btn.classList.toggle("orders-chat-btn--unread", !!row.chat_has_unread);
+                });
+            }
           }
         } catch (error) {
           if (!quiet) {
@@ -14951,6 +15257,66 @@
         newOrderClient.addEventListener("change", syncNewOrderClientUi);
       }
 
+      if (orderChatCloseBtn) {
+        orderChatCloseBtn.addEventListener("click", () => {
+          closeOrderChatModal();
+        });
+      }
+      if (orderChatOverlay) {
+        orderChatOverlay.addEventListener("click", (event) => {
+          if (event.target === orderChatOverlay) {
+            closeOrderChatModal();
+          }
+        });
+      }
+      if (orderChatDialog) {
+        orderChatDialog.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+      }
+      if (orderChatForm) {
+        orderChatForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const oid = orderChatActiveId;
+          if (oid == null) {
+            return;
+          }
+          const text = orderChatInput ? String(orderChatInput.value || "").trim() : "";
+          if (!text) {
+            return;
+          }
+          setOrderChatError("");
+          let res;
+          try {
+            res = await fetch(`/api/orders/${oid}/messages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: text }),
+            });
+          } catch (error) {
+            setOrderChatError("Нет связи с сервером при отправке.", true);
+            return;
+          }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (error) {
+            data = null;
+          }
+          if (!res.ok) {
+            setOrderChatError(
+              (data && data.message) || `Не удалось отправить (код ${res.status}).`,
+              true,
+            );
+            return;
+          }
+          if (orderChatInput) {
+            orderChatInput.value = "";
+          }
+          await openOrderChatModal(oid, { quiet: true });
+        });
+      }
+
       newOrderCancel.addEventListener("click", () => {
         closeNewOrderModal();
       });
@@ -15246,6 +15612,8 @@
           setStage("assemble", true, id);
         } else if (act === "pallet") {
           setStage("pallet", true, id);
+        } else if (act === "chat") {
+          void openOrderChatModal(id);
         } else if (act === "lab-ship") {
           void confirmLabOrderShipment(id);
         } else if (act === "delete") {

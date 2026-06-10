@@ -4037,10 +4037,10 @@
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
           width: 1%;
-          min-width: 5.75rem;
-          max-width: 7rem;
-          padding-left: 4px;
-          padding-right: 4px;
+          min-width: 5.25rem;
+          max-width: 5.5rem;
+          padding-left: 3px;
+          padding-right: 3px;
           vertical-align: top;
         }
 
@@ -4057,16 +4057,16 @@
 
         .orders-date-cell {
           gap: 4px;
-          width: max-content;
+          width: 100%;
           max-width: 100%;
           min-width: 0;
         }
 
         .orders-date-text {
           font-family: "Roboto", sans-serif;
-          font-size: 20px;
+          font-size: 18px;
           font-weight: 400;
-          line-height: 1.4;
+          line-height: 1.35;
           white-space: nowrap;
           max-width: 100%;
           font-variant-numeric: tabular-nums;
@@ -4100,10 +4100,20 @@
           border-radius: 8px;
         }
 
+        .orders-row-actions.orders-row-actions--mobile-date .icon-btn {
+          width: 40px;
+          height: 40px;
+        }
+
         .orders-row-actions.orders-row-actions--mobile-date .icon-btn svg,
         .orders-row-actions.orders-row-actions--mobile-client .icon-btn svg {
           width: 20px;
           height: 20px;
+        }
+
+        .orders-row-actions.orders-row-actions--mobile-date .icon-btn svg {
+          width: 18px;
+          height: 18px;
         }
 
         .orders-client-cell {
@@ -4134,8 +4144,8 @@
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
           width: 1%;
-          min-width: 6rem;
-          max-width: 36vw;
+          min-width: 7rem;
+          max-width: 42vw;
           padding-left: 4px;
           padding-right: 4px;
           vertical-align: top;

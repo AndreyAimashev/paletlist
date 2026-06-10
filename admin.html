@@ -4037,8 +4037,8 @@
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
           width: 1%;
-          min-width: 5.25rem;
-          max-width: 5.5rem;
+          min-width: 3.5rem;
+          max-width: 4.25rem;
           padding-left: 3px;
           padding-right: 3px;
           vertical-align: top;
@@ -4047,6 +4047,7 @@
         .orders-table tbody td.col-date {
           white-space: nowrap;
           height: 1px;
+          overflow: visible;
         }
 
         .orders-date-cell,
@@ -4057,9 +4058,12 @@
 
         .orders-date-cell {
           gap: 4px;
-          width: 100%;
+          width: auto;
           max-width: 100%;
           min-width: 0;
+          position: relative;
+          padding-bottom: 48px;
+          overflow: visible;
         }
 
         .orders-date-text {
@@ -4088,9 +4092,21 @@
           flex-wrap: nowrap;
           gap: 4px;
           width: max-content;
-          max-width: 100%;
           margin-top: auto;
           flex-shrink: 0;
+        }
+
+        .orders-row-actions.orders-row-actions--mobile-date {
+          position: absolute;
+          left: 0;
+          bottom: 0;
+          max-width: none;
+          margin-top: 0;
+          z-index: 2;
+        }
+
+        .orders-row-actions.orders-row-actions--mobile-client {
+          max-width: 100%;
         }
 
         .orders-row-actions.orders-row-actions--mobile-date .icon-btn,
@@ -4100,20 +4116,10 @@
           border-radius: 8px;
         }
 
-        .orders-row-actions.orders-row-actions--mobile-date .icon-btn {
-          width: 40px;
-          height: 40px;
-        }
-
         .orders-row-actions.orders-row-actions--mobile-date .icon-btn svg,
         .orders-row-actions.orders-row-actions--mobile-client .icon-btn svg {
           width: 20px;
           height: 20px;
-        }
-
-        .orders-row-actions.orders-row-actions--mobile-date .icon-btn svg {
-          width: 18px;
-          height: 18px;
         }
 
         .orders-client-cell {

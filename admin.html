@@ -4085,7 +4085,7 @@
           display: inline;
         }
 
-        /* Кнопки: 2 под датой + 2 под клиентом — в один ряд по вертикали (низ ячейки строки) */
+        /* Кнопки: «Сборка» под датой, остальные — под клиентом */
         .orders-row-actions.orders-row-actions--mobile-date,
         .orders-row-actions.orders-row-actions--mobile-client {
           display: flex;
@@ -10879,10 +10879,10 @@
         const palletBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Сформировать паллетные листы">${ORDER_ROW_ICON_PALLET}</button>`;
         const deleteBtn = `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
         if (variant === "mobile-date") {
-          return `<div class="orders-row-actions orders-row-actions--mobile-date">${editBtn}${assembleBtn}</div>`;
+          return `<div class="orders-row-actions orders-row-actions--mobile-date">${assembleBtn}</div>`;
         }
         if (variant === "mobile-client") {
-          return `<div class="orders-row-actions orders-row-actions--mobile-client">${palletBtn}${deleteBtn}</div>`;
+          return `<div class="orders-row-actions orders-row-actions--mobile-client">${editBtn}${palletBtn}${deleteBtn}</div>`;
         }
         return `<div class="orders-row-actions">${editBtn}${assembleBtn}${palletBtn}${deleteBtn}</div>`;
       }

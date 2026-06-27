@@ -12326,6 +12326,9 @@
       }
 
       function restoreAssemblePalletDeletions(orderId, draft) {
+        if (!assembleDraftIsOwn(draft)) {
+          return;
+        }
         const raw = draft && draft.deleted_pallets;
         if (!raw || typeof raw !== "object") {
           return;
@@ -12668,7 +12671,63 @@
         return changed;
       }
 
+      function assembleDraftIsOwn(draft) {
+        if (!draft) {
+          return false;
+        }
+        const id = String(draft.client_id || "").trim();
+        return !!id && id === getAssembleClientId();
+      }
+
+      function assembleServerIsNewerThanDraft(orderData, localDraft) {
+        if (!orderHasStoredAssembleState(orderData)) {
+          return false;
+        }
+        const serverRev = Number(orderData.assemble_revision) || 0;
+        const localRev = Number(localDraft?.assemble_revision) || 0;
+        if (serverRev > localRev) {
+          return true;
+        }
+        if (serverRev < localRev) {
+          return false;
+        }
+        const su = String(orderData.assemble_state_updated_at || "").trim();
+        const lu = String(localDraft?.draft_saved_at || "").trim();
+        if (su && lu) {
+          const st = Date.parse(su);
+          const lt = Date.parse(lu);
+          if (Number.isFinite(st) && Number.isFinite(lt) && st > lt) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function extractOwnAssemblePalletOverlay(localPallets, clientId, orderId, items) {
+        if (!clientId) {
+          return [];
+        }
+        return (localPallets || []).filter((pal) => {
+          if (String(pal.palletEditedBy || "") === clientId) {
+            return true;
+          }
+          return (pal.slots || []).some((s) => {
+            const meta = readSlotEditMeta(s);
+            if (meta.client !== clientId) {
+              return false;
+            }
+            const li = normalizeSlot(s).lineIndex;
+            if (li === "" || !Number.isFinite(Number(li))) {
+              return false;
+            }
+            const item = items[Number(li)];
+            return slotHasMeaningfulContent(s, item);
+          });
+        });
+      }
+
       function pickAssemblePalletsOnLoad(orderData, localDraft, items) {
+        const orderId = Number(orderData.id);
         const serverPallets =
           orderData.assemble_state && Array.isArray(orderData.assemble_state.pallets)
             ? orderData.assemble_state.pallets.map((p) => migratePalletRecord(p))
@@ -12681,63 +12740,116 @@
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         const serverRev = Number(orderData.assemble_revision) || 0;
         const localRev = Number(localDraft?.assemble_revision) || 0;
-        if (serverStored) {
-          if (
-            localHas &&
-            !assembleStatesContentEqual(localPallets, serverPallets)
-          ) {
-            return {
-              pallets: mergeAssemblePalletLists(
-                localPallets,
-                serverPallets,
-                items,
-                {
-                  preferLocalOnConflict: true,
-                  localClientId: getAssembleClientId(),
-                  orderId: Number(orderData.id),
-                },
-              ),
-              revision: serverRev,
-              pushToServer: true,
-              serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
-              source: "merged",
-            };
-          }
-          if (localHas && localRev > serverRev) {
-            const sameAsServer = assembleStatesContentEqual(localPallets, serverPallets);
-            return {
-              pallets: sameAsServer ? serverPallets : localPallets,
-              revision: sameAsServer ? serverRev : localRev,
-              pushToServer: !sameAsServer,
-              serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
-              source: sameAsServer ? "server" : "local",
-            };
-          }
-          return {
-            pallets: serverPallets,
-            revision: serverRev,
-            pushToServer: false,
-            serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
-            source: "server",
-          };
-        }
-        if (localHas) {
-          const defaultPallets = [{ id: 1, palletNumber: "1", slots: [] }];
-          const sameAsDefault = assembleStatesContentEqual(localPallets, defaultPallets);
-          return {
-            pallets: localPallets,
-            revision: Math.max(localRev, serverRev),
-            pushToServer: !sameAsDefault,
-            serverHadContent: false,
-            source: "local",
-          };
-        }
-        return {
-          pallets: [{ id: 1, palletNumber: "1", slots: [] }],
+        const myClientId = getAssembleClientId();
+        const draftIsOwn = assembleDraftIsOwn(localDraft);
+        const serverHadContent = assembleStateHasMeaningfulData(items, serverPallets);
+        const serverPick = {
+          pallets: serverPallets,
           revision: serverRev,
           pushToServer: false,
-          serverHadContent: false,
-          source: "default",
+          serverHadContent,
+          source: "server",
+        };
+        const mergeCtx = {
+          preferLocalOnConflict: false,
+          localClientId: myClientId,
+          orderId,
+        };
+
+        if (!serverStored) {
+          if (localHas) {
+            const defaultPallets = [{ id: 1, palletNumber: "1", slots: [] }];
+            const sameAsDefault = assembleStatesContentEqual(localPallets, defaultPallets);
+            return {
+              pallets: localPallets,
+              revision: Math.max(localRev, serverRev),
+              pushToServer: draftIsOwn && !sameAsDefault,
+              serverHadContent: false,
+              source: "local",
+            };
+          }
+          return {
+            pallets: [{ id: 1, palletNumber: "1", slots: [] }],
+            revision: serverRev,
+            pushToServer: false,
+            serverHadContent: false,
+            source: "default",
+          };
+        }
+
+        if (!localHas || assembleStatesContentEqual(localPallets, serverPallets)) {
+          return serverPick;
+        }
+
+        if (!draftIsOwn) {
+          return serverPick;
+        }
+
+        const ownUnpushed = thisClientHasEditsNotInRemote(
+          localPallets,
+          serverPallets,
+          items,
+          myClientId,
+          orderId,
+        );
+
+        if (assembleServerIsNewerThanDraft(orderData, localDraft)) {
+          if (!ownUnpushed) {
+            return serverPick;
+          }
+          const overlay = extractOwnAssemblePalletOverlay(
+            localPallets,
+            myClientId,
+            orderId,
+            items,
+          );
+          return {
+            pallets: mergeAssemblePalletLists(overlay, serverPallets, items, mergeCtx),
+            revision: serverRev,
+            pushToServer: true,
+            serverHadContent,
+            source: "merged",
+          };
+        }
+
+        if (localRev > serverRev) {
+          const merged = mergeAssemblePalletLists(
+            localPallets,
+            serverPallets,
+            items,
+            mergeCtx,
+          );
+          const stillOwn = thisClientHasEditsNotInRemote(
+            merged,
+            serverPallets,
+            items,
+            myClientId,
+            orderId,
+          );
+          return {
+            pallets: merged,
+            revision: serverRev,
+            pushToServer: stillOwn,
+            serverHadContent,
+            source: "merged",
+          };
+        }
+
+        if (!ownUnpushed) {
+          return serverPick;
+        }
+        const overlay = extractOwnAssemblePalletOverlay(
+          localPallets,
+          myClientId,
+          orderId,
+          items,
+        );
+        return {
+          pallets: mergeAssemblePalletLists(overlay, serverPallets, items, mergeCtx),
+          revision: serverRev,
+          pushToServer: true,
+          serverHadContent,
+          source: "merged",
         };
       }
 
@@ -12949,6 +13061,13 @@
         const items = assembleOrderSnapshot.items;
         const localPallets = assembleAllocState.pallets;
         const myClientId = getAssembleClientId();
+        const ownUnpushed = thisClientHasEditsNotInRemote(
+          localPallets,
+          remotePallets,
+          items,
+          myClientId,
+          orderId,
+        );
         if (!remoteAssembleStateDiffersFromLocal(data, remotePallets)) {
           if (!assembleDirty) {
             syncOptionalBatchToggleFromServer(data);
@@ -12959,6 +13078,16 @@
           }
           return;
         }
+        const mergeCtx = {
+          preferLocalOnConflict: false,
+          localClientId: myClientId,
+          orderId,
+        };
+        if (!ownUnpushed) {
+          syncOptionalBatchToggleFromServer(data);
+          applyPullAssembleMerge(remotePallets, data, false);
+          return;
+        }
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         if (!remoteHas && localHas) {
@@ -12967,22 +13096,15 @@
           }
           return;
         }
-        const merged = mergeAssemblePalletLists(localPallets, remotePallets, items, {
-          preferLocalOnConflict: false,
-          localClientId: myClientId,
-          orderId,
-        });
-        const needsPush = thisClientHasEditsNotInRemote(
+        const overlay = extractOwnAssemblePalletOverlay(
           localPallets,
-          remotePallets,
-          items,
           myClientId,
           orderId,
+          items,
         );
-        applyPullAssembleMerge(merged, data, needsPush);
-        if (needsPush) {
-          void flushAssembleSaveNow();
-        }
+        const merged = mergeAssemblePalletLists(overlay, remotePallets, items, mergeCtx);
+        applyPullAssembleMerge(merged, data, true);
+        void flushAssembleSaveNow();
       }
 
       function reflectAssembleServerReachability(reachable, orderId) {
@@ -15075,7 +15197,11 @@
           rawOrderItems: rawItems,
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
-        restoreAssemblePalletDeletions(orderId, localDraft);
+        if (!assembleDraftIsOwn(localDraft)) {
+          assemblePalletDeletions.delete(Number(orderId));
+        } else {
+          restoreAssemblePalletDeletions(orderId, localDraft);
+        }
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
         const remapMeta =
           picked.source === "local" ? localDraft : data.assemble_state || null;

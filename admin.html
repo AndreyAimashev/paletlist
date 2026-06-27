@@ -12473,6 +12473,49 @@
         return false;
       }
 
+      function clientHasAssemblePalletDeletionTombstones(orderId, clientId) {
+        if (orderId == null || !clientId) {
+          return false;
+        }
+        const dels = assemblePalletDeletions.get(Number(orderId));
+        if (!dels || !dels.size) {
+          return false;
+        }
+        for (const del of dels.values()) {
+          if (del.by === clientId) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      async function confirmAssembleDeletionSaveOnServer(orderId, payloadPallets) {
+        const oid = Number(orderId);
+        const myClientId = getAssembleClientId();
+        if (!Number.isFinite(oid) || !myClientId) {
+          return false;
+        }
+        try {
+          const verifyRes = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
+          if (!verifyRes.ok) {
+            return false;
+          }
+          const verifyData = await verifyRes.json();
+          const serverPallets = extractRemoteAssemblePallets(verifyData) || [];
+          if (!assembleStatesContentEqual(payloadPallets, serverPallets)) {
+            return false;
+          }
+          if (hasPendingLocalPalletDeletions(oid, myClientId, serverPallets)) {
+            return false;
+          }
+          noteAssembleServerSnapshot(verifyData);
+          reconcileAssemblePalletDeletions(oid, serverPallets);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
       function clientHasUnpushedAssembleEdits(
         localPallets,
         remotePallets,
@@ -13221,7 +13264,9 @@
           remotePallets,
         );
         if (pendingDel) {
-          void flushAssembleSaveNow();
+          if (assembleDirty || assembleSavePending || assembleSaveInFlight) {
+            void flushAssembleSaveNow();
+          }
           return;
         }
         const ownUnpushed = clientHasUnpushedAssembleEdits(
@@ -13837,8 +13882,20 @@
               items,
               pallets,
             );
+            if (clientHasAssemblePalletDeletionTombstones(oid, getAssembleClientId())) {
+              const deletionConfirmed = await confirmAssembleDeletionSaveOnServer(
+                oid,
+                pallets,
+              );
+              if (!deletionConfirmed) {
+                assembleDirty = true;
+                markAssembleSaveFailed();
+                return false;
+              }
+            } else {
+              reconcileAssemblePalletDeletions(oid, pallets);
+            }
             assembleDirty = false;
-            reconcileAssemblePalletDeletions(oid, pallets);
           }
           mirrorAssembleDraftForPayload(payload, newRev);
           markAssembleSaveSucceeded();
@@ -14112,12 +14169,26 @@
         if (isAssembleEditableFocused()) {
           return;
         }
+        const orderId = assembleOrderSnapshot.id;
+        const myClientId = getAssembleClientId();
         const items = assembleOrderSnapshot.items;
         let pallets =
           data.assemble_state && Array.isArray(data.assemble_state.pallets)
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : [{ id: 1, palletNumber: "1", slots: [] }];
-        pallets = applyDefaultFirstAssemblePalletNumber(pallets, items);
+        if (
+          hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
+          assembleDirty ||
+          assembleSavePending ||
+          assembleSaveInFlight
+        ) {
+          return;
+        }
+        pallets = filterRemotePalletsForLocalDeletions(orderId, pallets, myClientId);
+        pallets = applyDefaultFirstAssemblePalletNumber(
+          sortAssemblePalletsByNumber(pallets),
+          items,
+        );
         if (assembleStatesContentEqual(assembleAllocState.pallets, pallets)) {
           noteAssembleServerSnapshot(data);
           syncOptionalBatchToggleFromServer(data);
@@ -15045,7 +15116,9 @@
             const palletNumDupClass = duplicatePalletIdx.has(pIdx)
               ? " assemble-pallet-number-field--duplicate"
               : "";
-            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet="${pIdx}">Удалить паллет</button>`;
+            const removePalKey =
+              Number(pal.id) > 0 ? String(pal.id) : `idx:${pIdx}`;
+            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet-id="${removePalKey}">Удалить паллет</button>`;
             const slots = Array.isArray(pal.slots) ? pal.slots : [];
             const slotsHtml =
               slots.length === 0
@@ -15291,8 +15364,17 @@
         const rmPal = t.closest("[data-remove-pallet]");
         if (rmPal) {
           ev.preventDefault();
-          const pi = Number(rmPal.dataset.removePallet);
-          if (!Number.isFinite(pi)) {
+          const palKey = String(rmPal.dataset.removePalletId ?? "").trim();
+          let pi = -1;
+          if (palKey.startsWith("idx:")) {
+            pi = Number(palKey.slice(4));
+          } else {
+            const palId = Number(palKey);
+            if (Number.isFinite(palId) && palId > 0) {
+              pi = assembleAllocState.pallets.findIndex((p) => Number(p.id) === palId);
+            }
+          }
+          if (!Number.isFinite(pi) || pi < 0 || !assembleAllocState.pallets[pi]) {
             return;
           }
           const pal = assembleAllocState.pallets[pi];

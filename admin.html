@@ -11251,7 +11251,9 @@
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
-      const ASSEMBLE_SYNC_POLL_MS = 1000;
+      const ASSEMBLE_SYNC_POLL_MS = 500;
+      const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
+      const ASSEMBLE_SYNC_SOON_MS = 150;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
       const ORDER_CHAT_SYNC_POLL_MS = 1000;
@@ -11298,6 +11300,9 @@
       let assembleSaveSyncStateClass = "is-idle";
       /** orderId → Map(palletId → { at, by }) — локальные удаления до сохранения на сервер */
       const assemblePalletDeletions = new Map();
+      let assembleSyncPollInFlight = false;
+      let assembleSyncPollSoonTimer = null;
+      let assembleMirrorTimer = null;
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
@@ -13622,6 +13627,7 @@
           markAssembleSaveSucceeded();
           setAssembleSaveUiState("saved", { orderId: oid });
           notifyAssembleSavedToOtherTabs(oid, newRev);
+          scheduleAssembleSyncPollSoon();
           return true;
         } catch (e) {
           setAssembleSaveUiState("error", {
@@ -13797,13 +13803,23 @@
           return false;
         }
         if (el.tagName === "SELECT") {
-          return true;
+          return false;
         }
         if (el.tagName === "INPUT") {
           const type = String(el.type || "").toLowerCase();
           return type !== "radio" && type !== "checkbox" && type !== "hidden";
         }
         return el.tagName === "TEXTAREA";
+      }
+
+      function scheduleAssembleSyncPollSoon() {
+        if (assembleSyncPollSoonTimer) {
+          clearTimeout(assembleSyncPollSoonTimer);
+        }
+        assembleSyncPollSoonTimer = setTimeout(() => {
+          assembleSyncPollSoonTimer = null;
+          void pollAssembleOrderSync();
+        }, ASSEMBLE_SYNC_SOON_MS);
       }
 
       function captureAssembleFocusState() {
@@ -13907,33 +13923,40 @@
       }
 
       async function pollAssembleOrderSync() {
-        if (!assembleOrderSnapshot) {
+        if (!assembleOrderSnapshot || assembleSyncPollInFlight) {
           return;
         }
+        assembleSyncPollInFlight = true;
         const oid = assembleOrderSnapshot.id;
         const saveBusy = assembleSaveBusy();
-        const presencePayload = await postAssemblePresenceHeartbeat(oid);
-        if (
-          presencePayload &&
-          assembleOrderSnapshot &&
-          assembleOrderSnapshot.id === oid
-        ) {
-          updateAssemblePresenceHint(presencePayload.others);
-        }
+        let presencePayload = null;
         let fetchOk = false;
         let data = null;
         try {
-          const res = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
-          if (res.ok) {
+          const [presenceResult, orderRes] = await Promise.all([
+            postAssemblePresenceHeartbeat(oid),
+            fetch(`/api/orders/${oid}`, { cache: "no-store" }).catch(() => null),
+          ]);
+          presencePayload = presenceResult;
+          if (
+            presencePayload &&
+            assembleOrderSnapshot &&
+            assembleOrderSnapshot.id === oid
+          ) {
+            updateAssemblePresenceHint(presencePayload.others);
+          }
+          if (orderRes && orderRes.ok) {
             fetchOk = true;
             try {
-              data = await res.json();
+              data = await orderRes.json();
             } catch (e) {
               fetchOk = false;
             }
           }
         } catch (e) {
           /* unreachable */
+        } finally {
+          assembleSyncPollInFlight = false;
         }
         const reachable = navigator.onLine && !!presencePayload && fetchOk;
         if (!saveBusy) {
@@ -14205,9 +14228,18 @@
         return queueAssembleServerSave();
       }
 
-      function saveAssembleDraft() {
+      function saveAssembleDraft(opts) {
         assembleDirty = true;
-        mirrorAssembleDraftLocal();
+        const immediate = !!(opts && opts.immediate);
+        if (immediate) {
+          mirrorAssembleDraftLocal();
+        } else {
+          clearTimeout(assembleMirrorTimer);
+          assembleMirrorTimer = setTimeout(() => {
+            assembleMirrorTimer = null;
+            mirrorAssembleDraftLocal();
+          }, 0);
+        }
         const oid = assembleOrderSnapshot?.id;
         const syncState = assembleSaveSyncStateClass;
         if (
@@ -14216,12 +14248,20 @@
           !assembleSavePending &&
           !assembleSaveInFlight
         ) {
-          setAssembleSaveUiState("debouncing", { orderId: oid });
+          setAssembleSaveUiState(immediate ? "saving" : "debouncing", { orderId: oid });
         }
         clearTimeout(assembleSaveTimer);
+        if (immediate) {
+          void queueAssembleServerSave();
+          return;
+        }
         assembleSaveTimer = setTimeout(() => {
           void queueAssembleServerSave();
-        }, 450);
+        }, ASSEMBLE_SAVE_DEBOUNCE_MS);
+      }
+
+      function saveAssembleStructuralChange() {
+        saveAssembleDraft({ immediate: true });
       }
 
       function validateAssembleAllocations() {
@@ -14996,6 +15036,7 @@
             renderAssemblePalletCards();
             renderAssembleSummary();
             renderAssembleAlerts();
+            saveAssembleStructuralChange();
             return;
           }
           renderAssembleSummary();
@@ -15036,12 +15077,10 @@
             recordAssemblePalletDeletion(oid, pal.id);
           }
           assembleAllocState.pallets.splice(pi, 1);
-          saveAssembleDraft();
-          clearTimeout(assembleSaveTimer);
-          void flushAssembleSaveNow();
           renderAssemblePalletCards();
           renderAssembleSummary();
           renderAssembleAlerts();
+          saveAssembleStructuralChange();
           return;
         }
         const rmSlot = t.closest("[data-remove-slot]");
@@ -15058,10 +15097,10 @@
             return;
           }
           pal.slots.splice(si, 1);
-          saveAssembleDraft();
           renderAssemblePalletCards();
           renderAssembleSummary();
           renderAssembleAlerts();
+          saveAssembleStructuralChange();
           return;
         }
         const addS = t.closest("button[data-add-slot]");
@@ -15075,10 +15114,10 @@
           assembleAllocState.pallets[pi].slots.push(
             normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() }),
           );
-          saveAssembleDraft();
           renderAssemblePalletCards();
           renderAssembleSummary();
           renderAssembleAlerts();
+          saveAssembleStructuralChange();
         }
       }
 
@@ -15098,10 +15137,10 @@
           }),
         );
         finalizeAssembleSlots();
-        saveAssembleDraft();
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
+        saveAssembleStructuralChange();
       }
 
       async function loadAssembleOrderWorkspace(orderId) {
@@ -15468,7 +15507,7 @@
             assembleOrderSnapshot &&
             msg.orderId === assembleOrderSnapshot.id
           ) {
-            void pollAssembleOrderSync();
+            scheduleAssembleSyncPollSoon();
             return;
           }
           if (currentStage === "orders") {

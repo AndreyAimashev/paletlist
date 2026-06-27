@@ -11405,7 +11405,7 @@
           }
         }
         const b = defaultAssembleLineAlloc();
-        return {
+        const out = {
           lineIndex,
           batchNumber: normalizeBatchNumberField(s.batchNumber ?? ""),
           unirusMfgDate: String(s.unirusMfgDate ?? "").trim(),
@@ -11417,6 +11417,13 @@
           fullRows: s.fullRows ?? b.fullRows,
           partialBoxes: s.partialBoxes ?? b.partialBoxes,
         };
+        if (s.slotEditedAt) {
+          out.slotEditedAt = String(s.slotEditedAt).trim();
+        }
+        if (s.slotEditedBy) {
+          out.slotEditedBy = String(s.slotEditedBy).trim();
+        }
+        return out;
       }
 
       function parseSlotSelectValue(raw) {
@@ -11828,24 +11835,27 @@
       function migratePalletRecord(p) {
         const id = p.id || 0;
         const palletNumber = String(p.palletNumber ?? p.pallet_number ?? "");
+        let slots = [];
         if (Array.isArray(p.slots)) {
-          return {
-            id,
-            palletNumber,
-            slots: p.slots.map((s) => normalizeSlot(s)),
-          };
-        }
-        const slots = [];
-        if (p.lines && typeof p.lines === "object") {
+          slots = p.slots.map((s) => attachSlotEditMetaFromRaw(normalizeSlot(s), s));
+        } else if (p.lines && typeof p.lines === "object") {
           Object.keys(p.lines).forEach((k) => {
             const li = Number(k);
             if (!Number.isFinite(li) || li < 0) {
               return;
             }
-            slots.push(normalizeSlot({ lineIndex: li, ...p.lines[k] }));
+            const raw = { lineIndex: li, ...p.lines[k] };
+            slots.push(attachSlotEditMetaFromRaw(normalizeSlot(raw), raw));
           });
         }
-        return { id, palletNumber, slots };
+        const out = { id, palletNumber, slots };
+        if (p.palletEditedAt) {
+          out.palletEditedAt = String(p.palletEditedAt).trim();
+        }
+        if (p.palletEditedBy) {
+          out.palletEditedBy = String(p.palletEditedBy).trim();
+        }
+        return out;
       }
 
       function orderLineMaxPieces(it) {
@@ -12202,11 +12212,27 @@
         return normalizeAssemblePalletsForOrderClient(orderRow || {}, pallets, meta);
       }
 
+      function normalizeSlotForCompare(s) {
+        const n = normalizeSlot(s);
+        return {
+          lineIndex: n.lineIndex,
+          batchNumber: n.batchNumber,
+          unirusMfgDate: n.unirusMfgDate,
+          unirusExpiryDate: n.unirusExpiryDate,
+          labExpiryDate: n.labExpiryDate,
+          mode: n.mode,
+          directUnit: n.directUnit,
+          directQty: n.directQty,
+          fullRows: n.fullRows,
+          partialBoxes: n.partialBoxes,
+        };
+      }
+
       function normalizePalletsForCompare(pallets) {
         return (pallets || []).map((p) => ({
           id: p.id,
           palletNumber: String(p.palletNumber ?? p.pallet_number ?? "").trim(),
-          slots: (p.slots || []).map((s) => normalizeSlot(s)),
+          slots: (p.slots || []).map((s) => normalizeSlotForCompare(s)),
         }));
       }
 
@@ -12223,33 +12249,171 @@
         return !!(ln && rn && ln !== rn);
       }
 
-      function mergeAssemblePalletSlots(localSlots, remoteSlots, preferLocal) {
-        const byLine = new Map();
-        const remoteEmpty = [];
+      function attachSlotEditMetaFromRaw(normalized, raw) {
+        const out = normalizeSlot(normalized);
+        const at = String(raw?.slotEditedAt ?? normalized?.slotEditedAt ?? "").trim();
+        const by = String(raw?.slotEditedBy ?? normalized?.slotEditedBy ?? "").trim();
+        if (at) {
+          out.slotEditedAt = at;
+        }
+        if (by) {
+          out.slotEditedBy = by;
+        }
+        return out;
+      }
+
+      function readSlotEditMeta(slot) {
+        const at = String(slot?.slotEditedAt ?? "").trim();
+        const client = String(slot?.slotEditedBy ?? "").trim();
+        const ts = at ? Date.parse(at) : NaN;
+        return { at, client, ts: Number.isFinite(ts) ? ts : 0 };
+      }
+
+      function readPalletEditMeta(pal) {
+        const at = String(pal?.palletEditedAt ?? "").trim();
+        const client = String(pal?.palletEditedBy ?? "").trim();
+        const ts = at ? Date.parse(at) : NaN;
+        return { at, client, ts: Number.isFinite(ts) ? ts : 0 };
+      }
+
+      function stampSlotEditMeta(slot) {
+        const out = normalizeSlot(slot);
+        out.slotEditedAt = new Date().toISOString();
+        out.slotEditedBy = getAssembleClientId();
+        return out;
+      }
+
+      function stampPalletEditMeta(pal) {
+        const out = migratePalletRecord(pal);
+        out.palletEditedAt = new Date().toISOString();
+        out.palletEditedBy = getAssembleClientId();
+        return out;
+      }
+
+      function assembleSlotsContentEqual(a, b) {
+        return (
+          JSON.stringify(normalizeSlotForCompare(a)) ===
+          JSON.stringify(normalizeSlotForCompare(b))
+        );
+      }
+
+      function slotHasMeaningfulContent(slot, item) {
+        const ns = normalizeSlot(slot);
+        if (ns.batchNumber) {
+          return true;
+        }
+        if (ns.unirusMfgDate || ns.unirusExpiryDate || ns.labExpiryDate) {
+          return true;
+        }
+        if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+          return false;
+        }
+        if (!item) {
+          return false;
+        }
+        const pieces = allocationToPieces(item, slotToAlloc(ns));
+        return pieces > 1e-6;
+      }
+
+      function pickMergedAssembleSlot(localRaw, remoteRaw, item, ctx) {
+        const local = localRaw ? normalizeSlot(localRaw) : null;
+        const remote = remoteRaw ? normalizeSlot(remoteRaw) : null;
+        const localM = !!(local && slotHasMeaningfulContent(local, item));
+        const remoteM = !!(remote && slotHasMeaningfulContent(remote, item));
+        if (!localM && remoteM) {
+          return attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+        }
+        if (localM && !remoteM) {
+          return attachSlotEditMetaFromRaw(local, localRaw || local);
+        }
+        if (!localM && !remoteM) {
+          const li =
+            local?.lineIndex !== "" && local?.lineIndex !== undefined
+              ? local.lineIndex
+              : remote?.lineIndex !== "" && remote?.lineIndex !== undefined
+                ? remote.lineIndex
+                : "";
+          return normalizeSlot({ lineIndex: li, ...defaultAssembleLineAlloc() });
+        }
+        const lm = readSlotEditMeta(localRaw || local);
+        const rm = readSlotEditMeta(remoteRaw || remote);
+        if (lm.ts && rm.ts && lm.ts !== rm.ts) {
+          return lm.ts > rm.ts
+            ? attachSlotEditMetaFromRaw(local, localRaw || local)
+            : attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+        }
+        if (lm.ts && !rm.ts) {
+          return attachSlotEditMetaFromRaw(local, localRaw || local);
+        }
+        if (!lm.ts && rm.ts) {
+          return attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+        }
+        if (assembleSlotsContentEqual(local, remote)) {
+          return attachSlotEditMetaFromRaw(local, localRaw || local);
+        }
+        const preferLocal = !!(ctx && ctx.preferLocalOnConflict);
+        return preferLocal
+          ? attachSlotEditMetaFromRaw(local, localRaw || local)
+          : attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+      }
+
+      function pickMergedPalletNumber(localPal, remotePal, ctx) {
+        const ln = String(localPal?.palletNumber ?? "").trim();
+        const rn = String(remotePal?.palletNumber ?? "").trim();
+        if (!ln) {
+          return rn;
+        }
+        if (!rn || ln === rn) {
+          return ln;
+        }
+        const lm = readPalletEditMeta(localPal);
+        const rm = readPalletEditMeta(remotePal);
+        if (lm.ts && rm.ts && lm.ts !== rm.ts) {
+          return lm.ts > rm.ts ? ln : rn;
+        }
+        if (lm.ts && !rm.ts) {
+          return ln;
+        }
+        if (!lm.ts && rm.ts) {
+          return rn;
+        }
+        return ctx && ctx.preferLocalOnConflict ? ln : rn;
+      }
+
+      function mergeAssemblePalletSlots(localSlots, remoteSlots, items, ctx) {
+        const localByLine = new Map();
+        const remoteByLine = new Map();
         const localEmpty = [];
-        (remoteSlots || []).forEach((s) => {
-          const ns = normalizeSlot(s);
-          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
-            remoteEmpty.push(ns);
-            return;
-          }
-          byLine.set(Number(ns.lineIndex), ns);
-        });
+        const remoteEmpty = [];
         (localSlots || []).forEach((s) => {
           const ns = normalizeSlot(s);
           if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
-            localEmpty.push(ns);
+            localEmpty.push(s);
             return;
           }
-          const key = Number(ns.lineIndex);
-          if (preferLocal || !byLine.has(key)) {
-            byLine.set(key, ns);
-          }
+          localByLine.set(Number(ns.lineIndex), s);
         });
-        const merged = [...byLine.keys()]
+        (remoteSlots || []).forEach((s) => {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            remoteEmpty.push(s);
+            return;
+          }
+          remoteByLine.set(Number(ns.lineIndex), s);
+        });
+        const lineKeys = new Set([...localByLine.keys(), ...remoteByLine.keys()]);
+        const merged = [...lineKeys]
           .sort((a, b) => a - b)
-          .map((k) => byLine.get(k));
-        const emptyCount = Math.max(remoteEmpty.length, localEmpty.length, 1);
+          .map((li) => {
+            const item = items && items[li] ? items[li] : null;
+            return pickMergedAssembleSlot(
+              localByLine.get(li),
+              remoteByLine.get(li),
+              item,
+              ctx,
+            );
+          });
+        const emptyCount = Math.max(localEmpty.length, remoteEmpty.length, 1);
         const emptyTemplate = normalizeSlot({
           lineIndex: "",
           ...defaultAssembleLineAlloc(),
@@ -12257,29 +12421,34 @@
         for (let i = 0; i < emptyCount; i += 1) {
           const le = localEmpty[i];
           const re = remoteEmpty[i];
-          merged.push(
-            preferLocal && le ? le : re || le || { ...emptyTemplate },
-          );
+          const item = null;
+          if (le || re) {
+            merged.push(pickMergedAssembleSlot(le, re, item, ctx));
+          } else {
+            merged.push({ ...emptyTemplate });
+          }
         }
         return merged;
       }
 
-      function mergeAssemblePalletRecord(localPal, remotePal, preferLocal) {
+      function mergeAssemblePalletRecord(localPal, remotePal, items, ctx) {
         const lp = migratePalletRecord(localPal);
         const rp = migratePalletRecord(remotePal);
-        const palletNumber = preferLocal
-          ? String(lp.palletNumber || "").trim() ||
-            String(rp.palletNumber || "").trim()
-          : String(rp.palletNumber || "").trim() ||
-            String(lp.palletNumber || "").trim();
         return migratePalletRecord({
           id: lp.id || rp.id,
-          palletNumber,
-          slots: mergeAssemblePalletSlots(lp.slots, rp.slots, preferLocal),
+          palletNumber: pickMergedPalletNumber(lp, rp, ctx),
+          palletEditedAt: (readPalletEditMeta(lp).ts >= readPalletEditMeta(rp).ts
+            ? lp.palletEditedAt
+            : rp.palletEditedAt) || lp.palletEditedAt || rp.palletEditedAt,
+          palletEditedBy: (readPalletEditMeta(lp).ts >= readPalletEditMeta(rp).ts
+            ? lp.palletEditedBy
+            : rp.palletEditedBy) || lp.palletEditedBy || rp.palletEditedBy,
+          slots: mergeAssemblePalletSlots(lp.slots, rp.slots, items, ctx),
         });
       }
 
-      function mergeAssemblePalletLists(localPallets, remotePallets, preferLocal) {
+      function mergeAssemblePalletLists(localPallets, remotePallets, items, ctx) {
+        const mergeCtx = ctx || { preferLocalOnConflict: false };
         const local = (localPallets || []).map((p) => migratePalletRecord(p));
         const remote = (remotePallets || []).map((p) => migratePalletRecord(p));
         if (!remote.length) {
@@ -12317,7 +12486,7 @@
             deferredLocal.push(migratePalletRecord({ ...lp }));
             return;
           }
-          result.push(mergeAssemblePalletRecord(lp, rp, preferLocal));
+          result.push(mergeAssemblePalletRecord(lp, rp, items, mergeCtx));
         });
 
         local.forEach((lp) => {
@@ -12338,7 +12507,7 @@
             if (rp) {
               matchedRemoteIds.add(rp.id);
               const idx = result.findIndex((p) => p.id === rp.id);
-              const mergedPal = mergeAssemblePalletRecord(lp, rp, preferLocal);
+              const mergedPal = mergeAssemblePalletRecord(lp, rp, items, mergeCtx);
               if (idx >= 0) {
                 result[idx] = mergedPal;
               } else {
@@ -12415,7 +12584,12 @@
             !assembleStatesContentEqual(localPallets, serverPallets)
           ) {
             return {
-              pallets: mergeAssemblePalletLists(localPallets, serverPallets, true),
+              pallets: mergeAssemblePalletLists(
+                localPallets,
+                serverPallets,
+                items,
+                { preferLocalOnConflict: true },
+              ),
               revision: serverRev,
               pushToServer: true,
               serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
@@ -12595,7 +12769,8 @@
           const merged = mergeAssemblePalletLists(
             localPallets,
             remotePallets,
-            true,
+            items,
+            { preferLocalOnConflict: false },
           );
           const changed = applyMergedAssembleState(merged, {
             revision: Number(data.assemble_revision) || assembleKnownRevision,
@@ -12910,7 +13085,9 @@
         const pallets = assembleAllocState.pallets.map((p) => ({
           id: p.id,
           palletNumber: p.palletNumber,
-          slots: (p.slots || []).map((s) => ({ ...normalizeSlot(s) })),
+          ...(p.palletEditedAt ? { palletEditedAt: p.palletEditedAt } : {}),
+          ...(p.palletEditedBy ? { palletEditedBy: p.palletEditedBy } : {}),
+          slots: (p.slots || []).map((s) => attachSlotEditMetaFromRaw(normalizeSlot(s), s)),
         }));
         return {
           orderId: assembleOrderSnapshot.id,
@@ -12996,7 +13173,8 @@
               const merged = mergeAssemblePalletLists(
                 assembleAllocState.pallets,
                 remotePallets,
-                true,
+                items,
+                { preferLocalOnConflict: true },
               );
               applyMergedAssembleState(merged, { revision: assembleKnownRevision });
               const fresh = captureAssembleSavePayload();
@@ -14313,7 +14491,42 @@
         }
       }
 
-      function syncAssembleStateFromDom() {
+      function assembleInputEditHint(t) {
+        if (!t?.matches?.("[data-assemble-input]")) {
+          return null;
+        }
+        if (t.dataset.field === "palletNumber") {
+          const card = t.closest("[data-pallet-card]");
+          const pIdx = card ? Number(card.dataset.palletCard) : NaN;
+          return Number.isFinite(pIdx) ? { pIdx, field: "palletNumber" } : null;
+        }
+        const pIdx = Number(t.dataset.pallet);
+        const sIdx = Number(t.dataset.slot);
+        if (!Number.isFinite(pIdx)) {
+          return null;
+        }
+        return {
+          pIdx,
+          sIdx: Number.isFinite(sIdx) ? sIdx : undefined,
+          field: t.dataset.field || "",
+        };
+      }
+
+      function preserveOrStampAssembleSlot(prev, next, shouldStamp) {
+        const normalized = normalizeSlot(next);
+        if (shouldStamp) {
+          return stampSlotEditMeta(normalized);
+        }
+        if (prev) {
+          if (assembleSlotsContentEqual(prev, normalized)) {
+            return attachSlotEditMetaFromRaw(normalized, prev);
+          }
+          return stampSlotEditMeta(normalized);
+        }
+        return normalized;
+      }
+
+      function syncAssembleStateFromDom(editHint) {
         if (!assemblePalletsRoot || !assembleAllocState || !assembleOrderSnapshot) {
           return;
         }
@@ -14326,11 +14539,22 @@
           }
           const numEl = card.querySelector("[data-assemble-pallet-number]");
           if (numEl) {
+            const prevNum = String(pal.palletNumber ?? "");
             pal.palletNumber = numEl.value;
+            if (
+              editHint &&
+              editHint.pIdx === pIdx &&
+              editHint.field === "palletNumber" &&
+              prevNum !== String(numEl.value ?? "")
+            ) {
+              pal.palletEditedAt = new Date().toISOString();
+              pal.palletEditedBy = getAssembleClientId();
+            }
           }
           const newSlots = [];
           card.querySelectorAll("[data-assemble-slot-row]").forEach((row) => {
             const sIdx = newSlots.length;
+            const prevSlot = pal.slots && pal.slots[sIdx] ? pal.slots[sIdx] : null;
             const slot = normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() });
             const sel = row.querySelector("select[data-field='slotSource']");
             const parsed = parseSlotSelectValue(sel ? sel.value : "");
@@ -14389,7 +14613,11 @@
             } else if (pal.slots && pal.slots[sIdx]) {
               slot.labExpiryDate = String(pal.slots[sIdx].labExpiryDate ?? "").trim();
             }
-            newSlots.push(normalizeSlot(slot));
+            const shouldStamp =
+              editHint &&
+              editHint.pIdx === pIdx &&
+              (editHint.sIdx === sIdx || editHint.field === "slotSource");
+            newSlots.push(preserveOrStampAssembleSlot(prevSlot, slot, shouldStamp));
           });
           pal.slots = newSlots;
         });
@@ -14400,6 +14628,7 @@
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
           return;
         }
+        const editHint = t.matches("[data-assemble-input]") ? assembleInputEditHint(t) : null;
         if (t.matches("[data-assemble-input]")) {
           if (t.dataset.field === "batchNumber") {
             if (isAssembleLabMode()) {
@@ -14410,7 +14639,7 @@
               if (isAssembleLabMode()) {
                 applyLabBatchInputValidation(t);
               }
-              syncAssembleStateFromDom();
+              syncAssembleStateFromDom(editHint);
               saveAssembleDraft();
               renderAssembleAlerts();
               return;
@@ -14423,7 +14652,7 @@
             applyUnirusDateInputValidation(t);
           }
           if (t.dataset.field === "palletNumber") {
-            syncAssembleStateFromDom();
+            syncAssembleStateFromDom(editHint);
             saveAssembleDraft();
             refreshAssemblePalletNumberDuplicateStyles();
             renderAssembleSummary();
@@ -14437,7 +14666,7 @@
           ) {
             return;
           }
-          syncAssembleStateFromDom();
+          syncAssembleStateFromDom(editHint);
           saveAssembleDraft();
           if (t.dataset.field === "slotSource") {
             finalizeAssembleSlots();
@@ -14531,11 +14760,13 @@
         const nextId =
           assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
         const nextPalletNumber = suggestNextAssemblePalletNumber(assembleAllocState.pallets);
-        assembleAllocState.pallets.push({
-          id: nextId,
-          palletNumber: nextPalletNumber,
-          slots: [],
-        });
+        assembleAllocState.pallets.push(
+          stampPalletEditMeta({
+            id: nextId,
+            palletNumber: nextPalletNumber,
+            slots: [],
+          }),
+        );
         finalizeAssembleSlots();
         saveAssembleDraft();
         renderAssemblePalletCards();

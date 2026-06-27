@@ -11286,6 +11286,7 @@
       let assembleAllocState = null;
       let assembleSaveTimer = null;
       let assembleKnownRevision = 0;
+      let assembleKnownServerUpdatedAt = "";
       let assembleServerHadContent = false;
       let assembleDirty = false;
       let assembleSaveInFlight = false;
@@ -12380,6 +12381,9 @@
         if (opts && opts.revision != null) {
           assembleKnownRevision = Number(opts.revision) || assembleKnownRevision;
         }
+        if (opts && opts.updatedAt != null) {
+          assembleKnownServerUpdatedAt = String(opts.updatedAt || "").trim();
+        }
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         if (changed) {
           assembleDirty = true;
@@ -12513,7 +12517,100 @@
           return;
         }
         clearTimeout(assembleSaveTimer);
-        void queueAssembleServerSave();
+        void flushAssembleSaveNow();
+      }
+
+      function extractRemoteAssemblePallets(data) {
+        if (!data || !data.assemble_state || !Array.isArray(data.assemble_state.pallets)) {
+          return null;
+        }
+        return data.assemble_state.pallets.map((p) => migratePalletRecord(p));
+      }
+
+      function noteAssembleServerSnapshot(data) {
+        if (!data) {
+          return;
+        }
+        if (data.assemble_revision != null) {
+          assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision;
+        }
+        if (data.assemble_state_updated_at != null) {
+          assembleKnownServerUpdatedAt = String(data.assemble_state_updated_at || "").trim();
+        }
+      }
+
+      function remoteAssembleStateDiffersFromLocal(data, remotePallets) {
+        if (!data || !assembleAllocState) {
+          return false;
+        }
+        const remote = remotePallets || extractRemoteAssemblePallets(data) || [];
+        const local = assembleAllocState.pallets || [];
+        const remoteRev = Number(data.assemble_revision) || 0;
+        const remoteUpdatedAt = String(data.assemble_state_updated_at || "").trim();
+        if (remoteRev > assembleKnownRevision) {
+          return true;
+        }
+        if (
+          remoteUpdatedAt &&
+          remoteUpdatedAt !== assembleKnownServerUpdatedAt
+        ) {
+          return true;
+        }
+        return !assembleStatesContentEqual(local, remote);
+      }
+
+      function processRemoteAssembleOrderSync(data) {
+        if (!assembleOrderSnapshot || !assembleAllocState || !data) {
+          return;
+        }
+        if (data.id !== assembleOrderSnapshot.id) {
+          return;
+        }
+        if (isAssembleEditableFocused()) {
+          return;
+        }
+        const remotePallets = extractRemoteAssemblePallets(data);
+        if (!remotePallets) {
+          if (!assembleDirty) {
+            syncOptionalBatchToggleFromServer(data);
+            noteAssembleServerSnapshot(data);
+          }
+          return;
+        }
+        if (!remoteAssembleStateDiffersFromLocal(data, remotePallets)) {
+          if (!assembleDirty) {
+            syncOptionalBatchToggleFromServer(data);
+            noteAssembleServerSnapshot(data);
+          }
+          return;
+        }
+        const items = assembleOrderSnapshot.items;
+        const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
+        const localPallets = assembleAllocState.pallets;
+        const localHas = assembleStateHasMeaningfulData(items, localPallets);
+        if (!remoteHas && localHas) {
+          return;
+        }
+        if (assembleDirty && localHas) {
+          const merged = mergeAssemblePalletLists(
+            localPallets,
+            remotePallets,
+            true,
+          );
+          const changed = applyMergedAssembleState(merged, {
+            revision: Number(data.assemble_revision) || assembleKnownRevision,
+            updatedAt: data.assemble_state_updated_at,
+          });
+          if (changed) {
+            void flushAssembleSaveNow();
+          } else {
+            noteAssembleServerSnapshot(data);
+          }
+          return;
+        }
+        if (!assembleDirty) {
+          applyRemoteAssemblePayload(data);
+        }
       }
 
       function reflectAssembleServerReachability(reachable, orderId) {
@@ -12973,6 +13070,25 @@
           } catch (e) {
             /* ignore */
           }
+          if (data && data.unchanged) {
+            try {
+              const verifyRes = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
+              if (verifyRes.ok) {
+                const verifyData = await verifyRes.json();
+                const serverPallets = extractRemoteAssemblePallets(verifyData) || [];
+                if (!assembleStatesContentEqual(payload.pallets, serverPallets)) {
+                  assembleDirty = true;
+                  markAssembleSaveFailed();
+                  return false;
+                }
+                noteAssembleServerSnapshot(verifyData);
+              }
+            } catch (e) {
+              assembleDirty = true;
+              markAssembleSaveFailed();
+              return false;
+            }
+          }
           const newRev =
             data && data.assemble_revision != null
               ? Number(data.assemble_revision) || payload.revision + 1
@@ -12980,6 +13096,9 @@
           payload.revision = newRev;
           if (assembleOrderSnapshot?.id === oid) {
             assembleKnownRevision = newRev;
+            if (data && data.assemble_state_updated_at != null) {
+              assembleKnownServerUpdatedAt = String(data.assemble_state_updated_at || "").trim();
+            }
             if (data && data.lab_sscc_seq_by_order) {
               applyLabSsccSeqByOrderFromApi(data.lab_sscc_seq_by_order);
             } else if (
@@ -13261,7 +13380,12 @@
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : [{ id: 1, palletNumber: "1", slots: [] }];
         pallets = applyDefaultFirstAssemblePalletNumber(pallets, items);
-        assembleKnownRevision = Number(data.assemble_revision) || assembleKnownRevision;
+        if (assembleStatesContentEqual(assembleAllocState.pallets, pallets)) {
+          noteAssembleServerSnapshot(data);
+          syncOptionalBatchToggleFromServer(data);
+          return;
+        }
+        noteAssembleServerSnapshot(data);
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         const obRemote = optionalBatchFromAssembleState(data.assemble_state);
         if (obRemote !== null) {
@@ -13314,50 +13438,15 @@
         if (!saveBusy) {
           reflectAssembleServerReachability(reachable, oid);
         }
-        if (saveBusy || !fetchOk || !data) {
+        if (!fetchOk || !data) {
           return;
         }
         if (!assembleOrderSnapshot || data.id !== oid) {
           return;
         }
-        const remoteRev = Number(data.assemble_revision) || 0;
-        if (remoteRev <= assembleKnownRevision) {
-          if (!assembleDirty) {
-            syncOptionalBatchToggleFromServer(data);
-          } else {
-            flushAssembleDraftToServerIfNeeded(oid);
-          }
-          return;
-        }
-        const items = assembleOrderSnapshot.items;
-        const remotePallets =
-          data.assemble_state && Array.isArray(data.assemble_state.pallets)
-            ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
-            : null;
-        const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
-        const localPallets = assembleAllocState?.pallets;
-        const localHas = assembleStateHasMeaningfulData(items, localPallets);
-        if (!remoteHas && localHas) {
-          return;
-        }
-        if (assembleDirty && localHas) {
-          if (!isAssembleEditableFocused()) {
-            const merged = mergeAssemblePalletLists(
-              localPallets,
-              remotePallets || [],
-              true,
-            );
-            const changed = applyMergedAssembleState(merged, { revision: remoteRev });
-            if (changed) {
-              void queueAssembleServerSave();
-            } else {
-              assembleKnownRevision = remoteRev;
-            }
-          }
-          return;
-        }
-        if (!assembleDirty && !isAssembleEditableFocused()) {
-          applyRemoteAssemblePayload(data);
+        processRemoteAssembleOrderSync(data);
+        if (!saveBusy && assembleNeedsServerPush()) {
+          flushAssembleDraftToServerIfNeeded(oid);
         }
       }
 
@@ -14556,6 +14645,7 @@
           remapMeta,
         );
         assembleKnownRevision = Number(data.assemble_revision) || 0;
+        assembleKnownServerUpdatedAt = String(data.assemble_state_updated_at || "").trim();
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;
         hideAssemblePresenceHint();

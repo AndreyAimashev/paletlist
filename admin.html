@@ -12308,8 +12308,35 @@
         }
       }
 
+      function canReflectAssembleConnectionStatus() {
+        if (assembleSaveBusy()) {
+          return false;
+        }
+        const s = assembleSaveSyncStateClass;
+        return s !== "is-pending" && s !== "is-saving" && s !== "is-saved";
+      }
+
+      function reflectAssembleServerReachability(reachable, orderId) {
+        if (!canReflectAssembleConnectionStatus()) {
+          return;
+        }
+        if (!reachable) {
+          const msg = navigator.onLine
+            ? "Нет связи с сервером."
+            : "Устройство offline — нет связи с сервером.";
+          if (assembleSaveSyncStateClass !== "is-error") {
+            setAssembleSaveUiState("error", { orderId, message: msg });
+          }
+          return;
+        }
+        if (assembleSaveSyncStateClass === "is-error") {
+          setAssembleSaveUiState("idle", { orderId });
+        }
+      }
+
       function startAssembleSyncPoll() {
         stopAssembleSyncPoll();
+        void pollAssembleOrderSync();
         assembleSyncPollTimer = setInterval(() => {
           if (currentStage !== "assemble" || !assembleOrderSnapshot) {
             return;
@@ -13029,10 +13056,11 @@
       }
 
       async function pollAssembleOrderSync() {
-        if (!assembleOrderSnapshot || assembleSaveBusy()) {
+        if (!assembleOrderSnapshot) {
           return;
         }
         const oid = assembleOrderSnapshot.id;
+        const saveBusy = assembleSaveBusy();
         const presencePayload = await postAssemblePresenceHeartbeat(oid);
         if (
           presencePayload &&
@@ -13041,19 +13069,26 @@
         ) {
           updateAssemblePresenceHint(presencePayload.others);
         }
-        let res;
+        let fetchOk = false;
+        let data = null;
         try {
-          res = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
+          const res = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
+          if (res.ok) {
+            fetchOk = true;
+            try {
+              data = await res.json();
+            } catch (e) {
+              fetchOk = false;
+            }
+          }
         } catch (e) {
-          return;
+          /* unreachable */
         }
-        if (!res.ok) {
-          return;
+        const reachable = navigator.onLine && !!presencePayload && fetchOk;
+        if (!saveBusy) {
+          reflectAssembleServerReachability(reachable, oid);
         }
-        let data;
-        try {
-          data = await res.json();
-        } catch (e) {
+        if (saveBusy || !fetchOk || !data) {
           return;
         }
         if (!assembleOrderSnapshot || data.id !== oid) {
@@ -14507,14 +14542,20 @@
         assembleBackOrdersBtn.addEventListener("click", () => setStage("orders"));
       }
       window.addEventListener("online", () => {
-        if (
-          currentStage === "assemble" &&
-          assembleOrderSnapshot &&
-          (assembleSavePending || assembleDirty)
-        ) {
+        if (currentStage !== "assemble" || !assembleOrderSnapshot) {
+          return;
+        }
+        void pollAssembleOrderSync();
+        if (assembleSavePending || assembleDirty) {
           clearTimeout(assembleSaveTimer);
           void queueAssembleServerSave();
         }
+      });
+      window.addEventListener("offline", () => {
+        if (currentStage !== "assemble" || !assembleOrderSnapshot) {
+          return;
+        }
+        reflectAssembleServerReachability(false, assembleOrderSnapshot.id);
       });
       if (assembleSyncChannel) {
         assembleSyncChannel.addEventListener("message", (ev) => {

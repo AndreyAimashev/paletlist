@@ -15361,7 +15361,7 @@
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
           return;
         }
-        const rmPal = t.closest("[data-remove-pallet]");
+        const rmPal = t.closest("[data-remove-pallet-id]");
         if (rmPal) {
           ev.preventDefault();
           const palKey = String(rmPal.dataset.removePalletId ?? "").trim();

@@ -11296,6 +11296,8 @@
       let assembleSaveDrainPromise = null;
       let assembleSaveBannerHideTimer = null;
       let assembleSaveSyncStateClass = "is-idle";
+      /** orderId → Map(palletId → { at, by }) — локальные удаления до сохранения на сервер */
+      const assemblePalletDeletions = new Map();
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
@@ -12280,6 +12282,102 @@
         return out;
       }
 
+      function getAssemblePalletDeletionsMap(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return new Map();
+        }
+        if (!assemblePalletDeletions.has(oid)) {
+          assemblePalletDeletions.set(oid, new Map());
+        }
+        return assemblePalletDeletions.get(oid);
+      }
+
+      function recordAssemblePalletDeletion(orderId, palletId) {
+        const pid = Number(palletId);
+        if (!Number.isFinite(pid)) {
+          return;
+        }
+        getAssemblePalletDeletionsMap(orderId).set(pid, {
+          at: new Date().toISOString(),
+          by: getAssembleClientId(),
+        });
+      }
+
+      function isAssemblePalletDeletedLocally(orderId, palletId, clientId) {
+        const pid = Number(palletId);
+        if (!Number.isFinite(pid) || !clientId) {
+          return false;
+        }
+        const del = getAssemblePalletDeletionsMap(orderId).get(pid);
+        return !!(del && del.by === clientId);
+      }
+
+      function serializeAssemblePalletDeletions(orderId) {
+        const m = assemblePalletDeletions.get(Number(orderId));
+        if (!m || !m.size) {
+          return undefined;
+        }
+        const out = {};
+        m.forEach((v, k) => {
+          out[String(k)] = v;
+        });
+        return out;
+      }
+
+      function restoreAssemblePalletDeletions(orderId, draft) {
+        const raw = draft && draft.deleted_pallets;
+        if (!raw || typeof raw !== "object") {
+          return;
+        }
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        const m = new Map();
+        Object.keys(raw).forEach((k) => {
+          const pid = Number(k);
+          const del = raw[k];
+          if (!Number.isFinite(pid) || !del || !del.by) {
+            return;
+          }
+          m.set(pid, {
+            at: String(del.at || "").trim(),
+            by: String(del.by || "").trim(),
+          });
+        });
+        if (m.size) {
+          assemblePalletDeletions.set(oid, m);
+        }
+      }
+
+      function reconcileAssemblePalletDeletions(orderId, pallets) {
+        const oid = Number(orderId);
+        const m = assemblePalletDeletions.get(oid);
+        if (!m || !m.size) {
+          return;
+        }
+        const myId = getAssembleClientId();
+        const present = new Set((pallets || []).map((p) => p.id));
+        m.forEach((del, pid) => {
+          if (del.by === myId && !present.has(pid)) {
+            m.delete(pid);
+          }
+        });
+        if (!m.size) {
+          assemblePalletDeletions.delete(oid);
+        }
+      }
+
+      function filterRemotePalletsForLocalDeletions(orderId, remotePallets, clientId) {
+        if (!clientId || orderId == null) {
+          return remotePallets || [];
+        }
+        return (remotePallets || []).filter(
+          (p) => !isAssemblePalletDeletedLocally(orderId, p.id, clientId),
+        );
+      }
+
       function assembleSlotsContentEqual(a, b) {
         return (
           JSON.stringify(normalizeSlotForCompare(a)) ===
@@ -12442,7 +12540,14 @@
       function mergeAssemblePalletLists(localPallets, remotePallets, items, ctx) {
         const mergeCtx = ctx || { preferLocalOnConflict: false };
         const local = (localPallets || []).map((p) => migratePalletRecord(p));
-        const remote = (remotePallets || []).map((p) => migratePalletRecord(p));
+        let remote = (remotePallets || []).map((p) => migratePalletRecord(p));
+        if (mergeCtx.orderId != null && mergeCtx.localClientId) {
+          remote = filterRemotePalletsForLocalDeletions(
+            mergeCtx.orderId,
+            remote,
+            mergeCtx.localClientId,
+          );
+        }
         if (!remote.length) {
           return sortAssemblePalletsByNumber(local.slice());
         }
@@ -12470,14 +12575,6 @@
           }
           matchedLocalIds.add(lp.id);
           matchedRemoteIds.add(rp.id);
-          if (
-            assemblePalletNumbersDiffer(lp, rp) &&
-            !assembleStatesContentEqual([lp], [rp])
-          ) {
-            result.push(migratePalletRecord({ ...rp }));
-            deferredLocal.push(migratePalletRecord({ ...lp }));
-            return;
-          }
           result.push(mergeAssemblePalletRecord(lp, rp, items, mergeCtx));
         });
 
@@ -12513,6 +12610,7 @@
           }
         });
 
+        const usedIds = new Set(result.map((p) => p.id).filter(Boolean));
         let nextId = Math.max(
           0,
           ...result.map((p) => p.id || 0),
@@ -12520,8 +12618,17 @@
           ...local.map((p) => p.id || 0),
         );
         stillDeferred.forEach((lp) => {
+          if (lp.id && !usedIds.has(lp.id)) {
+            result.push(migratePalletRecord({ ...lp }));
+            usedIds.add(lp.id);
+            return;
+          }
           nextId += 1;
+          while (usedIds.has(nextId)) {
+            nextId += 1;
+          }
           result.push(migratePalletRecord({ ...lp, id: nextId }));
+          usedIds.add(nextId);
         });
 
         return sortAssemblePalletsByNumber(result);
@@ -12587,6 +12694,7 @@
                 {
                   preferLocalOnConflict: true,
                   localClientId: getAssembleClientId(),
+                  orderId: Number(orderData.id),
                 },
               ),
               revision: serverRev,
@@ -12732,9 +12840,27 @@
         return !assembleStatesContentEqual(local, remote);
       }
 
-      function thisClientHasEditsNotInRemote(localPallets, remotePallets, items, clientId) {
+      function thisClientHasEditsNotInRemote(
+        localPallets,
+        remotePallets,
+        items,
+        clientId,
+        orderId,
+      ) {
         if (!clientId) {
           return false;
+        }
+        const dels =
+          orderId != null ? assemblePalletDeletions.get(Number(orderId)) : null;
+        if (dels) {
+          for (const [pid, del] of dels) {
+            if (del.by !== clientId) {
+              continue;
+            }
+            if ((remotePallets || []).some((p) => p.id === pid)) {
+              return true;
+            }
+          }
         }
         let has = false;
         (localPallets || []).forEach((pal) => {
@@ -12844,12 +12970,14 @@
         const merged = mergeAssemblePalletLists(localPallets, remotePallets, items, {
           preferLocalOnConflict: false,
           localClientId: myClientId,
+          orderId,
         });
         const needsPush = thisClientHasEditsNotInRemote(
           localPallets,
           remotePallets,
           items,
           myClientId,
+          orderId,
         );
         applyPullAssembleMerge(merged, data, needsPush);
         if (needsPush) {
@@ -13243,7 +13371,11 @@
                 assembleAllocState.pallets,
                 remotePallets,
                 items,
-                { preferLocalOnConflict: true, localClientId: getAssembleClientId() },
+                {
+                  preferLocalOnConflict: true,
+                  localClientId: getAssembleClientId(),
+                  orderId: oid,
+                },
               );
               applyMergedAssembleState(merged, { revision: assembleKnownRevision });
               const fresh = captureAssembleSavePayload();
@@ -13362,6 +13494,7 @@
               pallets,
             );
             assembleDirty = false;
+            reconcileAssemblePalletDeletions(oid, pallets);
           }
           mirrorAssembleDraftForPayload(payload, newRev);
           markAssembleSaveSucceeded();
@@ -13934,6 +14067,7 @@
               assemble_revision: assembleKnownRevision,
               draft_saved_at: new Date().toISOString(),
               client_id: getAssembleClientId(),
+              deleted_pallets: serializeAssemblePalletDeletions(oid),
               optional_batch_enabled: !!assembleOptionalBatchEnabled,
               assembly_line_indices: assembleOrderSnapshot.assemblySourceIndicesByMerged
                 ? "merged"
@@ -14774,8 +14908,15 @@
           if (!Number.isFinite(pi)) {
             return;
           }
+          const pal = assembleAllocState.pallets[pi];
+          const oid = assembleOrderSnapshot?.id;
+          if (pal?.id != null && oid != null) {
+            recordAssemblePalletDeletion(oid, pal.id);
+          }
           assembleAllocState.pallets.splice(pi, 1);
           saveAssembleDraft();
+          clearTimeout(assembleSaveTimer);
+          void flushAssembleSaveNow();
           renderAssemblePalletCards();
           renderAssembleSummary();
           renderAssembleAlerts();
@@ -14934,6 +15075,7 @@
           rawOrderItems: rawItems,
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
+        restoreAssemblePalletDeletions(orderId, localDraft);
         const picked = pickAssemblePalletsOnLoad(data, localDraft, assemblyItems);
         const remapMeta =
           picked.source === "local" ? localDraft : data.assemble_state || null;

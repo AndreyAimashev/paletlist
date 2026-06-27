@@ -12337,12 +12337,23 @@
         }
         const lm = readSlotEditMeta(localRaw || local);
         const rm = readSlotEditMeta(remoteRaw || remote);
+        const myId = ctx && ctx.localClientId;
+        if (myId && lm.client && lm.client !== myId && remoteM) {
+          return attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+        }
         if (lm.ts && rm.ts && lm.ts !== rm.ts) {
           return lm.ts > rm.ts
             ? attachSlotEditMetaFromRaw(local, localRaw || local)
             : attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
         }
         if (lm.ts && !rm.ts) {
+          const localMine = myId && lm.client === myId;
+          if (localMine) {
+            return attachSlotEditMetaFromRaw(local, localRaw || local);
+          }
+          if (remoteM) {
+            return attachSlotEditMetaFromRaw(remote, remoteRaw || remote);
+          }
           return attachSlotEditMetaFromRaw(local, localRaw || local);
         }
         if (!lm.ts && rm.ts) {
@@ -12546,7 +12557,11 @@
         }
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         if (changed) {
-          assembleDirty = true;
+          if (opts && opts.markDirty === false) {
+            assembleDirty = false;
+          } else {
+            assembleDirty = true;
+          }
           mirrorAssembleDraftLocal();
           mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
           renderAssemblePalletCards();
@@ -12724,6 +12739,75 @@
         return !assembleStatesContentEqual(local, remote);
       }
 
+      function thisClientHasEditsNotInRemote(localPallets, remotePallets, items, clientId) {
+        if (!clientId) {
+          return false;
+        }
+        let has = false;
+        (localPallets || []).forEach((pal) => {
+          const rp = (remotePallets || []).find((p) => p.id === pal.id);
+          if (String(pal.palletEditedBy || "") === clientId) {
+            if (!rp || !assembleStatesContentEqual([pal], [rp])) {
+              has = true;
+            }
+          }
+          if (!(remotePallets || []).some((p) => p.id === pal.id) && String(pal.palletEditedBy || "") === clientId) {
+            has = true;
+          }
+          (pal.slots || []).forEach((slot) => {
+            const meta = readSlotEditMeta(slot);
+            if (meta.client !== clientId) {
+              return;
+            }
+            const li = normalizeSlot(slot).lineIndex;
+            if (li === "" || !Number.isFinite(Number(li))) {
+              return;
+            }
+            const item = items[Number(li)];
+            if (!slotHasMeaningfulContent(slot, item)) {
+              return;
+            }
+            const rs = rp
+              ? (rp.slots || []).find(
+                  (s) => Number(normalizeSlot(s).lineIndex) === Number(li),
+                )
+              : null;
+            if (!rs || !assembleSlotsContentEqual(slot, rs)) {
+              has = true;
+            }
+          });
+        });
+        return has;
+      }
+
+      function applyPullAssembleMerge(mergedPallets, data, needsPush) {
+        if (!assembleOrderSnapshot || !assembleAllocState) {
+          return false;
+        }
+        const items = assembleOrderSnapshot.items;
+        const pallets = applyDefaultFirstAssemblePalletNumber(
+          sortAssemblePalletsByNumber(mergedPallets.map((p) => migratePalletRecord(p))),
+          items,
+        );
+        const changed = !assembleStatesContentEqual(assembleAllocState.pallets, pallets);
+        assembleAllocState = { pallets };
+        finalizeAssembleSlots();
+        noteAssembleServerSnapshot(data);
+        assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
+        assembleDirty = !!needsPush;
+        if (changed || needsPush) {
+          mirrorAssembleDraftLocal();
+          mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
+          if (changed && !needsPush && !assembleSaveBusy()) {
+            setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
+          }
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+        }
+        return changed;
+      }
+
       function processRemoteAssembleOrderSync(data) {
         if (!assembleOrderSnapshot || !assembleAllocState || !data) {
           return;
@@ -12734,6 +12818,7 @@
         if (isAssembleEditableFocused()) {
           return;
         }
+        const orderId = assembleOrderSnapshot.id;
         const remotePallets = extractRemoteAssemblePallets(data);
         if (!remotePallets) {
           if (!assembleDirty) {
@@ -12742,49 +12827,40 @@
           }
           return;
         }
+        const items = assembleOrderSnapshot.items;
+        const localPallets = assembleAllocState.pallets;
+        const myClientId = getAssembleClientId();
         if (!remoteAssembleStateDiffersFromLocal(data, remotePallets)) {
           if (!assembleDirty) {
             syncOptionalBatchToggleFromServer(data);
-            noteAssembleServerSnapshot(data);
+          }
+          noteAssembleServerSnapshot(data);
+          if (assembleNeedsServerPush()) {
+            flushAssembleDraftToServerIfNeeded(orderId);
           }
           return;
         }
-        const items = assembleOrderSnapshot.items;
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
-        const localPallets = assembleAllocState.pallets;
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         if (!remoteHas && localHas) {
-          return;
-        }
-        if (assembleDirty && localHas) {
-          const remoteRev = Number(data.assemble_revision) || 0;
-          const remoteUpdatedAt = String(data.assemble_state_updated_at || "").trim();
-          const serverAdvanced =
-            remoteRev > assembleKnownRevision ||
-            (!!remoteUpdatedAt && remoteUpdatedAt !== assembleKnownServerUpdatedAt);
-          if (!serverAdvanced) {
-            flushAssembleDraftToServerIfNeeded(oid);
-            return;
-          }
-          const merged = mergeAssemblePalletLists(
-            localPallets,
-            remotePallets,
-            items,
-            { preferLocalOnConflict: false },
-          );
-          const changed = applyMergedAssembleState(merged, {
-            revision: Number(data.assemble_revision) || assembleKnownRevision,
-            updatedAt: data.assemble_state_updated_at,
-          });
-          if (changed) {
-            void flushAssembleSaveNow();
-          } else {
-            noteAssembleServerSnapshot(data);
+          if (assembleNeedsServerPush()) {
+            flushAssembleDraftToServerIfNeeded(orderId);
           }
           return;
         }
-        if (!assembleDirty) {
-          applyRemoteAssemblePayload(data);
+        const merged = mergeAssemblePalletLists(localPallets, remotePallets, items, {
+          preferLocalOnConflict: false,
+          localClientId: myClientId,
+        });
+        const needsPush = thisClientHasEditsNotInRemote(
+          localPallets,
+          remotePallets,
+          items,
+          myClientId,
+        );
+        applyPullAssembleMerge(merged, data, needsPush);
+        if (needsPush) {
+          void flushAssembleSaveNow();
         }
       }
 
@@ -13174,7 +13250,7 @@
                 assembleAllocState.pallets,
                 remotePallets,
                 items,
-                { preferLocalOnConflict: true },
+                { preferLocalOnConflict: true, localClientId: getAssembleClientId() },
               );
               applyMergedAssembleState(merged, { revision: assembleKnownRevision });
               const fresh = captureAssembleSavePayload();
@@ -14731,8 +14807,8 @@
           renderAssembleAlerts();
           return;
         }
-        const addS = t.closest("[data-add-slot]");
-        if (addS && t.closest("[data-add-slot]") === addS) {
+        const addS = t.closest("button[data-add-slot]");
+        if (addS) {
           ev.preventDefault();
           syncAssembleStateFromDom();
           const pi = Number(addS.dataset.pallet ?? addS.getAttribute("data-pallet"));

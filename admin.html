@@ -12504,11 +12504,23 @@
         return s !== "is-pending" && s !== "is-saving" && s !== "is-saved";
       }
 
-      function reflectAssembleServerReachability(reachable, orderId) {
-        if (!canReflectAssembleConnectionStatus()) {
+      function assembleNeedsServerPush() {
+        return !!assembleDirty || !!assembleSavePending;
+      }
+
+      function flushAssembleDraftToServerIfNeeded(orderId) {
+        if (!assembleNeedsServerPush() || assembleSaveBusy() || isAssembleEditableFocused()) {
           return;
         }
+        clearTimeout(assembleSaveTimer);
+        void queueAssembleServerSave();
+      }
+
+      function reflectAssembleServerReachability(reachable, orderId) {
         if (!reachable) {
+          if (!canReflectAssembleConnectionStatus()) {
+            return;
+          }
           const msg = navigator.onLine
             ? "Нет связи с сервером."
             : "Устройство offline — нет связи с сервером.";
@@ -12517,7 +12529,20 @@
           }
           return;
         }
-        if (assembleSaveSyncStateClass === "is-error") {
+        if (assembleNeedsServerPush()) {
+          flushAssembleDraftToServerIfNeeded(orderId);
+          if (
+            canReflectAssembleConnectionStatus() &&
+            assembleSaveSyncStateClass === "is-error"
+          ) {
+            setAssembleSaveUiState("debouncing", { orderId });
+          }
+          return;
+        }
+        if (
+          canReflectAssembleConnectionStatus() &&
+          assembleSaveSyncStateClass === "is-error"
+        ) {
           setAssembleSaveUiState("idle", { orderId });
         }
       }
@@ -13012,7 +13037,8 @@
           lastOk &&
           !assembleQueuedPayload &&
           !assembleSavePending &&
-          !assembleSaveInFlight
+          !assembleSaveInFlight &&
+          !assembleDirty
         ) {
           setAssembleSaveUiState("idle");
         }
@@ -13298,6 +13324,8 @@
         if (remoteRev <= assembleKnownRevision) {
           if (!assembleDirty) {
             syncOptionalBatchToggleFromServer(data);
+          } else {
+            flushAssembleDraftToServerIfNeeded(oid);
           }
           return;
         }
@@ -14761,11 +14789,9 @@
         if (currentStage !== "assemble" || !assembleOrderSnapshot) {
           return;
         }
+        const oid = assembleOrderSnapshot.id;
+        flushAssembleDraftToServerIfNeeded(oid);
         void pollAssembleOrderSync();
-        if (assembleSavePending || assembleDirty) {
-          clearTimeout(assembleSaveTimer);
-          void queueAssembleServerSave();
-        }
       });
       window.addEventListener("offline", () => {
         if (currentStage !== "assemble" || !assembleOrderSnapshot) {

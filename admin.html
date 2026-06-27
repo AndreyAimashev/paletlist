@@ -12299,24 +12299,48 @@
         return assemblePalletDeletions.get(oid);
       }
 
-      function recordAssemblePalletDeletion(orderId, palletId) {
-        const pid = Number(palletId);
-        if (!Number.isFinite(pid)) {
-          return;
-        }
-        getAssemblePalletDeletionsMap(orderId).set(pid, {
+      function recordAssemblePalletDeletion(orderId, pal) {
+        const entry = {
           at: new Date().toISOString(),
           by: getAssembleClientId(),
-        });
+          palletNumber: String(pal?.palletNumber ?? "").trim(),
+        };
+        const m = getAssemblePalletDeletionsMap(orderId);
+        const pid = Number(pal?.id);
+        if (Number.isFinite(pid) && pid > 0) {
+          m.set(pid, entry);
+        }
+        if (entry.palletNumber) {
+          m.set(`n:${entry.palletNumber}`, entry);
+        }
       }
 
-      function isAssemblePalletDeletedLocally(orderId, palletId, clientId) {
-        const pid = Number(palletId);
-        if (!Number.isFinite(pid) || !clientId) {
+      function isAssemblePalletDeletedLocally(orderId, palletRef, clientId) {
+        if (!clientId || orderId == null) {
           return false;
         }
-        const del = getAssemblePalletDeletionsMap(orderId).get(pid);
-        return !!(del && del.by === clientId);
+        const m = getAssemblePalletDeletionsMap(orderId);
+        const pid = Number(
+          palletRef && typeof palletRef === "object" ? palletRef.id : palletRef,
+        );
+        if (Number.isFinite(pid) && pid > 0) {
+          const del = m.get(pid);
+          if (del && del.by === clientId) {
+            return true;
+          }
+        }
+        const pn = String(
+          palletRef && typeof palletRef === "object"
+            ? palletRef.palletNumber ?? ""
+            : "",
+        ).trim();
+        if (pn) {
+          const del = m.get(`n:${pn}`);
+          if (del && del.by === clientId) {
+            return true;
+          }
+        }
+        return false;
       }
 
       function serializeAssemblePalletDeletions(orderId) {
@@ -12345,15 +12369,24 @@
         }
         const m = new Map();
         Object.keys(raw).forEach((k) => {
-          const pid = Number(k);
           const del = raw[k];
-          if (!Number.isFinite(pid) || !del || !del.by) {
+          if (!del || !del.by) {
             return;
           }
-          m.set(pid, {
+          const entry = {
             at: String(del.at || "").trim(),
             by: String(del.by || "").trim(),
-          });
+            palletNumber: String(del.palletNumber || "").trim(),
+          };
+          if (k.startsWith("n:")) {
+            m.set(k, entry);
+            return;
+          }
+          const pid = Number(k);
+          if (!Number.isFinite(pid) || pid <= 0) {
+            return;
+          }
+          m.set(pid, entry);
         });
         if (m.size) {
           assemblePalletDeletions.set(oid, m);
@@ -12367,10 +12400,28 @@
           return;
         }
         const myId = getAssembleClientId();
-        const present = new Set((pallets || []).map((p) => p.id));
-        m.forEach((del, pid) => {
-          if (del.by === myId && !present.has(pid)) {
-            m.delete(pid);
+        const presentIds = new Set(
+          (pallets || []).map((p) => Number(p.id)).filter((id) => id > 0),
+        );
+        const presentNumbers = new Set(
+          (pallets || [])
+            .map((p) => String(p.palletNumber ?? "").trim())
+            .filter(Boolean),
+        );
+        m.forEach((del, key) => {
+          if (del.by !== myId) {
+            return;
+          }
+          if (String(key).startsWith("n:")) {
+            const pn = String(key).slice(2);
+            if (!presentNumbers.has(pn)) {
+              m.delete(key);
+            }
+            return;
+          }
+          const pid = Number(key);
+          if (Number.isFinite(pid) && pid > 0 && !presentIds.has(pid)) {
+            m.delete(key);
           }
         });
         if (!m.size) {
@@ -12383,7 +12434,7 @@
           return remotePallets || [];
         }
         return (remotePallets || []).filter(
-          (p) => !isAssemblePalletDeletedLocally(orderId, p.id, clientId),
+          (p) => !isAssemblePalletDeletedLocally(orderId, p, clientId),
         );
       }
 
@@ -12395,12 +12446,26 @@
         if (!dels || !dels.size) {
           return false;
         }
-        for (const [pid, del] of dels) {
+        for (const [key, del] of dels) {
           if (del.by !== clientId) {
             continue;
           }
+          if (String(key).startsWith("n:")) {
+            const pn = String(key).slice(2);
+            if (
+              (remotePallets || []).some(
+                (p) => String(p.palletNumber ?? "").trim() === pn,
+              )
+            ) {
+              return true;
+            }
+            continue;
+          }
+          const pid = Number(key);
           if (
-            (remotePallets || []).some((p) => Number(p.id) === Number(pid))
+            Number.isFinite(pid) &&
+            pid > 0 &&
+            (remotePallets || []).some((p) => Number(p.id) === pid)
           ) {
             return true;
           }
@@ -12620,6 +12685,17 @@
         remote.forEach((rp) => {
           const lp = localById.get(rp.id);
           if (!lp) {
+            if (
+              mergeCtx.orderId != null &&
+              mergeCtx.localClientId &&
+              isAssemblePalletDeletedLocally(
+                mergeCtx.orderId,
+                rp,
+                mergeCtx.localClientId,
+              )
+            ) {
+              return;
+            }
             result.push(migratePalletRecord({ ...rp }));
             matchedRemoteIds.add(rp.id);
             return;
@@ -13018,11 +13094,27 @@
         const dels =
           orderId != null ? assemblePalletDeletions.get(Number(orderId)) : null;
         if (dels) {
-          for (const [pid, del] of dels) {
+          for (const [key, del] of dels) {
             if (del.by !== clientId) {
               continue;
             }
-            if ((remotePallets || []).some((p) => p.id === pid)) {
+            if (String(key).startsWith("n:")) {
+              const pn = String(key).slice(2);
+              if (
+                (remotePallets || []).some(
+                  (p) => String(p.palletNumber ?? "").trim() === pn,
+                )
+              ) {
+                return true;
+              }
+              continue;
+            }
+            const pid = Number(key);
+            if (
+              Number.isFinite(pid) &&
+              pid > 0 &&
+              (remotePallets || []).some((p) => Number(p.id) === pid)
+            ) {
               return true;
             }
           }
@@ -13128,6 +13220,10 @@
           myClientId,
           remotePallets,
         );
+        if (pendingDel) {
+          void flushAssembleSaveNow();
+          return;
+        }
         const ownUnpushed = clientHasUnpushedAssembleEdits(
           localPallets,
           remotePallets,
@@ -13151,10 +13247,11 @@
           localClientId: myClientId,
           orderId,
         };
-        if (pendingDel && assembleSaveInFlight) {
-          return;
-        }
         if (!ownUnpushed) {
+          if (assembleDirty || assembleSavePending) {
+            void flushAssembleSaveNow();
+            return;
+          }
           syncOptionalBatchToggleFromServer(data);
           applyPullAssembleMerge(
             filterRemotePalletsForLocalDeletions(
@@ -13605,7 +13702,6 @@
             if (conflict && assembleOrderSnapshot?.id === oid && assembleDirty) {
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || assembleKnownRevision;
-              syncAssembleStateFromDom();
               const remotePallets =
                 conflict.assemble_state &&
                 Array.isArray(conflict.assemble_state.pallets)
@@ -15195,17 +15291,17 @@
         const rmPal = t.closest("[data-remove-pallet]");
         if (rmPal) {
           ev.preventDefault();
-          syncAssembleStateFromDom();
           const pi = Number(rmPal.dataset.removePallet);
           if (!Number.isFinite(pi)) {
             return;
           }
           const pal = assembleAllocState.pallets[pi];
           const oid = assembleOrderSnapshot?.id;
-          if (pal?.id != null && oid != null) {
-            recordAssemblePalletDeletion(oid, pal.id);
+          if (pal && oid != null) {
+            recordAssemblePalletDeletion(oid, pal);
           }
           assembleAllocState.pallets.splice(pi, 1);
+          assembleDirty = true;
           mirrorAssembleDraftLocal();
           renderAssemblePalletCards();
           renderAssembleSummary();

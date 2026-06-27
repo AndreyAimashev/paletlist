@@ -13031,15 +13031,18 @@
         noteAssembleServerSnapshot(data);
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
         assembleDirty = !!needsPush;
+        if (!needsPush) {
+          markAssembleSaveSucceeded();
+        }
         if (changed || needsPush) {
           mirrorAssembleDraftLocal();
           mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
-          if (changed && !needsPush && !assembleSaveBusy()) {
-            setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
-          }
           renderAssemblePalletCards();
           renderAssembleSummary();
           renderAssembleAlerts();
+        }
+        if (!needsPush && !assembleSaveBusy()) {
+          refreshAssembleSyncUiState(assembleOrderSnapshot.id, { serverReachable: true });
         }
         return changed;
       }
@@ -13078,6 +13081,9 @@
             syncOptionalBatchToggleFromServer(data);
           }
           noteAssembleServerSnapshot(data);
+          if (!assembleNeedsServerPush()) {
+            markAssembleSaveSucceeded();
+          }
           if (assembleNeedsServerPush()) {
             flushAssembleDraftToServerIfNeeded(orderId);
           }
@@ -13112,35 +13118,47 @@
         void flushAssembleSaveNow();
       }
 
-      function reflectAssembleServerReachability(reachable, orderId) {
-        if (!reachable) {
-          if (!canReflectAssembleConnectionStatus()) {
-            return;
-          }
-          const msg = navigator.onLine
-            ? "╨Э╨╡╤В ╤Б╨▓╤П╨╖╨╕ ╤Б ╤Б╨╡╤А╨▓╨╡╤А╨╛╨╝."
-            : "╨г╤Б╤В╤А╨╛╨╣╤Б╤В╨▓╨╛ offline тАФ ╨╜╨╡╤В ╤Б╨▓╤П╨╖╨╕ ╤Б ╤Б╨╡╤А╨▓╨╡╤А╨╛╨╝.";
-          if (assembleSaveSyncStateClass !== "is-error") {
-            setAssembleSaveUiState("error", { orderId, message: msg });
-          }
+      function refreshAssembleSyncUiState(orderId, opts) {
+        const options = opts || {};
+        const serverReachable =
+          options.serverReachable != null ? !!options.serverReachable : navigator.onLine;
+
+        if (assembleSaveBusy()) {
           return;
         }
+
+        if (!navigator.onLine) {
+          setAssembleSaveUiState("error", {
+            orderId,
+            message: "Устройство offline — нет связи с сервером.",
+          });
+          return;
+        }
+
+        if (!serverReachable) {
+          setAssembleSaveUiState("error", {
+            orderId,
+            message: "Нет связи с сервером.",
+          });
+          return;
+        }
+
         if (assembleNeedsServerPush()) {
           flushAssembleDraftToServerIfNeeded(orderId);
           if (
-            canReflectAssembleConnectionStatus() &&
-            assembleSaveSyncStateClass === "is-error"
+            assembleSaveSyncStateClass !== "is-saving" &&
+            assembleSaveSyncStateClass !== "is-pending"
           ) {
             setAssembleSaveUiState("debouncing", { orderId });
           }
           return;
         }
-        if (
-          canReflectAssembleConnectionStatus() &&
-          assembleSaveSyncStateClass === "is-error"
-        ) {
-          setAssembleSaveUiState("idle", { orderId });
-        }
+
+        setAssembleSaveUiState("idle", { orderId });
+      }
+
+      function reflectAssembleServerReachability(reachable, orderId) {
+        refreshAssembleSyncUiState(orderId, { serverReachable: reachable });
       }
 
       function startAssembleSyncPoll() {
@@ -13958,11 +13976,11 @@
         } finally {
           assembleSyncPollInFlight = false;
         }
-        const reachable = navigator.onLine && !!presencePayload && fetchOk;
-        if (!saveBusy) {
-          reflectAssembleServerReachability(reachable, oid);
-        }
+        const serverReachable = navigator.onLine && fetchOk;
         if (!fetchOk || !data) {
+          if (!saveBusy) {
+            refreshAssembleSyncUiState(oid, { serverReachable: false });
+          }
           return;
         }
         if (!assembleOrderSnapshot || data.id !== oid) {
@@ -13971,6 +13989,9 @@
         processRemoteAssembleOrderSync(data);
         if (!saveBusy && assembleNeedsServerPush()) {
           flushAssembleDraftToServerIfNeeded(oid);
+        }
+        if (!saveBusy) {
+          refreshAssembleSyncUiState(oid, { serverReachable });
         }
       }
 

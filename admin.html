@@ -12216,6 +12216,182 @@
         );
       }
 
+      function assemblePalletNumbersDiffer(localPal, remotePal) {
+        const ln = String(localPal?.palletNumber ?? localPal?.pallet_number ?? "").trim();
+        const rn = String(remotePal?.palletNumber ?? remotePal?.pallet_number ?? "").trim();
+        return !!(ln && rn && ln !== rn);
+      }
+
+      function mergeAssemblePalletSlots(localSlots, remoteSlots, preferLocal) {
+        const byLine = new Map();
+        const remoteEmpty = [];
+        const localEmpty = [];
+        (remoteSlots || []).forEach((s) => {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            remoteEmpty.push(ns);
+            return;
+          }
+          byLine.set(Number(ns.lineIndex), ns);
+        });
+        (localSlots || []).forEach((s) => {
+          const ns = normalizeSlot(s);
+          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
+            localEmpty.push(ns);
+            return;
+          }
+          const key = Number(ns.lineIndex);
+          if (preferLocal || !byLine.has(key)) {
+            byLine.set(key, ns);
+          }
+        });
+        const merged = [...byLine.keys()]
+          .sort((a, b) => a - b)
+          .map((k) => byLine.get(k));
+        const emptyCount = Math.max(remoteEmpty.length, localEmpty.length, 1);
+        const emptyTemplate = normalizeSlot({
+          lineIndex: "",
+          ...defaultAssembleLineAlloc(),
+        });
+        for (let i = 0; i < emptyCount; i += 1) {
+          const le = localEmpty[i];
+          const re = remoteEmpty[i];
+          merged.push(
+            preferLocal && le ? le : re || le || { ...emptyTemplate },
+          );
+        }
+        return merged;
+      }
+
+      function mergeAssemblePalletRecord(localPal, remotePal, preferLocal) {
+        const lp = migratePalletRecord(localPal);
+        const rp = migratePalletRecord(remotePal);
+        const palletNumber = preferLocal
+          ? String(lp.palletNumber || "").trim() ||
+            String(rp.palletNumber || "").trim()
+          : String(rp.palletNumber || "").trim() ||
+            String(lp.palletNumber || "").trim();
+        return migratePalletRecord({
+          id: lp.id || rp.id,
+          palletNumber,
+          slots: mergeAssemblePalletSlots(lp.slots, rp.slots, preferLocal),
+        });
+      }
+
+      function mergeAssemblePalletLists(localPallets, remotePallets, preferLocal) {
+        const local = (localPallets || []).map((p) => migratePalletRecord(p));
+        const remote = (remotePallets || []).map((p) => migratePalletRecord(p));
+        if (!remote.length) {
+          return sortAssemblePalletsByNumber(local.slice());
+        }
+        if (!local.length) {
+          return sortAssemblePalletsByNumber(remote.slice());
+        }
+
+        const localById = new Map();
+        local.forEach((p) => {
+          if (p.id) {
+            localById.set(p.id, p);
+          }
+        });
+        const result = [];
+        const deferredLocal = [];
+        const matchedLocalIds = new Set();
+        const matchedRemoteIds = new Set();
+
+        remote.forEach((rp) => {
+          const lp = localById.get(rp.id);
+          if (!lp) {
+            result.push(migratePalletRecord({ ...rp }));
+            matchedRemoteIds.add(rp.id);
+            return;
+          }
+          matchedLocalIds.add(lp.id);
+          matchedRemoteIds.add(rp.id);
+          if (
+            assemblePalletNumbersDiffer(lp, rp) &&
+            !assembleStatesContentEqual([lp], [rp])
+          ) {
+            result.push(migratePalletRecord({ ...rp }));
+            deferredLocal.push(migratePalletRecord({ ...lp }));
+            return;
+          }
+          result.push(mergeAssemblePalletRecord(lp, rp, preferLocal));
+        });
+
+        local.forEach((lp) => {
+          if (!matchedLocalIds.has(lp.id)) {
+            deferredLocal.push(migratePalletRecord({ ...lp }));
+          }
+        });
+
+        const unmatchedRemote = remote.filter((rp) => !matchedRemoteIds.has(rp.id));
+        const stillDeferred = [];
+        deferredLocal.forEach((lp) => {
+          const pn = String(lp.palletNumber || "").trim();
+          let matched = false;
+          if (pn) {
+            const rp = unmatchedRemote.find(
+              (r) => String(r.palletNumber || "").trim() === pn,
+            );
+            if (rp) {
+              matchedRemoteIds.add(rp.id);
+              const idx = result.findIndex((p) => p.id === rp.id);
+              const mergedPal = mergeAssemblePalletRecord(lp, rp, preferLocal);
+              if (idx >= 0) {
+                result[idx] = mergedPal;
+              } else {
+                result.push(mergedPal);
+              }
+              matched = true;
+            }
+          }
+          if (!matched) {
+            stillDeferred.push(lp);
+          }
+        });
+
+        let nextId = Math.max(
+          0,
+          ...result.map((p) => p.id || 0),
+          ...remote.map((p) => p.id || 0),
+          ...local.map((p) => p.id || 0),
+        );
+        stillDeferred.forEach((lp) => {
+          nextId += 1;
+          result.push(migratePalletRecord({ ...lp, id: nextId }));
+        });
+
+        return sortAssemblePalletsByNumber(result);
+      }
+
+      function applyMergedAssembleState(mergedPallets, opts) {
+        if (!assembleOrderSnapshot || !assembleAllocState) {
+          return false;
+        }
+        const items = assembleOrderSnapshot.items;
+        const pallets = applyDefaultFirstAssemblePalletNumber(
+          sortAssemblePalletsByNumber(mergedPallets.map((p) => migratePalletRecord(p))),
+          items,
+        );
+        const changed = !assembleStatesContentEqual(assembleAllocState.pallets, pallets);
+        assembleAllocState = { pallets };
+        finalizeAssembleSlots();
+        if (opts && opts.revision != null) {
+          assembleKnownRevision = Number(opts.revision) || assembleKnownRevision;
+        }
+        assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
+        if (changed) {
+          assembleDirty = true;
+          mirrorAssembleDraftLocal();
+          mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
+          renderAssemblePalletCards();
+          renderAssembleSummary();
+          renderAssembleAlerts();
+        }
+        return changed;
+      }
+
       function pickAssemblePalletsOnLoad(orderData, localDraft, items) {
         const serverPallets =
           orderData.assemble_state && Array.isArray(orderData.assemble_state.pallets)
@@ -12230,6 +12406,18 @@
         const serverRev = Number(orderData.assemble_revision) || 0;
         const localRev = Number(localDraft?.assemble_revision) || 0;
         if (serverStored) {
+          if (
+            localHas &&
+            !assembleStatesContentEqual(localPallets, serverPallets)
+          ) {
+            return {
+              pallets: mergeAssemblePalletLists(localPallets, serverPallets, true),
+              revision: serverRev,
+              pushToServer: true,
+              serverHadContent: assembleStateHasMeaningfulData(items, serverPallets),
+              source: "merged",
+            };
+          }
           if (localHas && localRev > serverRev) {
             const sameAsServer = assembleStatesContentEqual(localPallets, serverPallets);
             return {
@@ -12677,6 +12865,18 @@
             if (conflict && assembleOrderSnapshot?.id === oid && assembleDirty) {
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || assembleKnownRevision;
+              syncAssembleStateFromDom();
+              const remotePallets =
+                conflict.assemble_state &&
+                Array.isArray(conflict.assemble_state.pallets)
+                  ? conflict.assemble_state.pallets
+                  : [];
+              const merged = mergeAssemblePalletLists(
+                assembleAllocState.pallets,
+                remotePallets,
+                true,
+              );
+              applyMergedAssembleState(merged, { revision: assembleKnownRevision });
               const fresh = captureAssembleSavePayload();
               if (fresh) {
                 assembleQueuedPayload = fresh;
@@ -12684,7 +12884,7 @@
               setAssembleSaveUiState("error", {
                 orderId: oid,
                 message:
-                  "Синхронизация с сервером… повторная попытка сохранения…",
+                  "Объединение изменений с сервером… повторная попытка сохранения…",
               });
               markAssembleSaveFailed();
               return false;
@@ -13110,6 +13310,22 @@
         const localPallets = assembleAllocState?.pallets;
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         if (!remoteHas && localHas) {
+          return;
+        }
+        if (assembleDirty && localHas) {
+          if (!isAssembleEditableFocused()) {
+            const merged = mergeAssemblePalletLists(
+              localPallets,
+              remotePallets || [],
+              true,
+            );
+            const changed = applyMergedAssembleState(merged, { revision: remoteRev });
+            if (changed) {
+              void queueAssembleServerSave();
+            } else {
+              assembleKnownRevision = remoteRev;
+            }
+          }
           return;
         }
         if (!assembleDirty && !isAssembleEditableFocused()) {

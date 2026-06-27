@@ -12413,20 +12413,11 @@
               ctx,
             );
           });
-        const emptyCount = Math.max(localEmpty.length, remoteEmpty.length, 1);
-        const emptyTemplate = normalizeSlot({
-          lineIndex: "",
-          ...defaultAssembleLineAlloc(),
-        });
+        const emptyCount = Math.max(localEmpty.length, remoteEmpty.length);
         for (let i = 0; i < emptyCount; i += 1) {
-          const le = localEmpty[i];
-          const re = remoteEmpty[i];
-          const item = null;
-          if (le || re) {
-            merged.push(pickMergedAssembleSlot(le, re, item, ctx));
-          } else {
-            merged.push({ ...emptyTemplate });
-          }
+          merged.push(
+            pickMergedAssembleSlot(localEmpty[i], remoteEmpty[i], null, ctx),
+          );
         }
         return merged;
       }
@@ -12766,6 +12757,15 @@
           return;
         }
         if (assembleDirty && localHas) {
+          const remoteRev = Number(data.assemble_revision) || 0;
+          const remoteUpdatedAt = String(data.assemble_state_updated_at || "").trim();
+          const serverAdvanced =
+            remoteRev > assembleKnownRevision ||
+            (!!remoteUpdatedAt && remoteUpdatedAt !== assembleKnownServerUpdatedAt);
+          if (!serverAdvanced) {
+            flushAssembleDraftToServerIfNeeded(oid);
+            return;
+          }
           const merged = mergeAssemblePalletLists(
             localPallets,
             remotePallets,
@@ -14518,10 +14518,7 @@
           return stampSlotEditMeta(normalized);
         }
         if (prev) {
-          if (assembleSlotsContentEqual(prev, normalized)) {
-            return attachSlotEditMetaFromRaw(normalized, prev);
-          }
-          return stampSlotEditMeta(normalized);
+          return attachSlotEditMetaFromRaw(normalized, prev);
         }
         return normalized;
       }
@@ -14735,7 +14732,7 @@
           return;
         }
         const addS = t.closest("[data-add-slot]");
-        if (addS) {
+        if (addS && t.closest("[data-add-slot]") === addS) {
           ev.preventDefault();
           syncAssembleStateFromDom();
           const pi = Number(addS.dataset.pallet ?? addS.getAttribute("data-pallet"));

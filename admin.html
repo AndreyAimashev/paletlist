@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v11" />
+    <meta name="paletlist-build" content="sync-nav-v12" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -19,7 +19,8 @@
         --bg-primary: #0a0e17;
         --bg-secondary: #121826;
         --accent-teal: #00c8a0;
-        --accent-teal-deep: rgb(14, 40, 34);
+        --accent-teal-deep: rgb(14, 36, 32);
+        --accent-sync-pending: rgb(22, 28, 42);
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
@@ -3760,7 +3761,7 @@
           z-index: 850;
           padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
           --amn-sync-green: var(--accent-teal-deep);
-          --amn-sync-yellow: rgb(42, 34, 14);
+          --amn-sync-pending: var(--accent-sync-pending);
           background: var(--amn-bg, var(--amn-sync-green));
           border-top: none;
           box-shadow: var(--amn-shadow, 0 -6px 24px rgba(0, 0, 0, 0.35));
@@ -3783,7 +3784,7 @@
         }
 
         .assemble-mobile-nav.has-sync-fill {
-          background: var(--amn-sync-yellow) !important;
+          background: var(--amn-sync-pending) !important;
           transition: box-shadow 0.25s ease;
         }
 
@@ -3796,7 +3797,7 @@
           align-items: stretch;
           pointer-events: none;
           overflow: hidden;
-          background-color: var(--amn-sync-yellow);
+          background-color: var(--amn-sync-pending);
         }
 
         .assemble-mobile-nav__sync-fill {
@@ -3819,22 +3820,32 @@
           min-width: 0;
           height: 100%;
           opacity: 1;
-          background-color: var(--amn-sync-yellow) !important;
+          background-color: var(--amn-sync-pending) !important;
           background-image: none !important;
         }
 
         .assemble-mobile-nav.has-sync-fill .assemble-mobile-nav__btn,
         .assemble-mobile-nav.is-idle .assemble-mobile-nav__btn,
-        .assemble-mobile-nav.is-saved .assemble-mobile-nav__btn {
+        .assemble-mobile-nav.is-saved .assemble-mobile-nav__btn,
+        .assemble-mobile-nav.is-pending .assemble-mobile-nav__btn,
+        .assemble-mobile-nav.is-saving .assemble-mobile-nav__btn {
           background: transparent !important;
-          border-color: rgba(255, 255, 255, 0.28) !important;
+          border-color: rgba(255, 255, 255, 0.22) !important;
         }
 
         .assemble-mobile-nav.has-sync-fill .assemble-mobile-nav__input,
         .assemble-mobile-nav.is-idle .assemble-mobile-nav__input,
-        .assemble-mobile-nav.is-saved .assemble-mobile-nav__input {
+        .assemble-mobile-nav.is-saved .assemble-mobile-nav__input,
+        .assemble-mobile-nav.is-pending .assemble-mobile-nav__input,
+        .assemble-mobile-nav.is-saving .assemble-mobile-nav__input {
           background: transparent !important;
-          border-color: rgba(255, 255, 255, 0.28) !important;
+          border-color: rgba(255, 255, 255, 0.22) !important;
+          color: var(--text-main);
+        }
+
+        .assemble-mobile-nav.is-pending .assemble-mobile-nav__btn,
+        .assemble-mobile-nav.is-saving .assemble-mobile-nav__btn {
+          color: var(--text-main);
         }
 
         .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
@@ -11502,8 +11513,8 @@
       let assemblePalletCardsRenderedAt = 0;
       let assemblePalletActionPointerBtn = null;
 
-      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(14, 40, 34)";
-      const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(42, 34, 14)";
+      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(14, 36, 32)";
+      const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(22, 28, 42)";
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
@@ -11526,21 +11537,21 @@
         },
         "is-pending": {
           bg: ASSEMBLE_MOBILE_NAV_PENDING_BG,
-          border: "rgb(255, 210, 60)",
-          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
-          btnBorder: "rgba(255, 210, 60, 0.75)",
-          btnBg: "rgba(110, 85, 12, 0.55)",
-          btnColor: "#fff4c8",
-          inputBorder: "rgba(255, 210, 60, 0.55)",
+          border: "rgba(160, 160, 192, 0.45)",
+          shadow: "0 -6px 24px rgba(0, 0, 0, 0.35)",
+          btnBorder: "rgba(255, 255, 255, 0.22)",
+          btnBg: "transparent",
+          btnColor: "#e0e0ff",
+          inputBorder: "rgba(255, 255, 255, 0.22)",
         },
         "is-saving": {
           bg: ASSEMBLE_MOBILE_NAV_PENDING_BG,
-          border: "rgb(255, 210, 60)",
-          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
-          btnBorder: "rgba(255, 210, 60, 0.75)",
-          btnBg: "rgba(110, 85, 12, 0.55)",
-          btnColor: "#fff4c8",
-          inputBorder: "rgba(255, 210, 60, 0.55)",
+          border: "rgba(160, 160, 192, 0.45)",
+          shadow: "0 -6px 24px rgba(0, 0, 0, 0.35)",
+          btnBorder: "rgba(255, 255, 255, 0.22)",
+          btnBg: "transparent",
+          btnColor: "#e0e0ff",
+          inputBorder: "rgba(255, 255, 255, 0.22)",
         },
         "is-error": {
           bg: "rgba(62, 18, 14, 0.98)",

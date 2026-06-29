@@ -5483,6 +5483,9 @@
                 <button type="button" class="new-order-delivery-btn" data-delivery="Самовывоз">
                   Самовывоз
                 </button>
+                <button type="button" class="new-order-delivery-btn" data-delivery="Письмо">
+                  Письмо
+                </button>
               </div>
               <p id="new-order-delivery-fixed" class="new-order-delivery-fixed" hidden></p>
             </div>
@@ -6735,6 +6738,7 @@
         "Обычный",
         "Деловые Линии",
         "Самовывоз",
+        "Письмо",
         "Арнест Юнирусь",
         "ЛАБ Индастриз",
         "Дрогери Ритейл",
@@ -10062,6 +10066,7 @@
         "Обычный",
         "Деловые Линии",
         "Самовывоз",
+        "Письмо",
         "Арнест Юнирусь",
         "ЛАБ Индастриз",
         "Дрогери Ритейл",
@@ -16514,6 +16519,9 @@
         }
         if (lower === "самовывоз") {
           return "Самовывоз";
+        }
+        if (lower === "письмо") {
+          return "Письмо";
         }
         if (lower === "арнест юнирусь") {
           return "Арнест Юнирусь";

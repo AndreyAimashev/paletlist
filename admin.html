@@ -11304,6 +11304,9 @@
       let assembleSyncPollSoonTimer = null;
       let assembleMirrorTimer = null;
       let assembleSyncFetchFailStreak = 0;
+      const ASSEMBLE_PALLET_ACTION_GHOST_GUARD_MS = 450;
+      let assemblePalletCardsRenderedAt = 0;
+      let assemblePalletActionPointerBtn = null;
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
@@ -15153,6 +15156,27 @@
             restoreAssembleFocusState(focusState);
           });
         }
+        assemblePalletCardsRenderedAt = Date.now();
+        assemblePalletActionPointerBtn = null;
+      }
+
+      function isIntentionalAssemblePalletActionClick(ev, btn) {
+        if (!btn) {
+          return false;
+        }
+        if (assemblePalletActionPointerBtn === btn) {
+          return true;
+        }
+        if (
+          ev.detail === 0 &&
+          (btn === document.activeElement || btn.contains(document.activeElement))
+        ) {
+          return true;
+        }
+        if (Date.now() - assemblePalletCardsRenderedAt < ASSEMBLE_PALLET_ACTION_GHOST_GUARD_MS) {
+          return false;
+        }
+        return false;
       }
 
       function assembleInputEditHint(t) {
@@ -15331,10 +15355,12 @@
           saveAssembleDraft();
           if (t.dataset.field === "slotSource") {
             finalizeAssembleSlots();
-            renderAssemblePalletCards();
-            renderAssembleSummary();
-            renderAssembleAlerts();
-            saveAssembleStructuralChange();
+            window.setTimeout(() => {
+              renderAssemblePalletCards();
+              renderAssembleSummary();
+              renderAssembleAlerts();
+              saveAssembleStructuralChange();
+            }, 0);
             return;
           }
           renderAssembleSummary();
@@ -15363,6 +15389,10 @@
         }
         const rmPal = t.closest("[data-remove-pallet-id]");
         if (rmPal) {
+          if (!isIntentionalAssemblePalletActionClick(ev, rmPal)) {
+            ev.preventDefault();
+            return;
+          }
           ev.preventDefault();
           const palKey = String(rmPal.dataset.removePalletId ?? "").trim();
           let pi = -1;
@@ -15393,6 +15423,10 @@
         }
         const rmSlot = t.closest("[data-remove-slot]");
         if (rmSlot) {
+          if (!isIntentionalAssemblePalletActionClick(ev, rmSlot)) {
+            ev.preventDefault();
+            return;
+          }
           ev.preventDefault();
           syncAssembleStateFromDom();
           const pi = Number(rmSlot.dataset.pallet);
@@ -15413,6 +15447,10 @@
         }
         const addS = t.closest("button[data-add-slot]");
         if (addS) {
+          if (!isIntentionalAssemblePalletActionClick(ev, addS)) {
+            ev.preventDefault();
+            return;
+          }
           ev.preventDefault();
           syncAssembleStateFromDom();
           const pi = Number(addS.dataset.pallet ?? addS.getAttribute("data-pallet"));
@@ -15711,6 +15749,35 @@
         });
       }
       if (assemblePalletsRoot) {
+        const assemblePalletActionSelector =
+          "button[data-add-slot], button[data-remove-slot], button[data-remove-pallet-id]";
+        assemblePalletsRoot.addEventListener(
+          "pointerdown",
+          (ev) => {
+            if (typeof ev.button === "number" && ev.button !== 0) {
+              return;
+            }
+            assemblePalletActionPointerBtn = ev.target.closest(assemblePalletActionSelector);
+          },
+          true,
+        );
+        assemblePalletsRoot.addEventListener(
+          "pointerup",
+          (ev) => {
+            const btn = ev.target.closest(assemblePalletActionSelector);
+            if (assemblePalletActionPointerBtn && btn !== assemblePalletActionPointerBtn) {
+              assemblePalletActionPointerBtn = null;
+            }
+          },
+          true,
+        );
+        assemblePalletsRoot.addEventListener(
+          "pointercancel",
+          () => {
+            assemblePalletActionPointerBtn = null;
+          },
+          true,
+        );
         assemblePalletsRoot.addEventListener("change", onAssembleFormEvent);
         assemblePalletsRoot.addEventListener("input", onAssembleFormEvent);
         assemblePalletsRoot.addEventListener("blur", onAssembleFormEvent, true);

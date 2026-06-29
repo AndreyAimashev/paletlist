@@ -6790,6 +6790,12 @@
         "ЛАБ Индастриз",
         "Дрогери Ритейл",
       ];
+      const NEW_ORDER_DELIVERY_TOGGLE_TYPES = ORDER_DELIVERY_TYPES.filter(
+        (t) =>
+          t !== "Арнест Юнирусь" &&
+          t !== "ЛАБ Индастриз" &&
+          t !== "Дрогери Ритейл",
+      );
       const newOrderItems = document.getElementById("new-order-items");
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
@@ -13293,7 +13299,7 @@
         if (!assembleNeedsServerPush() || assembleSaveBusy()) {
           return Promise.resolve();
         }
-        if (isAssembleEditableFocused() && !assembleSavePending) {
+        if (isAssembleEditableFocused() && !assembleSavePending && !assembleDirty) {
           return Promise.resolve();
         }
         clearTimeout(assembleSaveTimer);
@@ -14092,9 +14098,24 @@
                 remotePallets.length &&
                 assembleStatesContentEqual(payload.pallets, remotePallets)
               ) {
+                const verified = await verifyAssemblePayloadOnServer(
+                  oid,
+                  payload.pallets,
+                );
+                if (!verified) {
+                  markAssembleSaveFailed();
+                  setAssembleSaveRetryUiState(
+                    oid,
+                    "Сервер не подтвердил сохранение — повторная отправка…",
+                  );
+                  return false;
+                }
                 assembleKnownRevision = conflictRev;
                 noteAssembleServerSnapshot(conflict);
-                reconcileAssembleSyncFlagsWithServer(conflict, remotePallets);
+                if (assembleOrderSnapshot?.id === oid) {
+                  assembleDirty = false;
+                  reconcileAssemblePalletDeletions(oid, remotePallets);
+                }
                 mirrorAssembleDraftForPayload(payload, conflictRev);
                 markAssembleSaveSucceeded();
                 setAssembleMobileNavSyncProgress(96);

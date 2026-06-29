@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v3" />
+    <meta name="paletlist-build" content="sync-nav-v4" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -3771,7 +3771,8 @@
 
         .assemble-mobile-nav.has-sync-fill {
           background: transparent !important;
-          backdrop-filter: none;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
           transition:
             border-color 0.25s ease,
             box-shadow 0.25s ease;
@@ -3792,14 +3793,28 @@
           flex: 0 0 auto;
           width: 0;
           height: 100%;
-          background: var(--amn-fill-bg, rgb(8, 52, 42));
+          opacity: 1;
+          background-color: rgb(8, 52, 42) !important;
+          background-image: none !important;
         }
 
         .assemble-mobile-nav__sync-pending {
           flex: 1 1 0;
           min-width: 0;
           height: 100%;
-          background: var(--amn-track-bg, rgb(58, 46, 8));
+          opacity: 1;
+          background-color: rgb(58, 46, 8) !important;
+          background-image: none !important;
+        }
+
+        .assemble-mobile-nav.has-sync-fill .assemble-mobile-nav__btn {
+          background: transparent !important;
+          border-color: rgba(255, 255, 255, 0.28) !important;
+        }
+
+        .assemble-mobile-nav.has-sync-fill .assemble-mobile-nav__input {
+          background: transparent !important;
+          border-color: rgba(255, 255, 255, 0.28) !important;
         }
 
         .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
@@ -6770,6 +6785,9 @@
       const assembleMobileNav = document.getElementById("assemble-mobile-nav");
       const assembleMobileNavSyncFill = assembleMobileNav
         ? assembleMobileNav.querySelector(".assemble-mobile-nav__sync-fill")
+        : null;
+      const assembleMobileNavSyncPending = assembleMobileNav
+        ? assembleMobileNav.querySelector(".assemble-mobile-nav__sync-pending")
         : null;
       const assembleMobileScrollTopBtn = document.getElementById("assemble-mobile-scroll-top");
       const assembleMobileScrollBottomBtn = document.getElementById("assemble-mobile-scroll-bottom");
@@ -11459,6 +11477,9 @@
       let assemblePalletCardsRenderedAt = 0;
       let assemblePalletActionPointerBtn = null;
 
+      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(8, 52, 42)";
+      const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(58, 46, 8)";
+
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
           bg: "rgb(8, 52, 42)",
@@ -11531,30 +11552,42 @@
         updateAssembleMobileNavSyncFillVisibility();
       }
 
+      function assembleMobileNavShouldShowSyncFill(stateClass) {
+        const cls = stateClass || assembleSaveSyncStateClass;
+        return (
+          cls === "is-pending" ||
+          cls === "is-saving" ||
+          cls === "is-saved" ||
+          !!assembleMobileNavSyncFinishTimer ||
+          (cls === "is-idle" &&
+            assembleMobileNavSyncProgress > 0 &&
+            assembleMobileNavSyncProgress < 100)
+        );
+      }
+
       function updateAssembleMobileNavSyncFillVisibility() {
         if (!assembleMobileNav) {
           return;
         }
-        const stateClass = assembleSaveSyncStateClass;
-        const showSyncFill =
-          stateClass === "is-pending" ||
-          stateClass === "is-saving" ||
-          stateClass === "is-saved" ||
-          !!assembleMobileNavSyncFinishTimer ||
-          (stateClass === "is-idle" &&
-            assembleMobileNavSyncProgress > 0 &&
-            assembleMobileNavSyncProgress < 100);
+        const showSyncFill = assembleMobileNavShouldShowSyncFill();
         assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
         if (showSyncFill) {
-          const pendingTheme = ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-saving"];
-          const idleTheme = ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-idle"];
-          assembleMobileNav.style.setProperty("--amn-track-bg", pendingTheme.bg);
-          assembleMobileNav.style.setProperty("--amn-fill-bg", idleTheme.bg);
+          assembleMobileNav.style.setProperty("--amn-bg", "transparent");
           assembleMobileNav.style.background = "transparent";
+          if (assembleMobileNavSyncFill) {
+            assembleMobileNavSyncFill.style.backgroundColor = ASSEMBLE_MOBILE_NAV_FILL_BG;
+          }
+          if (assembleMobileNavSyncPending) {
+            assembleMobileNavSyncPending.style.backgroundColor = ASSEMBLE_MOBILE_NAV_PENDING_BG;
+          }
         } else {
-          assembleMobileNav.style.removeProperty("--amn-track-bg");
-          assembleMobileNav.style.removeProperty("--amn-fill-bg");
           assembleMobileNav.style.removeProperty("background");
+          if (assembleMobileNavSyncFill) {
+            assembleMobileNavSyncFill.style.removeProperty("background-color");
+          }
+          if (assembleMobileNavSyncPending) {
+            assembleMobileNavSyncPending.style.removeProperty("background-color");
+          }
         }
       }
 
@@ -14070,7 +14103,11 @@
         const theme =
           ASSEMBLE_MOBILE_NAV_SYNC_THEME[stateClass] ||
           ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-idle"];
-        assembleMobileNav.style.setProperty("--amn-bg", theme.bg);
+        const showSyncFill = assembleMobileNavShouldShowSyncFill(stateClass);
+        assembleMobileNav.style.setProperty(
+          "--amn-bg",
+          showSyncFill ? "transparent" : theme.bg,
+        );
         assembleMobileNav.style.setProperty("--amn-border", theme.border);
         assembleMobileNav.style.setProperty("--amn-shadow", theme.shadow);
         assembleMobileNav.style.setProperty("--amn-btn-border", theme.btnBorder);

@@ -3768,12 +3768,18 @@
             box-shadow 0.25s ease;
         }
 
+        .assemble-mobile-nav.has-sync-fill {
+          background: transparent;
+          backdrop-filter: none;
+        }
+
         .assemble-mobile-nav__sync-track {
           position: absolute;
           inset: 0;
           z-index: 0;
           pointer-events: none;
           overflow: hidden;
+          background: var(--amn-track-bg, transparent);
         }
 
         .assemble-mobile-nav__sync-fill {
@@ -3782,25 +3788,15 @@
           top: 0;
           bottom: 0;
           width: var(--amn-sync-progress, 0%);
-          background: linear-gradient(
-            90deg,
-            rgba(8, 52, 42, 0.98) 0%,
-            rgba(10, 64, 50, 0.98) 100%
-          );
-          box-shadow: inset 0 0 24px rgba(0, 200, 160, 0.12);
+          background: var(--amn-fill-bg, rgb(8, 52, 42));
+          border-right: 2px solid var(--amn-fill-edge, rgb(0, 220, 175));
+          box-shadow: none;
           transition: width 0.12s linear;
           will-change: width;
         }
 
         .assemble-mobile-nav__sync-fill::after {
-          content: "";
-          position: absolute;
-          right: 0;
-          top: 0;
-          bottom: 0;
-          width: 2px;
-          background: rgba(0, 220, 175, 0.9);
-          box-shadow: 0 0 12px rgba(0, 220, 175, 0.45);
+          content: none;
         }
 
         .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
@@ -11458,8 +11454,8 @@
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
-          bg: "rgba(8, 52, 42, 0.98)",
-          border: "rgba(0, 220, 175, 0.85)",
+          bg: "rgb(8, 52, 42)",
+          border: "rgb(0, 220, 175)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
           btnBorder: "rgba(0, 220, 175, 0.65)",
           btnBg: "rgba(0, 100, 80, 0.5)",
@@ -11467,8 +11463,8 @@
           inputBorder: "rgba(0, 200, 160, 0.5)",
         },
         "is-saved": {
-          bg: "rgba(8, 52, 42, 0.98)",
-          border: "rgba(0, 220, 175, 0.85)",
+          bg: "rgb(8, 52, 42)",
+          border: "rgb(0, 220, 175)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
           btnBorder: "rgba(0, 220, 175, 0.65)",
           btnBg: "rgba(0, 100, 80, 0.5)",
@@ -11476,8 +11472,8 @@
           inputBorder: "rgba(0, 200, 160, 0.5)",
         },
         "is-pending": {
-          bg: "rgba(58, 46, 8, 0.98)",
-          border: "rgba(255, 210, 60, 0.9)",
+          bg: "rgb(58, 46, 8)",
+          border: "rgb(255, 210, 60)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
           btnBorder: "rgba(255, 210, 60, 0.75)",
           btnBg: "rgba(110, 85, 12, 0.55)",
@@ -11485,8 +11481,8 @@
           inputBorder: "rgba(255, 210, 60, 0.55)",
         },
         "is-saving": {
-          bg: "rgba(58, 46, 8, 0.98)",
-          border: "rgba(255, 210, 60, 0.9)",
+          bg: "rgb(58, 46, 8)",
+          border: "rgb(255, 210, 60)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
           btnBorder: "rgba(255, 210, 60, 0.75)",
           btnBg: "rgba(110, 85, 12, 0.55)",
@@ -11530,6 +11526,17 @@
             assembleMobileNavSyncProgress > 0 &&
             assembleMobileNavSyncProgress < 100);
         assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
+        if (showSyncFill) {
+          const pendingTheme = ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-saving"];
+          const idleTheme = ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-idle"];
+          assembleMobileNav.style.setProperty("--amn-track-bg", pendingTheme.bg);
+          assembleMobileNav.style.setProperty("--amn-fill-bg", idleTheme.bg);
+          assembleMobileNav.style.setProperty("--amn-fill-edge", idleTheme.border);
+        } else {
+          assembleMobileNav.style.removeProperty("--amn-track-bg");
+          assembleMobileNav.style.removeProperty("--amn-fill-bg");
+          assembleMobileNav.style.removeProperty("--amn-fill-edge");
+        }
       }
 
       function startAssembleSaveProgressSimulation() {

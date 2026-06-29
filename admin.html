@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v4" />
+    <meta name="paletlist-build" content="sync-nav-v5" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -14199,8 +14199,6 @@
             beginAssembleMobileNavSyncProgress();
             assembleSaveVisualStartedAt = Date.now();
             setAssembleMobileNavSyncProgress(4);
-          } else if (assembleMobileNavSyncProgress <= 0) {
-            setAssembleMobileNavSyncProgress(4);
           }
           applyBanner();
           return;
@@ -14215,23 +14213,22 @@
             beginAssembleMobileNavSyncProgress();
             if (assembleNeedsServerPush()) {
               refreshAssembleSaveUiIfSynced();
-              return;
             }
-            applyBanner();
           };
-          const runFinishAnimation = () => {
-            if (fromYellow && assembleMobileNavSyncProgress < 100) {
-              finishAssembleMobileNavSyncProgress(finishIdle);
-              return;
+          if (fromYellow && assembleMobileNavSyncProgress > 0 && assembleMobileNavSyncProgress < 100) {
+            applyAssembleSyncBannerState(stateClass, text);
+            setAssembleSaveStatus("", false);
+            if (state === "saved") {
+              scheduleAssembleSaveBannerIdle();
+            } else if (assembleSaveBannerHideTimer) {
+              clearTimeout(assembleSaveBannerHideTimer);
+              assembleSaveBannerHideTimer = null;
             }
-            setAssembleMobileNavSyncProgress(100);
-            finishIdle();
-          };
-          if (fromYellow) {
-            waitAssembleSaveVisualMin(runFinishAnimation);
+            finishAssembleMobileNavSyncProgress(finishIdle);
             return;
           }
-          runFinishAnimation();
+          finishIdle();
+          applyBanner();
           return;
         }
         applyBanner();
@@ -14614,6 +14611,7 @@
           assembleQueuedPayload = null;
           assembleSaveInFlight = true;
           beginAssembleMobileNavSyncProgress();
+          setAssembleMobileNavSyncProgress(4);
           setAssembleSaveUiState("saving", { orderId: payload.orderId });
           const ok = await patchAssemblePayload(payload);
           assembleSaveInFlight = false;
@@ -14633,7 +14631,9 @@
           !assembleQueuedPayload &&
           !assembleSavePending &&
           !assembleSaveInFlight &&
-          !assembleNeedsServerPush()
+          !assembleNeedsServerPush() &&
+          assembleSaveSyncStateClass !== "is-idle" &&
+          assembleSaveSyncStateClass !== "is-saved"
         ) {
           setAssembleSaveUiState("idle");
         }
@@ -15249,6 +15249,7 @@
       function saveAssembleDraft(opts) {
         assembleDirty = true;
         const immediate = !!(opts && opts.immediate);
+        beginAssembleMobileNavSyncProgress();
         if (immediate) {
           mirrorAssembleDraftLocal();
         } else {
@@ -15259,15 +15260,7 @@
           }, 0);
         }
         const oid = assembleOrderSnapshot?.id;
-        const syncState = assembleSaveSyncStateClass;
-        if (
-          syncState !== "is-error" &&
-          syncState !== "is-saving" &&
-          !assembleSavePending &&
-          !assembleSaveInFlight
-        ) {
-          setAssembleSaveUiState(immediate ? "saving" : "debouncing", { orderId: oid });
-        }
+        setAssembleSaveUiState(immediate ? "saving" : "debouncing", { orderId: oid });
         clearTimeout(assembleSaveTimer);
         if (immediate) {
           void afterAssembleSaveQueue(queueAssembleServerSave());

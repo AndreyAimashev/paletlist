@@ -2763,6 +2763,42 @@
         background: rgba(12, 28, 24, 0.72);
       }
 
+      .order-chat-message__footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 6px;
+      }
+
+      .order-chat-message__footer .feedback-message__time {
+        margin-top: 0;
+      }
+
+      .order-chat-message__delete {
+        flex-shrink: 0;
+        margin: 0;
+        padding: 2px 8px;
+        border: 1px solid rgba(255, 100, 100, 0.35);
+        border-radius: 6px;
+        background: transparent;
+        color: rgba(255, 140, 140, 0.92);
+        font-family: inherit;
+        font-size: 11px;
+        line-height: 1.4;
+        cursor: pointer;
+      }
+
+      .order-chat-message__delete:hover {
+        border-color: rgba(255, 130, 130, 0.75);
+        color: #ffb0b0;
+      }
+
+      .order-chat-message__delete:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+
       .orders-row-actions {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, auto));
@@ -11072,10 +11108,18 @@
             const body = escapeXml(msg.body || "");
             const time = escapeXml(formatFeedbackDateTime(msg.created_at));
             const ownClass = msg.is_own ? " is-own" : "";
+            const msgId = Number(msg.id);
+            const deleteBtn =
+              msg.is_own && Number.isFinite(msgId)
+                ? `<button type="button" class="order-chat-message__delete" data-order-chat-delete data-message-id="${msgId}" title="Удалить сообщение">Удалить</button>`
+                : "";
+            const footer = deleteBtn
+              ? `<div class="order-chat-message__footer"><span class="feedback-message__time">${time}</span>${deleteBtn}</div>`
+              : `<span class="feedback-message__time">${time}</span>`;
             return `<li class="feedback-message order-chat-message${ownClass}">
               <span class="feedback-message__author">${author}</span>
               <p class="feedback-message__body">${body}</p>
-              <span class="feedback-message__time">${time}</span>
+              ${footer}
             </li>`;
           })
           .join("");
@@ -11212,6 +11256,39 @@
             48
           : true;
         applyOrderChatData(data, { scrollToBottom: nearBottom });
+      }
+
+      async function deleteOrderChatMessage(orderId, messageId) {
+        const oid = Number(orderId);
+        const mid = Number(messageId);
+        if (!Number.isFinite(oid) || !Number.isFinite(mid)) {
+          return;
+        }
+        if (!window.confirm("Удалить это сообщение? Его не увидят другие пользователи.")) {
+          return;
+        }
+        setOrderChatError("");
+        let res;
+        try {
+          res = await fetch(`/api/orders/${oid}/messages/${mid}`, { method: "DELETE" });
+        } catch (error) {
+          setOrderChatError("Нет связи с сервером при удалении.", true);
+          return;
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        if (!res.ok) {
+          setOrderChatError(
+            (data && data.message) || `Не удалось удалить (код ${res.status}).`,
+            true,
+          );
+          return;
+        }
+        await openOrderChatModal(oid, { quiet: true });
       }
 
       function closeOrderChatModal() {
@@ -14034,6 +14111,25 @@
         }
       }
 
+      function getAssemblePalletsForServerVerify(fallbackPallets) {
+        if (assembleOrderSnapshot && assembleAllocState) {
+          syncAssembleStateFromDom();
+          const local = assembleAllocState.pallets;
+          if (Array.isArray(local) && local.length) {
+            return local.map((p) => ({
+              id: p.id,
+              palletNumber: p.palletNumber,
+              ...(p.palletEditedAt ? { palletEditedAt: p.palletEditedAt } : {}),
+              ...(p.palletEditedBy ? { palletEditedBy: p.palletEditedBy } : {}),
+              slots: (p.slots || []).map((s) =>
+                attachSlotEditMetaFromRaw(normalizeSlot(s), s),
+              ),
+            }));
+          }
+        }
+        return fallbackPallets;
+      }
+
       async function verifyAssemblePayloadOnServer(orderId, payloadPallets) {
         try {
           const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
@@ -14100,7 +14196,7 @@
               ) {
                 const verified = await verifyAssemblePayloadOnServer(
                   oid,
-                  payload.pallets,
+                  getAssemblePalletsForServerVerify(payload.pallets),
                 );
                 if (!verified) {
                   markAssembleSaveFailed();
@@ -14138,7 +14234,7 @@
                 remotePallets,
                 items,
                 {
-                  preferLocalOnConflict: false,
+                  preferLocalOnConflict: true,
                   localClientId: getAssembleClientId(),
                   orderId: oid,
                 },
@@ -14235,8 +14331,13 @@
             /* ignore */
           }
           if (data && data.unchanged) {
-            const verified = await verifyAssemblePayloadOnServer(oid, payload.pallets);
+            const palletsToVerify = getAssemblePalletsForServerVerify(payload.pallets);
+            const verified = await verifyAssemblePayloadOnServer(oid, palletsToVerify);
             if (!verified) {
+              const fresh = captureAssembleSavePayload();
+              if (fresh) {
+                assembleQueuedPayload = fresh;
+              }
               markAssembleSaveFailed();
               setAssembleSaveRetryUiState(
                 oid,
@@ -14244,9 +14345,16 @@
               );
               return false;
             }
+          } else if (data && data.ok) {
+            noteAssembleServerSnapshot(data);
           } else {
-            const verified = await verifyAssemblePayloadOnServer(oid, payload.pallets);
+            const palletsToVerify = getAssemblePalletsForServerVerify(payload.pallets);
+            const verified = await verifyAssemblePayloadOnServer(oid, palletsToVerify);
             if (!verified) {
+              const fresh = captureAssembleSavePayload();
+              if (fresh) {
+                assembleQueuedPayload = fresh;
+              }
               markAssembleSaveFailed();
               setAssembleSaveRetryUiState(
                 oid,
@@ -16071,7 +16179,11 @@
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
-        setAssembleSaveUiState("idle", { orderId });
+        if (picked.pushToServer) {
+          refreshAssembleSyncUiState(orderId, { serverReachable: navigator.onLine });
+        } else {
+          setAssembleSaveUiState("idle", { orderId });
+        }
       }
 
       function showAssembleEmptyNav() {
@@ -17161,6 +17273,20 @@
             orderChatInput.value = "";
           }
           await openOrderChatModal(oid, { quiet: true });
+        });
+      }
+      if (orderChatMessagesEl) {
+        orderChatMessagesEl.addEventListener("click", (event) => {
+          const btn = event.target.closest("[data-order-chat-delete]");
+          if (!btn || orderChatActiveId == null) {
+            return;
+          }
+          const messageId = Number(btn.dataset.messageId);
+          if (!Number.isFinite(messageId)) {
+            return;
+          }
+          event.preventDefault();
+          void deleteOrderChatMessage(orderChatActiveId, messageId);
         });
       }
 

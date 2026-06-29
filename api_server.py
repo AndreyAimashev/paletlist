@@ -2215,6 +2215,23 @@ def _parse_order_messages_id(path: str) -> int | None:
         return None
 
 
+def _parse_order_message_detail_id(path: str) -> tuple[int, int] | None:
+    """Для /api/orders/12/messages/34 возвращает (12, 34)."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    marker = "/messages/"
+    if not p.startswith(prefix) or marker not in p:
+        return None
+    rest = p[len(prefix) :]
+    order_part, msg_part = rest.split(marker, 1)
+    if not order_part or "/" in order_part or not msg_part or "/" in msg_part:
+        return None
+    try:
+        return int(order_part), int(msg_part)
+    except ValueError:
+        return None
+
+
 def _path_needs_orders_permission(path: str) -> bool:
     if (
         _is_orders_list_path(path)
@@ -2234,6 +2251,8 @@ def _path_needs_orders_permission(path: str) -> bool:
     if _parse_orders_assemble_presence_id(path) is not None:
         return True
     if _parse_order_messages_id(path) is not None:
+        return True
+    if _parse_order_message_detail_id(path) is not None:
         return True
     return False
 
@@ -6052,6 +6071,44 @@ def add_order_message(session: dict | None, order_id: int, body: dict) -> dict:
     }
 
 
+def delete_order_message(
+    session: dict | None, order_id: int, message_id: int
+) -> dict:
+    if not session:
+        return {"error": "unauthorized", "message": "Требуется авторизация."}
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT id, order_id, author_user_id, author_name
+            FROM order_messages
+            WHERE id = ? AND order_id = ?
+            """,
+            (int(message_id), int(order_id)),
+        ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Сообщение не найдено."}
+        if not _order_chat_is_own_message(
+            int(row["author_user_id"] or 0),
+            row["author_name"] or "",
+            session,
+        ):
+            con.close()
+            return {
+                "error": "forbidden",
+                "message": "Можно удалить только своё сообщение.",
+            }
+        cur.execute(
+            "DELETE FROM order_messages WHERE id = ? AND order_id = ?",
+            (int(message_id), int(order_id)),
+        )
+        con.commit()
+        con.close()
+    return {"ok": True}
+
+
 def patch_feedback_thread(session: dict | None, thread_id: int, body: dict) -> dict:
     if not session:
         return {"error": "unauthorized", "message": "Требуется авторизация."}
@@ -7455,6 +7512,28 @@ class ApiHandler(BaseHTTPRequestHandler):
             err = result.get("error")
             if err == "validation":
                 self._send_json(400, result)
+                return
+            self._send_json(200, result)
+            return
+        order_msg_ids = _parse_order_message_detail_id(path)
+        if order_msg_ids is not None:
+            order_id, message_id = order_msg_ids
+            try:
+                result = delete_order_message(
+                    self._auth_session, order_id, message_id
+                )
+            except sqlite3.Error as exc:
+                self._send_json(500, {"error": "database", "message": str(exc)})
+                return
+            err = result.get("error")
+            if err == "not_found":
+                self._send_json(404, result)
+                return
+            if err == "forbidden":
+                self._send_json(403, result)
+                return
+            if err == "unauthorized":
+                self._send_json(401, result)
                 return
             self._send_json(200, result)
             return

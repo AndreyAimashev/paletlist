@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v8" />
+    <meta name="paletlist-build" content="sync-nav-v9" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -19,6 +19,7 @@
         --bg-primary: #0a0e17;
         --bg-secondary: #121826;
         --accent-teal: #00c8a0;
+        --accent-teal-deep: rgb(10, 44, 36);
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
@@ -3758,7 +3759,7 @@
           bottom: 0;
           z-index: 850;
           padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-          --amn-sync-green: rgb(8, 52, 42);
+          --amn-sync-green: var(--accent-teal-deep);
           --amn-sync-yellow: rgb(58, 46, 8);
           background: var(--amn-bg, var(--amn-sync-green));
           border-top: 2px solid var(--amn-border, rgba(0, 200, 160, 0.75));
@@ -11500,7 +11501,7 @@
       let assemblePalletCardsRenderedAt = 0;
       let assemblePalletActionPointerBtn = null;
 
-      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(8, 52, 42)";
+      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(10, 44, 36)";
       const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(58, 46, 8)";
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {

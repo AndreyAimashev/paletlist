@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v9" />
+    <meta name="paletlist-build" content="sync-nav-v10" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -19,7 +19,7 @@
         --bg-primary: #0a0e17;
         --bg-secondary: #121826;
         --accent-teal: #00c8a0;
-        --accent-teal-deep: rgb(10, 44, 36);
+        --accent-teal-deep: rgb(0, 120, 96);
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
@@ -3762,13 +3762,12 @@
           --amn-sync-green: var(--accent-teal-deep);
           --amn-sync-yellow: rgb(58, 46, 8);
           background: var(--amn-bg, var(--amn-sync-green));
-          border-top: 2px solid var(--amn-border, rgba(0, 200, 160, 0.75));
+          border-top: none;
           box-shadow: var(--amn-shadow, 0 -6px 24px rgba(0, 0, 0, 0.35));
           backdrop-filter: blur(8px);
           overflow: hidden;
           transition:
             background 0.25s ease,
-            border-color 0.25s ease,
             box-shadow 0.25s ease;
         }
 
@@ -3782,9 +3781,7 @@
           background: transparent !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
-          transition:
-            border-color 0.25s ease,
-            box-shadow 0.25s ease;
+          transition: box-shadow 0.25s ease;
         }
 
         .assemble-mobile-nav__sync-track {
@@ -11501,7 +11498,7 @@
       let assemblePalletCardsRenderedAt = 0;
       let assemblePalletActionPointerBtn = null;
 
-      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(10, 44, 36)";
+      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(0, 120, 96)";
       const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(58, 46, 8)";
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
@@ -14146,7 +14143,6 @@
           "--amn-bg",
           showSyncFill ? "transparent" : theme.bg,
         );
-        assembleMobileNav.style.setProperty("--amn-border", theme.border);
         assembleMobileNav.style.setProperty("--amn-shadow", theme.shadow);
         assembleMobileNav.style.setProperty("--amn-btn-border", theme.btnBorder);
         assembleMobileNav.style.setProperty("--amn-btn-bg", theme.btnBg);

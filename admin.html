@@ -3788,7 +3788,7 @@
             rgba(10, 64, 50, 0.98) 100%
           );
           box-shadow: inset 0 0 24px rgba(0, 200, 160, 0.12);
-          transition: width 0.14s ease-out;
+          transition: width 0.12s linear;
           will-change: width;
         }
 
@@ -11388,6 +11388,10 @@
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 500;
       const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
+      const ASSEMBLE_SYNC_FILL_FINISH_MS = 520;
+      const ASSEMBLE_SYNC_FILL_MIN_MS = 720;
+      const ASSEMBLE_SYNC_FILL_FINISH_MS = 520;
+      const ASSEMBLE_SYNC_FILL_MIN_MS = 720;
       const ASSEMBLE_SYNC_SOON_MS = 150;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
@@ -11502,17 +11506,33 @@
       let assembleMobileNavSyncProgress = 0;
       let assembleMobileNavSyncFinishTimer = null;
       let assembleSaveProgressTimer = null;
+      let assembleSaveVisualStartedAt = 0;
+
+      function updateAssembleMobileNavSyncFillVisibility() {
+        if (!assembleMobileNav) {
+          return;
+        }
+        const stateClass = assembleSaveSyncStateClass;
+        const showSyncFill =
+          stateClass === "is-saving" ||
+          stateClass === "is-saved" ||
+          !!assembleMobileNavSyncFinishTimer ||
+          (stateClass === "is-idle" &&
+            assembleMobileNavSyncProgress > 0 &&
+            assembleMobileNavSyncProgress < 100);
+        assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
+      }
 
       function startAssembleSaveProgressSimulation() {
         stopAssembleSaveProgressSimulation();
         let simPct =
-          assembleMobileNavSyncProgress > 0 ? assembleMobileNavSyncProgress : 8;
+          assembleMobileNavSyncProgress > 0 ? assembleMobileNavSyncProgress : 6;
         assembleSaveProgressTimer = setInterval(() => {
-          simPct = Math.min(86, simPct + 3);
+          simPct = Math.min(78, simPct + 2);
           if (assembleSaveInFlight) {
             setAssembleMobileNavSyncProgress(simPct);
           }
-        }, 100);
+        }, 120);
       }
 
       function stopAssembleSaveProgressSimulation() {
@@ -13309,7 +13329,8 @@
         }
         const p = Math.max(0, Math.min(100, Number(percent) || 0));
         assembleMobileNavSyncProgress = p;
-        assembleMobileNav.style.setProperty("--amn-sync-progress", String(p));
+        assembleMobileNav.style.setProperty("--amn-sync-progress", `${p}%`);
+        updateAssembleMobileNavSyncFillVisibility();
       }
 
       function resetAssembleMobileNavSyncProgress() {
@@ -13317,6 +13338,7 @@
           clearTimeout(assembleMobileNavSyncFinishTimer);
           assembleMobileNavSyncFinishTimer = null;
         }
+        assembleSaveVisualStartedAt = 0;
         setAssembleMobileNavSyncProgress(0);
       }
 
@@ -13324,13 +13346,42 @@
         if (assembleMobileNavSyncFinishTimer) {
           clearTimeout(assembleMobileNavSyncFinishTimer);
         }
-        setAssembleMobileNavSyncProgress(100);
-        assembleMobileNavSyncFinishTimer = window.setTimeout(() => {
+        const start = assembleMobileNavSyncProgress;
+        const startedAt = Date.now();
+        const step = () => {
+          const t = Math.min(
+            1,
+            (Date.now() - startedAt) / ASSEMBLE_SYNC_FILL_FINISH_MS,
+          );
+          const pct = start + (100 - start) * t;
+          setAssembleMobileNavSyncProgress(pct);
+          if (t < 1) {
+            assembleMobileNavSyncFinishTimer = window.setTimeout(
+              step,
+              32,
+            );
+            return;
+          }
           assembleMobileNavSyncFinishTimer = null;
+          updateAssembleMobileNavSyncFillVisibility();
           if (typeof done === "function") {
             done();
           }
-        }, 340);
+        };
+        step();
+      }
+
+      function waitAssembleSaveVisualMin(done) {
+        const elapsed =
+          assembleSaveVisualStartedAt > 0
+            ? Date.now() - assembleSaveVisualStartedAt
+            : ASSEMBLE_SYNC_FILL_MIN_MS;
+        const wait = Math.max(0, ASSEMBLE_SYNC_FILL_MIN_MS - elapsed);
+        if (wait <= 0) {
+          done();
+          return;
+        }
+        window.setTimeout(done, wait);
       }
 
       async function patchOrderAssembleRequest(orderId, bodyJson) {
@@ -13344,7 +13395,7 @@
           });
           stopAssembleSaveProgressSimulation();
           if (assembleSaveInFlight) {
-            setAssembleMobileNavSyncProgress(92);
+            setAssembleMobileNavSyncProgress(88);
           }
           return res;
         } catch (e) {
@@ -13678,21 +13729,25 @@
           options.serverReachable != null ? !!options.serverReachable : navigator.onLine;
         const hasPendingWork = assembleNeedsServerPush();
 
+        if (assembleDeviceIsOffline()) {
+          if (hasPendingWork) {
+            ensureAssembleSaveRetryScheduled();
+          }
+          setAssembleSaveUiState("offline", {
+            orderId,
+            message: hasPendingWork
+              ? "Нет связи с интернетом — изменения сохранены на устройстве…"
+              : "Нет связи с интернетом.",
+          });
+          return;
+        }
+
         if (assembleSaveInFlight || assembleQueuedPayload) {
           setAssembleSaveUiState("saving", { orderId });
           return;
         }
 
         if (hasPendingWork) {
-          if (assembleDeviceIsOffline()) {
-            ensureAssembleSaveRetryScheduled();
-            setAssembleSaveUiState("offline", {
-              orderId,
-              message:
-                "Нет связи с интернетом — изменения сохранены на устройстве…",
-            });
-            return;
-          }
           if (!serverReachable) {
             ensureAssembleSaveRetryScheduled();
             setAssembleSaveUiState("saving", {
@@ -13716,23 +13771,8 @@
           }
         }
 
-        if (!navigator.onLine) {
-          if (hasPendingWork) {
-            setAssembleSaveUiState("offline", {
-              orderId,
-              message: "Нет связи с интернетом.",
-            });
-          } else {
-            setAssembleSaveUiState("idle", {
-              orderId,
-              message: "Нет связи с интернетом.",
-            });
-          }
-          return;
-        }
-
         if (!serverReachable) {
-          setAssembleSaveUiState("idle", {
+          setAssembleSaveUiState("offline", {
             orderId,
             message: "Нет связи с сервером.",
           });
@@ -13942,13 +13982,7 @@
         assembleMobileNav.style.setProperty("--amn-input-border", theme.inputBorder);
         applyAssembleSyncStateClasses(assembleMobileNav, stateClass);
         assembleMobileNav.dataset.syncState = stateClass.replace(/^is-/, "");
-        const showSyncFill =
-          stateClass === "is-saving" ||
-          stateClass === "is-saved" ||
-          (stateClass === "is-idle" &&
-            assembleMobileNavSyncProgress > 0 &&
-            assembleMobileNavSyncProgress < 100);
-        assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
+        updateAssembleMobileNavSyncFillVisibility();
       }
 
       function applyAssembleSyncBannerState(stateClass, text) {
@@ -14027,8 +14061,11 @@
           return;
         }
         if (state === "saving") {
+          if (assembleSaveVisualStartedAt <= 0) {
+            assembleSaveVisualStartedAt = Date.now();
+          }
           if (assembleMobileNavSyncProgress <= 0) {
-            setAssembleMobileNavSyncProgress(3);
+            setAssembleMobileNavSyncProgress(4);
           }
           applyBanner();
           return;
@@ -14039,18 +14076,26 @@
             assembleSaveSyncStateClass === "is-pending" ||
             assembleSaveSyncStateClass === "is-saved";
           const finishIdle = () => {
+            assembleSaveVisualStartedAt = 0;
             if (assembleNeedsServerPush()) {
               refreshAssembleSaveUiIfSynced();
               return;
             }
             applyBanner();
           };
-          if (fromYellow && assembleMobileNavSyncProgress < 100) {
-            finishAssembleMobileNavSyncProgress(finishIdle);
+          const runFinishAnimation = () => {
+            if (fromYellow && assembleMobileNavSyncProgress < 100) {
+              finishAssembleMobileNavSyncProgress(finishIdle);
+              return;
+            }
+            setAssembleMobileNavSyncProgress(100);
+            finishIdle();
+          };
+          if (fromYellow) {
+            waitAssembleSaveVisualMin(runFinishAnimation);
             return;
           }
-          setAssembleMobileNavSyncProgress(100);
-          finishIdle();
+          runFinishAnimation();
           return;
         }
         applyBanner();
@@ -16422,7 +16467,10 @@
           });
           return;
         }
-        reflectAssembleServerReachability(false, assembleOrderSnapshot.id);
+        setAssembleSaveUiState("offline", {
+          orderId: assembleOrderSnapshot.id,
+          message: "Нет связи с интернетом.",
+        });
       });
       if (assembleSyncChannel) {
         assembleSyncChannel.addEventListener("message", (ev) => {

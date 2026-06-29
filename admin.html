@@ -3725,18 +3725,45 @@
           border-top: 2px solid var(--amn-border, rgba(0, 200, 160, 0.75));
           box-shadow: var(--amn-shadow, 0 -6px 24px rgba(0, 0, 0, 0.35));
           backdrop-filter: blur(8px);
+          overflow: hidden;
           transition:
             background 0.25s ease,
             border-color 0.25s ease,
             box-shadow 0.25s ease;
         }
 
-        .assemble-mobile-nav[hidden] {
-          display: none !important;
+        .assemble-mobile-nav__sync-track {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          overflow: hidden;
+        }
+
+        .assemble-mobile-nav__sync-fill {
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: var(--amn-sync-progress, 0%);
+          background: linear-gradient(
+            90deg,
+            rgba(8, 52, 42, 0.98) 0%,
+            rgba(10, 64, 50, 0.98) 100%
+          );
+          box-shadow: inset 0 0 24px rgba(0, 200, 160, 0.12);
+          transition: width 0.14s ease-out;
+          will-change: width;
+        }
+
+        .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
+          display: none;
         }
 
         .assemble-mobile-nav__inner {
           display: grid;
+          position: relative;
+          z-index: 1;
           grid-template-columns: auto 1fr auto;
           gap: 8px;
           align-items: center;
@@ -3789,7 +3816,13 @@
           padding: 10px 12px;
         }
 
+        .assemble-mobile-nav[hidden] {
+          display: none !important;
+        }
+
         .assemble-mobile-nav__msg {
+          position: relative;
+          z-index: 1;
           margin: 6px 0 0;
           font-size: 12px;
           text-align: center;
@@ -4835,6 +4868,9 @@
               hidden
               aria-label="Быстрая навигация по паллетам"
             >
+              <div class="assemble-mobile-nav__sync-track" aria-hidden="true">
+                <div class="assemble-mobile-nav__sync-fill"></div>
+              </div>
               <div class="assemble-mobile-nav__inner">
                 <button
                   type="button"
@@ -11359,7 +11395,18 @@
           btnColor: "#ffd4c8",
           inputBorder: "rgba(255, 120, 90, 0.6)",
         },
+        "is-offline": {
+          bg: "rgba(62, 18, 14, 0.98)",
+          border: "rgba(255, 100, 75, 0.95)",
+          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 90, 70, 0.32)",
+          btnBorder: "rgba(255, 120, 90, 0.8)",
+          btnBg: "rgba(120, 28, 18, 0.6)",
+          btnColor: "#ffd4c8",
+          inputBorder: "rgba(255, 120, 90, 0.6)",
+        },
       };
+      let assembleMobileNavSyncProgress = 0;
+      let assembleMobileNavSyncFinishTimer = null;
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
@@ -13119,11 +13166,94 @@
       }
 
       function setAssembleSaveRetryUiState(orderId, message) {
-        setAssembleSaveUiState("saving", {
-          orderId,
-          message: message || "Слабый интернет — повторная отправка изменений…",
-        });
+        if (!navigator.onLine) {
+          setAssembleSaveUiState("offline", {
+            orderId,
+            message:
+              message ||
+              "Нет связи с интернетом — изменения сохранены на устройстве…",
+          });
+        } else {
+          setAssembleSaveUiState("saving", {
+            orderId,
+            message: message || "Слабый интернет — повторная отправка изменений…",
+          });
+        }
         markAssembleSaveFailed();
+      }
+
+      function assembleDeviceIsOffline() {
+        return !navigator.onLine;
+      }
+
+      function setAssembleMobileNavSyncProgress(percent) {
+        if (!assembleMobileNav) {
+          return;
+        }
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        assembleMobileNavSyncProgress = p;
+        assembleMobileNav.style.setProperty("--amn-sync-progress", String(p));
+      }
+
+      function resetAssembleMobileNavSyncProgress() {
+        if (assembleMobileNavSyncFinishTimer) {
+          clearTimeout(assembleMobileNavSyncFinishTimer);
+          assembleMobileNavSyncFinishTimer = null;
+        }
+        setAssembleMobileNavSyncProgress(0);
+      }
+
+      function finishAssembleMobileNavSyncProgress(done) {
+        if (assembleMobileNavSyncFinishTimer) {
+          clearTimeout(assembleMobileNavSyncFinishTimer);
+        }
+        setAssembleMobileNavSyncProgress(100);
+        assembleMobileNavSyncFinishTimer = window.setTimeout(() => {
+          assembleMobileNavSyncFinishTimer = null;
+          if (typeof done === "function") {
+            done();
+          }
+        }, 340);
+      }
+
+      function patchOrderAssembleXHR(orderId, bodyJson, onUploadProgress) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PATCH", `/api/orders/${orderId}`);
+          xhr.setRequestHeader("Content-Type", "application/json");
+          let softPct = 4;
+          xhr.upload.addEventListener("progress", (ev) => {
+            if (!onUploadProgress) {
+              return;
+            }
+            if (ev.lengthComputable && ev.total > 0) {
+              softPct = 4 + Math.round((ev.loaded / ev.total) * 82);
+              onUploadProgress(softPct);
+              return;
+            }
+            softPct = Math.min(18, softPct + 2);
+            onUploadProgress(softPct);
+          });
+          xhr.addEventListener("load", () => {
+            if (onUploadProgress) {
+              onUploadProgress(92);
+            }
+            let parsed = null;
+            try {
+              parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+            } catch (e) {
+              /* ignore */
+            }
+            resolve({
+              ok: xhr.status >= 200 && xhr.status < 300,
+              status: xhr.status,
+              json: async () => parsed,
+            });
+          });
+          xhr.addEventListener("error", () => reject(new Error("network")));
+          xhr.addEventListener("timeout", () => reject(new Error("timeout")));
+          xhr.send(bodyJson);
+        });
       }
 
       function stopAssembleSyncPoll() {
@@ -13421,7 +13551,8 @@
         return (
           (assembleSaveSyncStateClass === "is-pending" ||
             assembleSaveSyncStateClass === "is-saving" ||
-            assembleSaveSyncStateClass === "is-error") &&
+            assembleSaveSyncStateClass === "is-error" ||
+            assembleSaveSyncStateClass === "is-offline") &&
           !assembleSaveInFlight &&
           !assembleQueuedPayload &&
           !assembleDirty &&
@@ -13453,7 +13584,16 @@
         }
 
         if (hasPendingWork) {
-          if (!navigator.onLine || !serverReachable) {
+          if (assembleDeviceIsOffline()) {
+            ensureAssembleSaveRetryScheduled();
+            setAssembleSaveUiState("offline", {
+              orderId,
+              message:
+                "Нет связи с интернетом — изменения сохранены на устройстве…",
+            });
+            return;
+          }
+          if (!serverReachable) {
             ensureAssembleSaveRetryScheduled();
             setAssembleSaveUiState("saving", {
               orderId,
@@ -13477,10 +13617,17 @@
         }
 
         if (!navigator.onLine) {
-          setAssembleSaveUiState("idle", {
-            orderId,
-            message: "Нет связи с интернетом.",
-          });
+          if (hasPendingWork) {
+            setAssembleSaveUiState("offline", {
+              orderId,
+              message: "Нет связи с интернетом.",
+            });
+          } else {
+            setAssembleSaveUiState("idle", {
+              orderId,
+              message: "Нет связи с интернетом.",
+            });
+          }
           return;
         }
 
@@ -13667,6 +13814,7 @@
         "is-saving",
         "is-saved",
         "is-error",
+        "is-offline",
       ];
 
       function applyAssembleSyncStateClasses(el, stateClass) {
@@ -13694,6 +13842,13 @@
         assembleMobileNav.style.setProperty("--amn-input-border", theme.inputBorder);
         applyAssembleSyncStateClasses(assembleMobileNav, stateClass);
         assembleMobileNav.dataset.syncState = stateClass.replace(/^is-/, "");
+        const showSyncFill =
+          stateClass === "is-saving" ||
+          stateClass === "is-saved" ||
+          (stateClass === "is-idle" &&
+            assembleMobileNavSyncProgress > 0 &&
+            assembleMobileNavSyncProgress < 100);
+        assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
       }
 
       function applyAssembleSyncBannerState(stateClass, text) {
@@ -13728,6 +13883,11 @@
             options.message ||
             `Сохранение сборки ${formatAssembleSaveOrderLabel(orderId)}…`;
           stateClass = "is-saving";
+        } else if (state === "offline") {
+          text =
+            options.message ||
+            "Нет связи с интернетом — изменения сохранены на устройстве…";
+          stateClass = "is-offline";
         } else if (state === "saved") {
           text = `Сборка ${formatAssembleSaveOrderLabel(orderId)} сохранена на сервере.`;
           stateClass = "is-saved";
@@ -13744,14 +13904,49 @@
               : "Все изменения сохранены.");
           stateClass = "is-idle";
         }
-        applyAssembleSyncBannerState(stateClass, text);
-        setAssembleSaveStatus("", false);
-        if (state === "saved") {
-          scheduleAssembleSaveBannerIdle();
-        } else if (state === "idle" && assembleSaveBannerHideTimer) {
-          clearTimeout(assembleSaveBannerHideTimer);
-          assembleSaveBannerHideTimer = null;
+
+        const applyBanner = () => {
+          applyAssembleSyncBannerState(stateClass, text);
+          setAssembleSaveStatus("", false);
+          if (state === "saved") {
+            scheduleAssembleSaveBannerIdle();
+          } else if (state === "idle" && assembleSaveBannerHideTimer) {
+            clearTimeout(assembleSaveBannerHideTimer);
+            assembleSaveBannerHideTimer = null;
+          }
+        };
+
+        if (state === "offline" || state === "error") {
+          resetAssembleMobileNavSyncProgress();
+          applyBanner();
+          return;
         }
+        if (state === "debouncing") {
+          resetAssembleMobileNavSyncProgress();
+          applyBanner();
+          return;
+        }
+        if (state === "saving") {
+          if (assembleMobileNavSyncProgress <= 0) {
+            setAssembleMobileNavSyncProgress(3);
+          }
+          applyBanner();
+          return;
+        }
+        if (state === "idle" || state === "saved") {
+          const fromYellow =
+            assembleSaveSyncStateClass === "is-saving" ||
+            assembleSaveSyncStateClass === "is-pending" ||
+            assembleSaveSyncStateClass === "is-saved";
+          if (fromYellow && assembleMobileNavSyncProgress < 100) {
+            finishAssembleMobileNavSyncProgress(applyBanner);
+            return;
+          }
+          setAssembleMobileNavSyncProgress(100);
+          applyBanner();
+          return;
+        }
+        applyBanner();
       }
 
       function assembleSaveBusy() {
@@ -13830,14 +14025,15 @@
           assemble_state.assembly_line_indices = "merged";
         }
         try {
-          const res = await fetch(`/api/orders/${oid}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              assembled_percent,
-              assemble_state,
-              expected_assemble_revision: payload.revision,
-            }),
+          const bodyJson = JSON.stringify({
+            assembled_percent,
+            assemble_state,
+            expected_assemble_revision: payload.revision,
+          });
+          const res = await patchOrderAssembleXHR(oid, bodyJson, (pct) => {
+            if (assembleSaveInFlight) {
+              setAssembleMobileNavSyncProgress(pct);
+            }
           });
           if (res.status === 409) {
             let conflict = null;
@@ -13863,6 +14059,7 @@
                 reconcileAssembleSyncFlagsWithServer(conflict, remotePallets);
                 mirrorAssembleDraftForPayload(payload, conflictRev);
                 markAssembleSaveSucceeded();
+                setAssembleMobileNavSyncProgress(96);
                 setAssembleSaveUiState("idle", { orderId: oid });
                 notifyAssembleSavedToOtherTabs(oid, conflictRev);
                 scheduleAssembleSyncPollSoon();
@@ -13924,6 +14121,7 @@
               if (reconcileAssembleSyncFlagsWithServer(conflict, cp)) {
                 mirrorAssembleDraftForPayload(payload, assembleKnownRevision);
                 markAssembleSaveSucceeded();
+                setAssembleMobileNavSyncProgress(96);
                 setAssembleSaveUiState("idle", { orderId: oid });
                 notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
                 scheduleAssembleSyncPollSoon();
@@ -13956,10 +14154,18 @@
             return false;
           }
           if (!res.ok) {
-            setAssembleSaveRetryUiState(
-              oid,
-              "Не удалось сохранить сборку — повторная отправка…",
-            );
+            if (assembleDeviceIsOffline()) {
+              setAssembleSaveUiState("offline", {
+                orderId: oid,
+                message:
+                  "Нет связи с интернетом — изменения сохранены на устройстве…",
+              });
+            } else {
+              setAssembleSaveRetryUiState(
+                oid,
+                "Не удалось сохранить сборку — повторная отправка…",
+              );
+            }
             return false;
           }
           let data = null;
@@ -14020,15 +14226,24 @@
           }
           mirrorAssembleDraftForPayload(payload, newRev);
           markAssembleSaveSucceeded();
+          setAssembleMobileNavSyncProgress(96);
           setAssembleSaveUiState("idle", { orderId: oid });
           notifyAssembleSavedToOtherTabs(oid, newRev);
           scheduleAssembleSyncPollSoon();
           return true;
         } catch (e) {
-          setAssembleSaveRetryUiState(
-            oid,
-            "Нет связи — изменения сохранены локально, повторная отправка…",
-          );
+          if (assembleDeviceIsOffline()) {
+            setAssembleSaveUiState("offline", {
+              orderId: oid,
+              message:
+                "Нет связи с интернетом — изменения сохранены на устройстве…",
+            });
+          } else {
+            setAssembleSaveRetryUiState(
+              oid,
+              "Нет связи — изменения сохранены локально, повторная отправка…",
+            );
+          }
           return false;
         }
       }
@@ -14376,10 +14591,18 @@
           assembleSyncFetchFailStreak += 1;
           if (assembleNeedsServerPush()) {
             ensureAssembleSaveRetryScheduled();
-            setAssembleSaveUiState("saving", {
-              orderId: oid,
-              message: "Слабый интернет — изменения сохранены локально, повторная отправка…",
-            });
+            if (assembleDeviceIsOffline()) {
+              setAssembleSaveUiState("offline", {
+                orderId: oid,
+                message:
+                  "Нет связи с интернетом — изменения сохранены на устройстве…",
+              });
+            } else {
+              setAssembleSaveUiState("saving", {
+                orderId: oid,
+                message: "Слабый интернет — изменения сохранены локально, повторная отправка…",
+              });
+            }
           } else if (!saveBusy && assembleSyncFetchFailStreak >= 2) {
             refreshAssembleSyncUiState(oid, { serverReachable: false });
           }
@@ -15996,6 +16219,15 @@
       });
       window.addEventListener("offline", () => {
         if (currentStage !== "assemble" || !assembleOrderSnapshot) {
+          return;
+        }
+        if (assembleNeedsServerPush()) {
+          ensureAssembleSaveRetryScheduled();
+          setAssembleSaveUiState("offline", {
+            orderId: assembleOrderSnapshot.id,
+            message:
+              "Нет связи с интернетом — изменения сохранены на устройстве…",
+          });
           return;
         }
         reflectAssembleServerReachability(false, assembleOrderSnapshot.id);

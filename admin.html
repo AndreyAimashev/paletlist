@@ -11583,7 +11583,11 @@
         if (assembleMobileNav) {
           assembleMobileNav.hidden = !showMobile;
           if (showMobile) {
-            applyAssembleMobileNavSyncVisual(assembleSaveSyncStateClass);
+            if (assembleSaveUiLooksBusyButIsSynced()) {
+              refreshAssembleSaveUiIfSynced();
+            } else {
+              applyAssembleMobileNavSyncVisual(assembleSaveSyncStateClass);
+            }
           }
         }
         if (assembleSidebarNav) {
@@ -13087,10 +13091,10 @@
 
       function flushAssembleDraftToServerIfNeeded(orderId) {
         if (!assembleNeedsServerPush() || assembleSaveBusy() || isAssembleEditableFocused()) {
-          return;
+          return Promise.resolve();
         }
         clearTimeout(assembleSaveTimer);
-        void flushAssembleSaveNow();
+        return flushAssembleSaveNow();
       }
 
       function extractRemoteAssemblePallets(data) {
@@ -13369,7 +13373,32 @@
         if (orderId != null) {
           reconcileAssemblePalletDeletions(orderId, remote);
         }
+        refreshAssembleSaveUiIfSynced(orderId, { serverReachable: navigator.onLine });
         return true;
+      }
+
+      function assembleSaveUiLooksBusyButIsSynced() {
+        return (
+          (assembleSaveSyncStateClass === "is-pending" ||
+            assembleSaveSyncStateClass === "is-saving") &&
+          !assembleSaveBusy() &&
+          !assembleNeedsServerPush()
+        );
+      }
+
+      function refreshAssembleSaveUiIfSynced(orderId, opts) {
+        if (assembleSaveBusy()) {
+          return;
+        }
+        const oid =
+          orderId != null ? orderId : assembleOrderSnapshot?.id ?? assembleQueuedPayload?.orderId;
+        refreshAssembleSyncUiState(oid, opts || { serverReachable: navigator.onLine });
+      }
+
+      function afterAssembleSaveQueue(promise) {
+        return Promise.resolve(promise).finally(() => {
+          refreshAssembleSaveUiIfSynced();
+        });
       }
 
       function refreshAssembleSyncUiState(orderId, opts) {
@@ -13564,6 +13593,10 @@
             !assembleSaveInFlight
           ) {
             setAssembleSaveUiState("idle");
+          } else if (assembleSaveUiLooksBusyButIsSynced()) {
+            setAssembleSaveUiState("idle");
+          } else {
+            refreshAssembleSaveUiIfSynced();
           }
         }, 4000);
       }
@@ -13959,18 +13992,22 @@
 
       function queueAssembleServerSave() {
         if (!assembleDirty) {
-          return assembleSaveDrainPromise || Promise.resolve(true);
+          return afterAssembleSaveQueue(
+            assembleSaveDrainPromise || Promise.resolve(true),
+          );
         }
         const payload = captureAssembleSavePayload();
         if (!payload) {
-          return assembleSaveDrainPromise || Promise.resolve(false);
+          return afterAssembleSaveQueue(
+            assembleSaveDrainPromise || Promise.resolve(false),
+          );
         }
         assembleQueuedPayload = payload;
         const run = () => drainAssembleSaveQueue();
         assembleSaveDrainPromise = assembleSaveDrainPromise
           ? assembleSaveDrainPromise.then(run, run)
           : run();
-        return assembleSaveDrainPromise;
+        return afterAssembleSaveQueue(assembleSaveDrainPromise);
       }
 
       function flushAssembleSaveNow() {
@@ -14273,7 +14310,11 @@
         processRemoteAssembleOrderSync(data);
         reconcileAssembleSyncFlagsWithServer(data, extractRemoteAssemblePallets(data));
         if (!saveBusy && assembleNeedsServerPush()) {
-          flushAssembleDraftToServerIfNeeded(oid);
+          try {
+            await flushAssembleDraftToServerIfNeeded(oid);
+          } catch (e) {
+            /* ignore */
+          }
         }
         refreshAssembleSyncUiState(oid, { serverReachable });
       }
@@ -14556,11 +14597,11 @@
         }
         clearTimeout(assembleSaveTimer);
         if (immediate) {
-          void queueAssembleServerSave();
+          void afterAssembleSaveQueue(queueAssembleServerSave());
           return;
         }
         assembleSaveTimer = setTimeout(() => {
-          void queueAssembleServerSave();
+          void afterAssembleSaveQueue(queueAssembleServerSave());
         }, ASSEMBLE_SAVE_DEBOUNCE_MS);
       }
 

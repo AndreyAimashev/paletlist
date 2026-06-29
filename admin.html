@@ -13179,7 +13179,8 @@
             items,
             myClientId,
             orderId,
-          )
+          ) &&
+          !assembleStatesContentEqual(localPallets, remote)
         ) {
           return true;
         }
@@ -13192,7 +13193,7 @@
         }
         if (assembleSavePending) {
           startAssembleSaveRetry();
-        } else if (assembleDirty) {
+        } else if (assembleDirty && !assembleSaveInFlight && !assembleQueuedPayload) {
           markAssembleSaveFailed();
         }
         void queueAssembleServerSave();
@@ -13249,44 +13250,24 @@
         }, 340);
       }
 
-      function patchOrderAssembleXHR(orderId, bodyJson, onUploadProgress) {
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PATCH", `/api/orders/${orderId}`);
-          xhr.setRequestHeader("Content-Type", "application/json");
-          let softPct = 4;
-          xhr.upload.addEventListener("progress", (ev) => {
-            if (!onUploadProgress) {
-              return;
-            }
-            if (ev.lengthComputable && ev.total > 0) {
-              softPct = 4 + Math.round((ev.loaded / ev.total) * 82);
-              onUploadProgress(softPct);
-              return;
-            }
-            softPct = Math.min(18, softPct + 2);
-            onUploadProgress(softPct);
+      async function patchOrderAssembleRequest(orderId, bodyJson) {
+        startAssembleSaveProgressSimulation();
+        try {
+          const res = await fetch(`/api/orders/${orderId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: bodyJson,
+            cache: "no-store",
           });
-          xhr.addEventListener("load", () => {
-            if (onUploadProgress) {
-              onUploadProgress(92);
-            }
-            let parsed = null;
-            try {
-              parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-            } catch (e) {
-              /* ignore */
-            }
-            resolve({
-              ok: xhr.status >= 200 && xhr.status < 300,
-              status: xhr.status,
-              json: async () => parsed,
-            });
-          });
-          xhr.addEventListener("error", () => reject(new Error("network")));
-          xhr.addEventListener("timeout", () => reject(new Error("timeout")));
-          xhr.send(bodyJson);
-        });
+          stopAssembleSaveProgressSimulation();
+          if (assembleSaveInFlight) {
+            setAssembleMobileNavSyncProgress(92);
+          }
+          return res;
+        } catch (e) {
+          stopAssembleSaveProgressSimulation();
+          throw e;
+        }
       }
 
       function stopAssembleSyncPoll() {
@@ -13545,6 +13526,9 @@
 
       function reconcileAssembleSyncFlagsWithServer(data, remotePallets) {
         if (!assembleAllocState || !data) {
+          return false;
+        }
+        if (assembleSaveBusy() || assembleDirty || assembleSavePending) {
           return false;
         }
         const remote = remotePallets || extractRemoteAssemblePallets(data) || [];
@@ -13971,12 +13955,19 @@
             assembleSaveSyncStateClass === "is-saving" ||
             assembleSaveSyncStateClass === "is-pending" ||
             assembleSaveSyncStateClass === "is-saved";
+          const finishIdle = () => {
+            if (assembleNeedsServerPush()) {
+              refreshAssembleSaveUiIfSynced();
+              return;
+            }
+            applyBanner();
+          };
           if (fromYellow && assembleMobileNavSyncProgress < 100) {
-            finishAssembleMobileNavSyncProgress(applyBanner);
+            finishAssembleMobileNavSyncProgress(finishIdle);
             return;
           }
           setAssembleMobileNavSyncProgress(100);
-          applyBanner();
+          finishIdle();
           return;
         }
         applyBanner();
@@ -14037,6 +14028,24 @@
         }
       }
 
+      async function verifyAssemblePayloadOnServer(orderId, payloadPallets) {
+        try {
+          const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+          if (!res.ok) {
+            return false;
+          }
+          const data = await res.json();
+          const serverPallets = extractRemoteAssemblePallets(data) || [];
+          if (!assembleStatesContentEqual(payloadPallets, serverPallets)) {
+            return false;
+          }
+          noteAssembleServerSnapshot(data);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
       async function patchAssemblePayload(payload) {
         if (!payload || payload.orderId == null) {
           return false;
@@ -14063,11 +14072,7 @@
             assemble_state,
             expected_assemble_revision: payload.revision,
           });
-          const res = await patchOrderAssembleXHR(oid, bodyJson, (pct) => {
-            if (assembleSaveInFlight) {
-              setAssembleMobileNavSyncProgress(pct);
-            }
-          });
+          const res = await patchOrderAssembleRequest(oid, bodyJson);
           if (res.status === 409) {
             let conflict = null;
             try {
@@ -14193,6 +14198,7 @@
                 message:
                   "Нет связи с интернетом — изменения сохранены на устройстве…",
               });
+              markAssembleSaveFailed();
             } else {
               setAssembleSaveRetryUiState(
                 oid,
@@ -14208,13 +14214,24 @@
             /* ignore */
           }
           if (data && data.unchanged) {
-            try {
-              const verifyRes = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
-              if (verifyRes.ok) {
-                noteAssembleServerSnapshot(await verifyRes.json());
-              }
-            } catch (e) {
-              /* сервер уже подтвердил unchanged */
+            const verified = await verifyAssemblePayloadOnServer(oid, payload.pallets);
+            if (!verified) {
+              markAssembleSaveFailed();
+              setAssembleSaveRetryUiState(
+                oid,
+                "Сервер не подтвердил сохранение — повторная отправка…",
+              );
+              return false;
+            }
+          } else {
+            const verified = await verifyAssemblePayloadOnServer(oid, payload.pallets);
+            if (!verified) {
+              markAssembleSaveFailed();
+              setAssembleSaveRetryUiState(
+                oid,
+                "Сервер не подтвердил сохранение — повторная отправка…",
+              );
+              return false;
             }
           }
           const newRev =
@@ -14265,12 +14282,14 @@
           scheduleAssembleSyncPollSoon();
           return true;
         } catch (e) {
+          stopAssembleSaveProgressSimulation();
           if (assembleDeviceIsOffline()) {
             setAssembleSaveUiState("offline", {
               orderId: oid,
               message:
                 "Нет связи с интернетом — изменения сохранены на устройстве…",
             });
+            markAssembleSaveFailed();
           } else {
             setAssembleSaveRetryUiState(
               oid,
@@ -14305,7 +14324,8 @@
           lastOk &&
           !assembleQueuedPayload &&
           !assembleSavePending &&
-          !assembleSaveInFlight
+          !assembleSaveInFlight &&
+          !assembleNeedsServerPush()
         ) {
           setAssembleSaveUiState("idle");
         }
@@ -14317,10 +14337,13 @@
       }
 
       function queueAssembleServerSave() {
-        if (!assembleDirty) {
+        if (!assembleDirty && !assembleSavePending) {
           return afterAssembleSaveQueue(
             assembleSaveDrainPromise || Promise.resolve(true),
           );
+        }
+        if (!assembleDirty && assembleSavePending) {
+          assembleDirty = true;
         }
         const payload = captureAssembleSavePayload();
         if (!payload) {
@@ -14338,8 +14361,11 @@
 
       function flushAssembleSaveNow() {
         clearTimeout(assembleSaveTimer);
-        if (!assembleDirty) {
+        if (!assembleDirty && !assembleSavePending) {
           return assembleSaveDrainPromise || Promise.resolve(true);
+        }
+        if (!assembleDirty && assembleSavePending) {
+          assembleDirty = true;
         }
         const payload = captureAssembleSavePayload();
         if (!payload) {
@@ -16922,6 +16948,35 @@
           return "Дрогери Ритейл";
         }
         return "Обычный";
+      }
+
+      function renderNewOrderDeliveryToggleButtons(selectedType) {
+        if (!newOrderDeliveryToggle) {
+          return;
+        }
+        const normalized = normalizeOrderDeliveryType(selectedType || "Обычный");
+        const selected = NEW_ORDER_DELIVERY_TOGGLE_TYPES.includes(normalized)
+          ? normalized
+          : "Обычный";
+        newOrderDeliveryToggle.innerHTML = NEW_ORDER_DELIVERY_TOGGLE_TYPES.map((type) => {
+          const active = type === selected;
+          return `<button type="button" class="new-order-delivery-btn${active ? " active" : ""}" data-delivery="${escapeXml(type)}" aria-pressed="${active ? "true" : "false"}">${escapeXml(type)}</button>`;
+        }).join("");
+      }
+
+      function ensureNewOrderDeliveryToggleButtons(selectedType) {
+        if (!newOrderDeliveryToggle) {
+          return;
+        }
+        const existing = [...newOrderDeliveryToggle.querySelectorAll("[data-delivery]")].map(
+          (btn) => btn.getAttribute("data-delivery") || "",
+        );
+        const needsRebuild =
+          existing.length !== NEW_ORDER_DELIVERY_TOGGLE_TYPES.length ||
+          NEW_ORDER_DELIVERY_TOGGLE_TYPES.some((type, idx) => existing[idx] !== type);
+        if (needsRebuild) {
+          renderNewOrderDeliveryToggleButtons(selectedType);
+        }
       }
 
       function getNewOrderDeliveryType() {

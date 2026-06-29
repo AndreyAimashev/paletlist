@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v6" />
+    <meta name="paletlist-build" content="sync-nav-v7" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -3796,7 +3796,8 @@
           opacity: 1;
           background-color: rgb(8, 52, 42) !important;
           background-image: none !important;
-          transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: width var(--amn-sync-fill-transition, 1100ms)
+            cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .assemble-mobile-nav.is-sync-progress-instant .assemble-mobile-nav__sync-fill {
@@ -11425,12 +11426,13 @@
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 500;
       const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
-      const ASSEMBLE_SYNC_FILL_FINISH_MS = 1500;
-      const ASSEMBLE_SYNC_FILL_MIN_MS = 1800;
-      const ASSEMBLE_SYNC_FILL_SIM_MS = 160;
-      const ASSEMBLE_SYNC_FILL_SIM_STEP = 1;
-      const ASSEMBLE_SYNC_FILL_SIM_CAP = 76;
-      const ASSEMBLE_SYNC_FILL_UPLOAD_PCT = 86;
+      const ASSEMBLE_SYNC_FILL_TRANSITION_MS = 1100;
+      const ASSEMBLE_SYNC_FILL_FINISH_MS = 2600;
+      const ASSEMBLE_SYNC_FILL_MIN_MS = 2800;
+      const ASSEMBLE_SYNC_FILL_SIM_MS = 140;
+      const ASSEMBLE_SYNC_FILL_SIM_STEP = 1.2;
+      const ASSEMBLE_SYNC_FILL_SIM_CAP = 54;
+      const ASSEMBLE_SYNC_FILL_UPLOAD_PCT = 82;
       const ASSEMBLE_SYNC_SOON_MS = 150;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
@@ -11600,6 +11602,14 @@
         }
       }
 
+      function setAssembleMobileNavSyncFillTransition(ms) {
+        if (!assembleMobileNav) {
+          return;
+        }
+        const duration = Math.max(0, Number(ms) || ASSEMBLE_SYNC_FILL_TRANSITION_MS);
+        assembleMobileNav.style.setProperty("--amn-sync-fill-transition", `${duration}ms`);
+      }
+
       function applyAssembleMobileNavSyncProgressWidth(percent, opts) {
         const options = opts || {};
         const p = Math.max(0, Math.min(100, Number(percent) || 0));
@@ -11617,15 +11627,20 @@
           void assembleMobileNav.offsetWidth;
           window.requestAnimationFrame(() => {
             assembleMobileNav.classList.remove("is-sync-progress-instant");
+            setAssembleMobileNavSyncFillTransition(ASSEMBLE_SYNC_FILL_TRANSITION_MS);
           });
         }
       }
 
       function startAssembleSaveProgressSimulation() {
         stopAssembleSaveProgressSimulation();
+        setAssembleMobileNavSyncFillTransition(ASSEMBLE_SYNC_FILL_TRANSITION_MS);
         let simPct = 4;
         assembleSaveProgressTimer = setInterval(() => {
-          simPct = Math.min(ASSEMBLE_SYNC_FILL_SIM_CAP, simPct + ASSEMBLE_SYNC_FILL_SIM_STEP);
+          simPct = Math.min(
+            ASSEMBLE_SYNC_FILL_SIM_CAP,
+            simPct + ASSEMBLE_SYNC_FILL_SIM_STEP,
+          );
           if (assembleSaveInFlight) {
             setAssembleMobileNavSyncProgress(simPct);
           }
@@ -13495,27 +13510,16 @@
         if (assembleMobileNavSyncFinishTimer) {
           clearTimeout(assembleMobileNavSyncFinishTimer);
         }
-        const start = assembleMobileNavSyncProgress;
-        const startedAt = Date.now();
-        const step = () => {
-          const t = Math.min(
-            1,
-            (Date.now() - startedAt) / ASSEMBLE_SYNC_FILL_FINISH_MS,
-          );
-          const eased = 1 - Math.pow(1 - t, 3);
-          const pct = start + (100 - start) * eased;
-          setAssembleMobileNavSyncProgress(pct);
-          if (t < 1) {
-            assembleMobileNavSyncFinishTimer = window.setTimeout(step, 24);
-            return;
-          }
+        setAssembleMobileNavSyncFillTransition(ASSEMBLE_SYNC_FILL_FINISH_MS);
+        setAssembleMobileNavSyncProgress(100);
+        assembleMobileNavSyncFinishTimer = window.setTimeout(() => {
           assembleMobileNavSyncFinishTimer = null;
+          setAssembleMobileNavSyncFillTransition(ASSEMBLE_SYNC_FILL_TRANSITION_MS);
           updateAssembleMobileNavSyncFillVisibility();
           if (typeof done === "function") {
             done();
           }
-        };
-        step();
+        }, ASSEMBLE_SYNC_FILL_FINISH_MS + 80);
       }
 
       function waitAssembleSaveVisualMin(done) {

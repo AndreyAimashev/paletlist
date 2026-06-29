@@ -12859,44 +12859,96 @@
       }
 
       function mergeAssemblePalletSlots(localSlots, remoteSlots, items, ctx) {
-        const localByLine = new Map();
-        const remoteByLine = new Map();
-        const localEmpty = [];
-        const remoteEmpty = [];
-        (localSlots || []).forEach((s) => {
-          const ns = normalizeSlot(s);
-          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
-            localEmpty.push(s);
-            return;
-          }
-          localByLine.set(Number(ns.lineIndex), s);
-        });
-        (remoteSlots || []).forEach((s) => {
-          const ns = normalizeSlot(s);
-          if (ns.lineIndex === "" || !Number.isFinite(Number(ns.lineIndex))) {
-            remoteEmpty.push(s);
-            return;
-          }
-          remoteByLine.set(Number(ns.lineIndex), s);
-        });
-        const lineKeys = new Set([...localByLine.keys(), ...remoteByLine.keys()]);
-        const merged = [...lineKeys]
-          .sort((a, b) => a - b)
-          .map((li) => {
-            const item = items && items[li] ? items[li] : null;
-            return pickMergedAssembleSlot(
-              localByLine.get(li),
-              remoteByLine.get(li),
-              item,
-              ctx,
-            );
-          });
-        const emptyCount = Math.max(localEmpty.length, remoteEmpty.length);
-        for (let i = 0; i < emptyCount; i += 1) {
-          merged.push(
-            pickMergedAssembleSlot(localEmpty[i], remoteEmpty[i], null, ctx),
-          );
+        const local = localSlots || [];
+        const remote = remoteSlots || [];
+        const preferLocal = !!(ctx && ctx.preferLocalOnConflict);
+
+        if (!remote.length) {
+          return local.map((s) => attachSlotEditMetaFromRaw(normalizeSlot(s), s));
         }
+        if (!local.length) {
+          return remote.map((s) => attachSlotEditMetaFromRaw(normalizeSlot(s), s));
+        }
+
+        let primary;
+        let secondary;
+        let primaryIsLocal;
+        if (preferLocal) {
+          primary = local;
+          secondary = remote;
+          primaryIsLocal = true;
+        } else {
+          const localNewer = local.length >= remote.length;
+          primary = localNewer ? local : remote;
+          secondary = localNewer ? remote : local;
+          primaryIsLocal = localNewer;
+        }
+
+        const usedSecondaryIdx = new Set();
+        const merged = [];
+
+        const itemForSlot = (slot) => {
+          const li = normalizeSlot(slot).lineIndex;
+          if (li === "" || !Number.isFinite(Number(li))) {
+            return null;
+          }
+          return items && items[Number(li)] ? items[Number(li)] : null;
+        };
+
+        const matchSecondaryIndex = (primarySlot, primaryIdx) => {
+          const pNorm = normalizeSlot(primarySlot);
+          const pLi = pNorm.lineIndex;
+          const secAtSame = secondary[primaryIdx];
+          if (secAtSame && !usedSecondaryIdx.has(primaryIdx)) {
+            const sNorm = normalizeSlot(secAtSame);
+            const sameEmpty =
+              (pLi === "" || !Number.isFinite(Number(pLi))) &&
+              (sNorm.lineIndex === "" || !Number.isFinite(Number(sNorm.lineIndex)));
+            const sameLine =
+              pLi !== "" &&
+              Number.isFinite(Number(pLi)) &&
+              Number(sNorm.lineIndex) === Number(pLi);
+            if (sameEmpty || sameLine) {
+              return primaryIdx;
+            }
+          }
+          if (pLi !== "" && Number.isFinite(Number(pLi))) {
+            for (let j = 0; j < secondary.length; j += 1) {
+              if (usedSecondaryIdx.has(j)) {
+                continue;
+              }
+              const sNorm = normalizeSlot(secondary[j]);
+              if (Number(sNorm.lineIndex) === Number(pLi)) {
+                return j;
+              }
+            }
+          }
+          return -1;
+        };
+
+        for (let i = 0; i < primary.length; i += 1) {
+          const ps = primary[i];
+          const j = matchSecondaryIndex(ps, i);
+          if (j >= 0) {
+            usedSecondaryIdx.add(j);
+            const ls = primaryIsLocal ? ps : secondary[j];
+            const rs = primaryIsLocal ? secondary[j] : ps;
+            merged.push(
+              pickMergedAssembleSlot(ls, rs, itemForSlot(ls) || itemForSlot(rs), ctx),
+            );
+          } else {
+            merged.push(attachSlotEditMetaFromRaw(normalizeSlot(ps), ps));
+          }
+        }
+
+        for (let j = 0; j < secondary.length; j += 1) {
+          if (usedSecondaryIdx.has(j)) {
+            continue;
+          }
+          const ss = secondary[j];
+          merged.push(attachSlotEditMetaFromRaw(normalizeSlot(ss), ss));
+        }
+
         return merged;
       }
 
@@ -13143,7 +13195,7 @@
           source: "server",
         };
         const mergeCtx = {
-          preferLocalOnConflict: false,
+          preferLocalOnConflict: draftIsOwn,
           localClientId: myClientId,
           orderId,
         };

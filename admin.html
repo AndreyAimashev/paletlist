@@ -13061,6 +13061,7 @@
       }
 
       function markAssembleSaveFailed() {
+        assembleDirty = true;
         assembleSavePending = true;
         startAssembleSaveRetry();
       }
@@ -13068,6 +13069,61 @@
       function markAssembleSaveSucceeded() {
         assembleSavePending = false;
         stopAssembleSaveRetry();
+      }
+
+      function assembleShouldBlockRemoteOverwrite(remotePallets) {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return false;
+        }
+        if (
+          assembleDirty ||
+          assembleSavePending ||
+          assembleSaveInFlight ||
+          assembleQueuedPayload
+        ) {
+          return true;
+        }
+        const items = assembleOrderSnapshot.items || [];
+        const orderId = assembleOrderSnapshot.id;
+        const myClientId = getAssembleClientId();
+        const localPallets = assembleAllocState.pallets || [];
+        const remote = remotePallets || [];
+        if (
+          orderId != null &&
+          hasPendingLocalPalletDeletions(orderId, myClientId, remote)
+        ) {
+          return true;
+        }
+        if (
+          clientHasUnpushedAssembleEdits(
+            localPallets,
+            remote,
+            items,
+            myClientId,
+            orderId,
+          )
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      function ensureAssembleSaveRetryScheduled() {
+        if (!assembleNeedsServerPush()) {
+          return;
+        }
+        if (assembleSavePending) {
+          startAssembleSaveRetry();
+        }
+        void queueAssembleServerSave();
+      }
+
+      function setAssembleSaveRetryUiState(orderId, message) {
+        setAssembleSaveUiState("saving", {
+          orderId,
+          message: message || "Слабый интернет — повторная отправка изменений…",
+        });
+        markAssembleSaveFailed();
       }
 
       function stopAssembleSyncPoll() {
@@ -13090,7 +13146,10 @@
       }
 
       function flushAssembleDraftToServerIfNeeded(orderId) {
-        if (!assembleNeedsServerPush() || assembleSaveBusy() || isAssembleEditableFocused()) {
+        if (!assembleNeedsServerPush() || assembleSaveBusy()) {
+          return Promise.resolve();
+        }
+        if (isAssembleEditableFocused() && !assembleSavePending) {
           return Promise.resolve();
         }
         clearTimeout(assembleSaveTimer);
@@ -13215,6 +13274,10 @@
         if (!assembleOrderSnapshot || !assembleAllocState) {
           return false;
         }
+        const remoteFromData = extractRemoteAssemblePallets(data) || mergedPallets;
+        if (assembleShouldBlockRemoteOverwrite(remoteFromData)) {
+          return false;
+        }
         const items = assembleOrderSnapshot.items;
         const orderId = assembleOrderSnapshot.id;
         const filtered = filterRemotePalletsForLocalDeletions(
@@ -13281,13 +13344,11 @@
           }
           return;
         }
-        const ownUnpushed = clientHasUnpushedAssembleEdits(
-          localPallets,
-          remotePallets,
-          items,
-          myClientId,
-          orderId,
-        );
+        if (assembleShouldBlockRemoteOverwrite(remotePallets)) {
+          flushAssembleDraftToServerIfNeeded(orderId);
+          ensureAssembleSaveRetryScheduled();
+          return;
+        }
         if (!remoteAssembleStateDiffersFromLocal(data, remotePallets)) {
           if (!assembleDirty) {
             syncOptionalBatchToggleFromServer(data);
@@ -13299,45 +13360,24 @@
           }
           return;
         }
-        const mergeCtx = {
-          preferLocalOnConflict: false,
-          localClientId: myClientId,
-          orderId,
-        };
-        if (!ownUnpushed) {
-          if (assembleDirty || assembleSavePending) {
-            void flushAssembleSaveNow();
-            return;
-          }
-          syncOptionalBatchToggleFromServer(data);
-          applyPullAssembleMerge(
-            filterRemotePalletsForLocalDeletions(
-              orderId,
-              remotePallets,
-              myClientId,
-            ),
-            data,
-            false,
-          );
-          reconcileAssembleSyncFlagsWithServer(data, remotePallets);
-          return;
-        }
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
         const localHas = assembleStateHasMeaningfulData(items, localPallets);
         if (!remoteHas && localHas) {
-          if (assembleNeedsServerPush()) {
-            flushAssembleDraftToServerIfNeeded(orderId);
-          }
+          flushAssembleDraftToServerIfNeeded(orderId);
+          ensureAssembleSaveRetryScheduled();
           return;
         }
-        const merged = mergeAssemblePalletLists(
-          localPallets,
-          remotePallets,
-          items,
-          mergeCtx,
+        syncOptionalBatchToggleFromServer(data);
+        applyPullAssembleMerge(
+          filterRemotePalletsForLocalDeletions(
+            orderId,
+            remotePallets,
+            myClientId,
+          ),
+          data,
+          false,
         );
-        applyPullAssembleMerge(merged, data, true);
-        void flushAssembleSaveNow();
+        reconcileAssembleSyncFlagsWithServer(data, remotePallets);
       }
 
       function reconcileAssembleSyncFlagsWithServer(data, remotePallets) {
@@ -13380,17 +13420,16 @@
       function assembleSaveUiLooksBusyButIsSynced() {
         return (
           (assembleSaveSyncStateClass === "is-pending" ||
-            assembleSaveSyncStateClass === "is-saving") &&
+            assembleSaveSyncStateClass === "is-saving" ||
+            assembleSaveSyncStateClass === "is-error") &&
           !assembleSaveInFlight &&
           !assembleQueuedPayload &&
-          !assembleDirty
+          !assembleDirty &&
+          !assembleSavePending
         );
       }
 
       function refreshAssembleSaveUiIfSynced(orderId, opts) {
-        if (assembleSaveBusy()) {
-          return;
-        }
         const oid =
           orderId != null ? orderId : assembleOrderSnapshot?.id ?? assembleQueuedPayload?.orderId;
         refreshAssembleSyncUiState(oid, opts || { serverReachable: navigator.onLine });
@@ -13406,36 +13445,50 @@
         const options = opts || {};
         const serverReachable =
           options.serverReachable != null ? !!options.serverReachable : navigator.onLine;
+        const hasPendingWork = assembleNeedsServerPush();
 
-        if (assembleSaveBusy()) {
+        if (assembleSaveInFlight || assembleQueuedPayload) {
+          setAssembleSaveUiState("saving", { orderId });
           return;
         }
 
+        if (hasPendingWork) {
+          if (!navigator.onLine || !serverReachable) {
+            ensureAssembleSaveRetryScheduled();
+            setAssembleSaveUiState("saving", {
+              orderId,
+              message: "Слабый интернет — изменения сохранены локально, повторная отправка…",
+            });
+            return;
+          }
+          if (assembleDirty) {
+            flushAssembleDraftToServerIfNeeded(orderId);
+            setAssembleSaveUiState("debouncing", { orderId });
+            return;
+          }
+          if (assembleSavePending) {
+            ensureAssembleSaveRetryScheduled();
+            setAssembleSaveUiState("saving", {
+              orderId,
+              message: "Отправка изменений на сервер…",
+            });
+            return;
+          }
+        }
+
         if (!navigator.onLine) {
-          setAssembleSaveUiState("error", {
+          setAssembleSaveUiState("idle", {
             orderId,
-            message: "Устройство offline — нет связи с сервером.",
+            message: "Нет связи с интернетом.",
           });
           return;
         }
 
         if (!serverReachable) {
-          setAssembleSaveUiState("error", {
+          setAssembleSaveUiState("idle", {
             orderId,
             message: "Нет связи с сервером.",
           });
-          return;
-        }
-
-        if (assembleDirty) {
-          flushAssembleDraftToServerIfNeeded(orderId);
-          setAssembleSaveUiState("debouncing", { orderId });
-          return;
-        }
-
-        if (assembleSavePending) {
-          void queueAssembleServerSave();
-          setAssembleSaveUiState("saving", { orderId });
           return;
         }
 
@@ -13685,9 +13738,10 @@
           stateClass = "is-error";
         } else {
           text =
-            orderId != null && Number.isFinite(Number(orderId))
+            options.message ||
+            (orderId != null && Number.isFinite(Number(orderId))
               ? `Сборка ${formatAssembleSaveOrderLabel(orderId)} синхронизирована с сервером.`
-              : "Все изменения сохранены.";
+              : "Все изменения сохранены.");
           stateClass = "is-idle";
         }
         applyAssembleSyncBannerState(stateClass, text);
@@ -13902,12 +13956,10 @@
             return false;
           }
           if (!res.ok) {
-            setAssembleSaveUiState("error", {
-              orderId: oid,
-              message:
-                "Не удалось сохранить сборку на сервер. Повторная попытка…",
-            });
-            markAssembleSaveFailed();
+            setAssembleSaveRetryUiState(
+              oid,
+              "Не удалось сохранить сборку — повторная отправка…",
+            );
             return false;
           }
           let data = null;
@@ -13973,12 +14025,10 @@
           scheduleAssembleSyncPollSoon();
           return true;
         } catch (e) {
-          setAssembleSaveUiState("error", {
-            orderId: oid,
-            message:
-              "Нет связи с сервером — повторная попытка сохранения каждую секунду…",
-          });
-          markAssembleSaveFailed();
+          setAssembleSaveRetryUiState(
+            oid,
+            "Нет связи — изменения сохранены локально, повторная отправка…",
+          );
           return false;
         }
       }
@@ -14251,9 +14301,7 @@
             : [{ id: 1, palletNumber: "1", slots: [] }];
         if (
           hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
-          assembleDirty ||
-          assembleSavePending ||
-          assembleSaveInFlight
+          assembleShouldBlockRemoteOverwrite(pallets)
         ) {
           return;
         }
@@ -14326,7 +14374,13 @@
         const serverReachable = navigator.onLine && fetchOk;
         if (!fetchOk || !data) {
           assembleSyncFetchFailStreak += 1;
-          if (!saveBusy && assembleSyncFetchFailStreak >= 2) {
+          if (assembleNeedsServerPush()) {
+            ensureAssembleSaveRetryScheduled();
+            setAssembleSaveUiState("saving", {
+              orderId: oid,
+              message: "Слабый интернет — изменения сохранены локально, повторная отправка…",
+            });
+          } else if (!saveBusy && assembleSyncFetchFailStreak >= 2) {
             refreshAssembleSyncUiState(oid, { serverReachable: false });
           }
           return;
@@ -14344,6 +14398,7 @@
             /* ignore */
           }
         }
+        ensureAssembleSaveRetryScheduled();
         refreshAssembleSyncUiState(oid, { serverReachable });
       }
 

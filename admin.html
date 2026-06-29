@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v10" />
+    <meta name="paletlist-build" content="sync-nav-v11" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -19,7 +19,7 @@
         --bg-primary: #0a0e17;
         --bg-secondary: #121826;
         --accent-teal: #00c8a0;
-        --accent-teal-deep: rgb(0, 120, 96);
+        --accent-teal-deep: rgb(14, 40, 34);
         --accent-purple: #b967ff;
         --text-main: #e0e0ff;
         --text-muted: #a0a0c0;
@@ -3760,11 +3760,11 @@
           z-index: 850;
           padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
           --amn-sync-green: var(--accent-teal-deep);
-          --amn-sync-yellow: rgb(58, 46, 8);
+          --amn-sync-yellow: rgb(42, 34, 14);
           background: var(--amn-bg, var(--amn-sync-green));
           border-top: none;
           box-shadow: var(--amn-shadow, 0 -6px 24px rgba(0, 0, 0, 0.35));
-          backdrop-filter: blur(8px);
+          isolation: isolate;
           overflow: hidden;
           transition:
             background 0.25s ease,
@@ -3772,15 +3772,18 @@
         }
 
         .assemble-mobile-nav.is-idle,
-        .assemble-mobile-nav.is-saved {
+        .assemble-mobile-nav.is-saved,
+        .assemble-mobile-nav.has-sync-fill,
+        .assemble-mobile-nav.is-pending,
+        .assemble-mobile-nav.is-saving,
+        .assemble-mobile-nav.is-error,
+        .assemble-mobile-nav.is-offline {
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
         }
 
         .assemble-mobile-nav.has-sync-fill {
-          background: transparent !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
+          background: var(--amn-sync-yellow) !important;
           transition: box-shadow 0.25s ease;
         }
 
@@ -3793,6 +3796,7 @@
           align-items: stretch;
           pointer-events: none;
           overflow: hidden;
+          background-color: var(--amn-sync-yellow);
         }
 
         .assemble-mobile-nav__sync-fill {
@@ -11498,14 +11502,14 @@
       let assemblePalletCardsRenderedAt = 0;
       let assemblePalletActionPointerBtn = null;
 
-      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(0, 120, 96)";
-      const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(58, 46, 8)";
+      const ASSEMBLE_MOBILE_NAV_FILL_BG = "rgb(14, 40, 34)";
+      const ASSEMBLE_MOBILE_NAV_PENDING_BG = "rgb(42, 34, 14)";
 
       const ASSEMBLE_MOBILE_NAV_SYNC_THEME = {
         "is-idle": {
           bg: ASSEMBLE_MOBILE_NAV_FILL_BG,
           border: "rgb(0, 220, 175)",
-          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
+          shadow: "0 -6px 24px rgba(0, 0, 0, 0.35)",
           btnBorder: "rgba(255, 255, 255, 0.28)",
           btnBg: "transparent",
           btnColor: "#c8fff0",
@@ -11514,14 +11518,14 @@
         "is-saved": {
           bg: ASSEMBLE_MOBILE_NAV_FILL_BG,
           border: "rgb(0, 220, 175)",
-          shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(0, 200, 160, 0.22)",
+          shadow: "0 -6px 24px rgba(0, 0, 0, 0.35)",
           btnBorder: "rgba(255, 255, 255, 0.28)",
           btnBg: "transparent",
           btnColor: "#c8fff0",
           inputBorder: "rgba(255, 255, 255, 0.28)",
         },
         "is-pending": {
-          bg: "rgb(58, 46, 8)",
+          bg: ASSEMBLE_MOBILE_NAV_PENDING_BG,
           border: "rgb(255, 210, 60)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
           btnBorder: "rgba(255, 210, 60, 0.75)",
@@ -11530,7 +11534,7 @@
           inputBorder: "rgba(255, 210, 60, 0.55)",
         },
         "is-saving": {
-          bg: "rgb(58, 46, 8)",
+          bg: ASSEMBLE_MOBILE_NAV_PENDING_BG,
           border: "rgb(255, 210, 60)",
           shadow: "0 -6px 28px rgba(0, 0, 0, 0.4), 0 -2px 14px rgba(255, 200, 50, 0.28)",
           btnBorder: "rgba(255, 210, 60, 0.75)",
@@ -11594,8 +11598,8 @@
         const showSyncFill = assembleMobileNavShouldShowSyncFill();
         assembleMobileNav.classList.toggle("has-sync-fill", showSyncFill);
         if (showSyncFill) {
-          assembleMobileNav.style.setProperty("--amn-bg", "transparent");
-          assembleMobileNav.style.background = "transparent";
+          assembleMobileNav.style.setProperty("--amn-bg", ASSEMBLE_MOBILE_NAV_PENDING_BG);
+          assembleMobileNav.style.background = ASSEMBLE_MOBILE_NAV_PENDING_BG;
         } else {
           assembleMobileNav.style.removeProperty("background");
         }
@@ -14141,7 +14145,7 @@
         const showSyncFill = assembleMobileNavShouldShowSyncFill(stateClass);
         assembleMobileNav.style.setProperty(
           "--amn-bg",
-          showSyncFill ? "transparent" : theme.bg,
+          showSyncFill ? ASSEMBLE_MOBILE_NAV_PENDING_BG : theme.bg,
         );
         assembleMobileNav.style.setProperty("--amn-shadow", theme.shadow);
         assembleMobileNav.style.setProperty("--amn-btn-border", theme.btnBorder);

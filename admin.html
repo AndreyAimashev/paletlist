@@ -10206,7 +10206,7 @@
 
       function collectOrdersExtraInfoFilterValues() {
         const set = new Set();
-        (cachedOrdersListRows || []).forEach((o) => set.add(getOrderExtraInfoFilterLabel(o)));
+        getOrdersRowsForFilterOptionScope().forEach((o) => set.add(getOrderExtraInfoFilterLabel(o)));
         const presets = ORDERS_EXTRA_INFO_FILTER_PRESETS.filter((p) => set.has(p));
         const rest = [...set]
           .filter((v) => !ORDERS_EXTRA_INFO_FILTER_PRESETS.includes(v))
@@ -10778,6 +10778,16 @@
         return s;
       }
 
+      /** Заказы, из которых собираются варианты фильтров клиента и доп. информации. */
+      function getOrdersRowsForFilterOptionScope() {
+        const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows : [];
+        const shipQ = ordersFilterShip.trim().toLowerCase();
+        if (!shipQ) {
+          return base;
+        }
+        return base.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
+      }
+
       function getOrdersRowsForDisplay() {
         const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows.slice() : [];
         let list = base;
@@ -10857,7 +10867,7 @@
 
       function collectOrdersClientFilterValues() {
         const set = new Set();
-        (cachedOrdersListRows || []).forEach((o) => {
+        getOrdersRowsForFilterOptionScope().forEach((o) => {
           const c = String(o.client || "").trim();
           if (c && c !== "—") {
             set.add(c);
@@ -11326,6 +11336,7 @@
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
         syncOrdersClientFilterSelect();
+        syncOrdersExtraInfoFilterUi();
         updateOrdersExtraInfoFilterToggle();
         updateOrdersClientFilterToggle();
         syncOrdersSortIndicators();
@@ -11388,8 +11399,6 @@
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 500;
       const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
-      const ASSEMBLE_SYNC_FILL_FINISH_MS = 520;
-      const ASSEMBLE_SYNC_FILL_MIN_MS = 720;
       const ASSEMBLE_SYNC_FILL_FINISH_MS = 520;
       const ASSEMBLE_SYNC_FILL_MIN_MS = 720;
       const ASSEMBLE_SYNC_SOON_MS = 150;

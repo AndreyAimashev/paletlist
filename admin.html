@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="paletlist-build" content="sync-nav-v5" />
+    <meta name="paletlist-build" content="sync-nav-v6" />
     <title>Paletlist - Админ</title>
     <link
       rel="stylesheet"
@@ -3796,6 +3796,11 @@
           opacity: 1;
           background-color: rgb(8, 52, 42) !important;
           background-image: none !important;
+          transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .assemble-mobile-nav.is-sync-progress-instant .assemble-mobile-nav__sync-fill {
+          transition: none !important;
         }
 
         .assemble-mobile-nav__sync-pending {
@@ -11420,8 +11425,12 @@
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 500;
       const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
-      const ASSEMBLE_SYNC_FILL_FINISH_MS = 520;
-      const ASSEMBLE_SYNC_FILL_MIN_MS = 720;
+      const ASSEMBLE_SYNC_FILL_FINISH_MS = 1500;
+      const ASSEMBLE_SYNC_FILL_MIN_MS = 1800;
+      const ASSEMBLE_SYNC_FILL_SIM_MS = 160;
+      const ASSEMBLE_SYNC_FILL_SIM_STEP = 1;
+      const ASSEMBLE_SYNC_FILL_SIM_CAP = 76;
+      const ASSEMBLE_SYNC_FILL_UPLOAD_PCT = 86;
       const ASSEMBLE_SYNC_SOON_MS = 150;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
@@ -11548,7 +11557,7 @@
           assembleMobileNavSyncFinishTimer = null;
         }
         assembleMobileNavSyncProgress = 0;
-        applyAssembleMobileNavSyncProgressWidth(0);
+        applyAssembleMobileNavSyncProgressWidth(0, { instant: true });
         updateAssembleMobileNavSyncFillVisibility();
       }
 
@@ -11591,14 +11600,24 @@
         }
       }
 
-      function applyAssembleMobileNavSyncProgressWidth(percent) {
+      function applyAssembleMobileNavSyncProgressWidth(percent, opts) {
+        const options = opts || {};
         const p = Math.max(0, Math.min(100, Number(percent) || 0));
         const width = `${p}%`;
         if (assembleMobileNav) {
           assembleMobileNav.style.setProperty("--amn-sync-progress", width);
+          if (options.instant) {
+            assembleMobileNav.classList.add("is-sync-progress-instant");
+          }
         }
         if (assembleMobileNavSyncFill) {
           assembleMobileNavSyncFill.style.width = width;
+        }
+        if (options.instant && assembleMobileNav) {
+          void assembleMobileNav.offsetWidth;
+          window.requestAnimationFrame(() => {
+            assembleMobileNav.classList.remove("is-sync-progress-instant");
+          });
         }
       }
 
@@ -11606,11 +11625,11 @@
         stopAssembleSaveProgressSimulation();
         let simPct = 4;
         assembleSaveProgressTimer = setInterval(() => {
-          simPct = Math.min(78, simPct + 2);
+          simPct = Math.min(ASSEMBLE_SYNC_FILL_SIM_CAP, simPct + ASSEMBLE_SYNC_FILL_SIM_STEP);
           if (assembleSaveInFlight) {
             setAssembleMobileNavSyncProgress(simPct);
           }
-        }, 120);
+        }, ASSEMBLE_SYNC_FILL_SIM_MS);
       }
 
       function stopAssembleSaveProgressSimulation() {
@@ -13483,13 +13502,11 @@
             1,
             (Date.now() - startedAt) / ASSEMBLE_SYNC_FILL_FINISH_MS,
           );
-          const pct = start + (100 - start) * t;
+          const eased = 1 - Math.pow(1 - t, 3);
+          const pct = start + (100 - start) * eased;
           setAssembleMobileNavSyncProgress(pct);
           if (t < 1) {
-            assembleMobileNavSyncFinishTimer = window.setTimeout(
-              step,
-              32,
-            );
+            assembleMobileNavSyncFinishTimer = window.setTimeout(step, 24);
             return;
           }
           assembleMobileNavSyncFinishTimer = null;
@@ -13525,7 +13542,7 @@
           });
           stopAssembleSaveProgressSimulation();
           if (assembleSaveInFlight) {
-            setAssembleMobileNavSyncProgress(88);
+            setAssembleMobileNavSyncProgress(ASSEMBLE_SYNC_FILL_UPLOAD_PCT);
           }
           return res;
         } catch (e) {

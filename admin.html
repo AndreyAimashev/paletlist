@@ -3756,6 +3756,17 @@
           will-change: width;
         }
 
+        .assemble-mobile-nav__sync-fill::after {
+          content: "";
+          position: absolute;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 2px;
+          background: rgba(0, 220, 175, 0.9);
+          box-shadow: 0 0 12px rgba(0, 220, 175, 0.45);
+        }
+
         .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
           display: none;
         }
@@ -11407,6 +11418,26 @@
       };
       let assembleMobileNavSyncProgress = 0;
       let assembleMobileNavSyncFinishTimer = null;
+      let assembleSaveProgressTimer = null;
+
+      function startAssembleSaveProgressSimulation() {
+        stopAssembleSaveProgressSimulation();
+        let simPct =
+          assembleMobileNavSyncProgress > 0 ? assembleMobileNavSyncProgress : 8;
+        assembleSaveProgressTimer = setInterval(() => {
+          simPct = Math.min(86, simPct + 3);
+          if (assembleSaveInFlight) {
+            setAssembleMobileNavSyncProgress(simPct);
+          }
+        }, 100);
+      }
+
+      function stopAssembleSaveProgressSimulation() {
+        if (assembleSaveProgressTimer) {
+          clearInterval(assembleSaveProgressTimer);
+          assembleSaveProgressTimer = null;
+        }
+      }
       let assembleSyncPollTimer = null;
       let ordersListSyncPollTimer = null;
       let nomenclatureListSyncPollTimer = null;
@@ -13161,6 +13192,8 @@
         }
         if (assembleSavePending) {
           startAssembleSaveRetry();
+        } else if (assembleDirty) {
+          markAssembleSaveFailed();
         }
         void queueAssembleServerSave();
       }
@@ -16914,7 +16947,12 @@
         if (isNewOrderSpecialClient(client)) {
           return;
         }
+        ensureNewOrderDeliveryToggleButtons(value);
         const normalized = normalizeOrderDeliveryType(value);
+        if (!newOrderDeliveryToggle.querySelector(`[data-delivery="${normalized}"]`)) {
+          renderNewOrderDeliveryToggleButtons(normalized);
+          return;
+        }
         newOrderDeliveryToggle.querySelectorAll(".new-order-delivery-btn").forEach((btn) => {
           const delivery = btn.getAttribute("data-delivery") || "";
           btn.classList.toggle("active", delivery === normalized);
@@ -16930,6 +16968,7 @@
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         addOrderItemRow();
+        ensureNewOrderDeliveryToggleButtons("Обычный");
         setNewOrderDeliveryType("Обычный");
         syncNewOrderClientUi();
         const today = new Date();
@@ -18093,6 +18132,7 @@
       syncFeedbackAdminControls();
       void refreshAuthPermissionsFromServer();
       syncMobileLayoutState();
+      ensureNewOrderDeliveryToggleButtons("Обычный");
       applyAssembleMobileNavSyncVisual("is-idle");
       setStage("main", false);
       setSidebarCollapsed(false);

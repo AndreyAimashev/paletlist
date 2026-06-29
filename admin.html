@@ -13381,8 +13381,9 @@
         return (
           (assembleSaveSyncStateClass === "is-pending" ||
             assembleSaveSyncStateClass === "is-saving") &&
-          !assembleSaveBusy() &&
-          !assembleNeedsServerPush()
+          !assembleSaveInFlight &&
+          !assembleQueuedPayload &&
+          !assembleDirty
         );
       }
 
@@ -13426,9 +13427,15 @@
           return;
         }
 
-        if (assembleNeedsServerPush()) {
+        if (assembleDirty) {
           flushAssembleDraftToServerIfNeeded(orderId);
           setAssembleSaveUiState("debouncing", { orderId });
+          return;
+        }
+
+        if (assembleSavePending) {
+          void queueAssembleServerSave();
+          setAssembleSaveUiState("saving", { orderId });
           return;
         }
 
@@ -13785,6 +13792,29 @@
             } catch (e) {
               /* ignore */
             }
+            if (conflict && assembleOrderSnapshot?.id === oid) {
+              const remotePallets =
+                conflict.assemble_state &&
+                Array.isArray(conflict.assemble_state.pallets)
+                  ? conflict.assemble_state.pallets
+                  : [];
+              const conflictRev =
+                Number(conflict.assemble_revision) || assembleKnownRevision;
+              if (
+                remotePallets.length &&
+                assembleStatesContentEqual(payload.pallets, remotePallets)
+              ) {
+                assembleKnownRevision = conflictRev;
+                noteAssembleServerSnapshot(conflict);
+                reconcileAssembleSyncFlagsWithServer(conflict, remotePallets);
+                mirrorAssembleDraftForPayload(payload, conflictRev);
+                markAssembleSaveSucceeded();
+                setAssembleSaveUiState("idle", { orderId: oid });
+                notifyAssembleSavedToOtherTabs(oid, conflictRev);
+                scheduleAssembleSyncPollSoon();
+                return true;
+              }
+            }
             if (conflict && assembleOrderSnapshot?.id === oid && assembleDirty) {
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || assembleKnownRevision;
@@ -13837,7 +13867,14 @@
                 cp,
               );
               applyRemoteAssemblePayload({ ...conflict, id: oid });
-              reconcileAssembleSyncFlagsWithServer(conflict, cp);
+              if (reconcileAssembleSyncFlagsWithServer(conflict, cp)) {
+                mirrorAssembleDraftForPayload(payload, assembleKnownRevision);
+                markAssembleSaveSucceeded();
+                setAssembleSaveUiState("idle", { orderId: oid });
+                notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
+                scheduleAssembleSyncPollSoon();
+                return true;
+              }
             }
             setAssembleSaveUiState("saving", {
               orderId: oid,
@@ -13883,19 +13920,10 @@
             try {
               const verifyRes = await fetch(`/api/orders/${oid}`, { cache: "no-store" });
               if (verifyRes.ok) {
-                const verifyData = await verifyRes.json();
-                const serverPallets = extractRemoteAssemblePallets(verifyData) || [];
-                if (!assembleStatesContentEqual(payload.pallets, serverPallets)) {
-                  assembleDirty = true;
-                  markAssembleSaveFailed();
-                  return false;
-                }
-                noteAssembleServerSnapshot(verifyData);
+                noteAssembleServerSnapshot(await verifyRes.json());
               }
             } catch (e) {
-              assembleDirty = true;
-              markAssembleSaveFailed();
-              return false;
+              /* сервер уже подтвердил unchanged */
             }
           }
           const newRev =
@@ -13940,7 +13968,7 @@
           }
           mirrorAssembleDraftForPayload(payload, newRev);
           markAssembleSaveSucceeded();
-          setAssembleSaveUiState("saved", { orderId: oid });
+          setAssembleSaveUiState("idle", { orderId: oid });
           notifyAssembleSavedToOtherTabs(oid, newRev);
           scheduleAssembleSyncPollSoon();
           return true;

@@ -3769,8 +3769,11 @@
         }
 
         .assemble-mobile-nav.has-sync-fill {
-          background: transparent;
+          background: transparent !important;
           backdrop-filter: none;
+          transition:
+            border-color 0.25s ease,
+            box-shadow 0.25s ease;
         }
 
         .assemble-mobile-nav__sync-track {
@@ -3779,24 +3782,18 @@
           z-index: 0;
           pointer-events: none;
           overflow: hidden;
-          background: var(--amn-track-bg, transparent);
+          isolation: isolate;
+          background: linear-gradient(
+            90deg,
+            var(--amn-fill-bg, rgb(8, 52, 42)) 0,
+            var(--amn-fill-bg, rgb(8, 52, 42)) var(--amn-sync-progress, 0%),
+            var(--amn-track-bg, rgb(58, 46, 8)) var(--amn-sync-progress, 0%),
+            var(--amn-track-bg, rgb(58, 46, 8)) 100%
+          );
         }
 
         .assemble-mobile-nav__sync-fill {
-          position: absolute;
-          left: 0;
-          top: 0;
-          bottom: 0;
-          width: var(--amn-sync-progress, 0%);
-          background: var(--amn-fill-bg, rgb(8, 52, 42));
-          border-right: 2px solid var(--amn-fill-edge, rgb(0, 220, 175));
-          box-shadow: none;
-          transition: width 0.12s linear;
-          will-change: width;
-        }
-
-        .assemble-mobile-nav__sync-fill::after {
-          content: none;
+          display: none;
         }
 
         .assemble-mobile-nav:not(.has-sync-fill) .assemble-mobile-nav__sync-track {
@@ -11513,6 +11510,23 @@
       let assembleSaveProgressTimer = null;
       let assembleSaveVisualStartedAt = 0;
 
+      function shouldResetAssembleSyncProgress() {
+        return !assembleSaveInFlight && !assembleMobileNavSyncFinishTimer;
+      }
+
+      function beginAssembleMobileNavSyncProgress() {
+        stopAssembleSaveProgressSimulation();
+        if (assembleMobileNavSyncFinishTimer) {
+          clearTimeout(assembleMobileNavSyncFinishTimer);
+          assembleMobileNavSyncFinishTimer = null;
+        }
+        assembleMobileNavSyncProgress = 0;
+        if (assembleMobileNav) {
+          assembleMobileNav.style.setProperty("--amn-sync-progress", "0%");
+        }
+        updateAssembleMobileNavSyncFillVisibility();
+      }
+
       function updateAssembleMobileNavSyncFillVisibility() {
         if (!assembleMobileNav) {
           return;
@@ -11531,18 +11545,15 @@
           const idleTheme = ASSEMBLE_MOBILE_NAV_SYNC_THEME["is-idle"];
           assembleMobileNav.style.setProperty("--amn-track-bg", pendingTheme.bg);
           assembleMobileNav.style.setProperty("--amn-fill-bg", idleTheme.bg);
-          assembleMobileNav.style.setProperty("--amn-fill-edge", idleTheme.border);
         } else {
           assembleMobileNav.style.removeProperty("--amn-track-bg");
           assembleMobileNav.style.removeProperty("--amn-fill-bg");
-          assembleMobileNav.style.removeProperty("--amn-fill-edge");
         }
       }
 
       function startAssembleSaveProgressSimulation() {
         stopAssembleSaveProgressSimulation();
-        let simPct =
-          assembleMobileNavSyncProgress > 0 ? assembleMobileNavSyncProgress : 6;
+        let simPct = Math.max(4, assembleMobileNavSyncProgress || 0);
         assembleSaveProgressTimer = setInterval(() => {
           simPct = Math.min(78, simPct + 2);
           if (assembleSaveInFlight) {
@@ -14080,7 +14091,13 @@
           if (assembleSaveVisualStartedAt <= 0) {
             assembleSaveVisualStartedAt = Date.now();
           }
-          if (assembleMobileNavSyncProgress <= 0) {
+          if (
+            assembleMobileNavSyncProgress <= 0 ||
+            assembleMobileNavSyncProgress >= 100
+          ) {
+            if (shouldResetAssembleSyncProgress()) {
+              beginAssembleMobileNavSyncProgress();
+            }
             setAssembleMobileNavSyncProgress(4);
           }
           applyBanner();
@@ -14093,6 +14110,10 @@
             assembleSaveSyncStateClass === "is-saved";
           const finishIdle = () => {
             assembleSaveVisualStartedAt = 0;
+            assembleMobileNavSyncProgress = 0;
+            if (assembleMobileNav) {
+              assembleMobileNav.style.setProperty("--amn-sync-progress", "0%");
+            }
             if (assembleNeedsServerPush()) {
               refreshAssembleSaveUiIfSynced();
               return;
@@ -14275,7 +14296,6 @@
                 }
                 mirrorAssembleDraftForPayload(payload, conflictRev);
                 markAssembleSaveSucceeded();
-                setAssembleMobileNavSyncProgress(96);
                 setAssembleSaveUiState("idle", { orderId: oid });
                 notifyAssembleSavedToOtherTabs(oid, conflictRev);
                 scheduleAssembleSyncPollSoon();
@@ -14337,7 +14357,6 @@
               if (reconcileAssembleSyncFlagsWithServer(conflict, cp)) {
                 mirrorAssembleDraftForPayload(payload, assembleKnownRevision);
                 markAssembleSaveSucceeded();
-                setAssembleMobileNavSyncProgress(96);
                 setAssembleSaveUiState("idle", { orderId: oid });
                 notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
                 scheduleAssembleSyncPollSoon();
@@ -14466,7 +14485,6 @@
           }
           mirrorAssembleDraftForPayload(payload, newRev);
           markAssembleSaveSucceeded();
-          setAssembleMobileNavSyncProgress(96);
           setAssembleSaveUiState("idle", { orderId: oid });
           notifyAssembleSavedToOtherTabs(oid, newRev);
           scheduleAssembleSyncPollSoon();
@@ -14495,6 +14513,7 @@
         while (assembleQueuedPayload) {
           const payload = assembleQueuedPayload;
           assembleQueuedPayload = null;
+          beginAssembleMobileNavSyncProgress();
           setAssembleSaveUiState("saving", { orderId: payload.orderId });
           assembleSaveInFlight = true;
           const ok = await patchAssemblePayload(payload);

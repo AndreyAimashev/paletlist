@@ -12036,13 +12036,20 @@
         setOrderChatError("");
       }
 
+      function renderOrderDeleteButton(orderRow, sid) {
+        if (isOrderShipmentLocked(orderRow)) {
+          return `<button type="button" class="icon-btn icon-btn-danger" disabled title="Отгруженный заказ нельзя удалить" aria-label="Удаление недоступно: заказ отгружен">${ORDER_ROW_ICON_DELETE}</button>`;
+        }
+        return `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
+      }
+
       function renderOrderRowActions(orderId, variant, orderRow) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
         const editBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактировать заказ">${ORDER_ROW_ICON_EDIT}</button>`;
         const assembleBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка заказа">${ORDER_ROW_ICON_ASSEMBLE}</button>`;
         const palletBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Сформировать паллетные листы">${ORDER_ROW_ICON_PALLET}</button>`;
-        const deleteBtn = `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
+        const deleteBtn = renderOrderDeleteButton(orderRow, sid);
         const chatBtn = renderOrderChatButton(sid, orderRow);
         if (variant === "mobile-date") {
           return `<div class="orders-row-actions orders-row-actions--mobile-date">${assembleBtn}</div>`;
@@ -18588,6 +18595,11 @@
         } else if (act === "lab-ship") {
           void confirmLabOrderShipment(id);
         } else if (act === "delete") {
+          const row = cachedOrdersListRows.find((o) => Number(o.id) === id);
+          if (isOrderShipmentLocked(row)) {
+            window.alert("Заказ отгружен — удаление недоступно.");
+            return;
+          }
           if (!window.confirm(`Удалить заказ №${id}? Действие нельзя отменить.`)) {
             return;
           }
@@ -18597,6 +18609,18 @@
               res = await fetch(`/api/orders/${id}`, { method: "DELETE" });
             } catch (err) {
               window.alert("Нет связи с сервером.");
+              return;
+            }
+            if (res.status === 403) {
+              let payload = null;
+              try {
+                payload = await res.json();
+              } catch (err) {
+                /* ignore */
+              }
+              window.alert(
+                (payload && payload.message) || "Заказ отгружен — удаление недоступно.",
+              );
               return;
             }
             if (res.status === 404) {

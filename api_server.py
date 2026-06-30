@@ -5489,7 +5489,7 @@ def fetch_order_detail(order_id: int):
     }
 
 
-def delete_order(order_id: int) -> bool:
+def delete_order(order_id: int) -> dict:
     """Удаляет заказ; позиции order_items удаляются каскадом.
     PDF/XLSX паллетных листов на сервере не кэшируются — генерируются в памяти по запросу, отдельных файлов под заказ нет."""
     with DB_LOCK:
@@ -5497,14 +5497,22 @@ def delete_order(order_id: int) -> bool:
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT client, COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
+            SELECT client, order_readiness, COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
             FROM orders WHERE id = ?
             """,
             (order_id,),
         ).fetchone()
+        if not row:
+            con.close()
+            return {"error": "not_found", "message": "Заказ не найден."}
+        if _order_is_shipment_locked(row):
+            con.close()
+            return {
+                "error": "order_shipped",
+                "message": "Заказ отгружен — удаление недоступно.",
+            }
         resync_lab = bool(
-            row
-            and _is_lab_industries_client(str(row["client"] or ""))
+            _is_lab_industries_client(str(row["client"] or ""))
             and not int(row["lab_sscc_shipped"] or 0)
         )
         cur.execute("DELETE FROM orders WHERE id = ?", (order_id,))
@@ -5513,7 +5521,9 @@ def delete_order(order_id: int) -> bool:
             _lab_sscc_sync_all_unshipped_seq_starts(cur)
         con.commit()
         con.close()
-    return n > 0
+    if n > 0:
+        return {"ok": True}
+    return {"error": "not_found", "message": "Заказ не найден."}
 
 
 def fetch_orders(session: dict | None = None):
@@ -7848,14 +7858,18 @@ class ApiHandler(BaseHTTPRequestHandler):
         oid = _parse_orders_detail_id(path)
         if oid is not None:
             try:
-                ok = delete_order(oid)
+                result = delete_order(oid)
             except sqlite3.Error as exc:
                 self._send_json(500, {"error": "database", "message": str(exc)})
                 return
-            if not ok:
-                self._send_json(404, {"error": "not_found", "message": "Заказ не найден."})
+            err = result.get("error")
+            if err == "not_found":
+                self._send_json(404, result)
                 return
-            self._send_json(200, {"ok": True})
+            if err == "order_shipped":
+                self._send_json(403, result)
+                return
+            self._send_json(200, result)
             return
         if not parsed.path.startswith("/api/nomenclature/"):
             self._send_json(404, {"error": "Not found"})

@@ -7172,38 +7172,43 @@
       const ordersMobilePctWidthNumber = document.getElementById("orders-mobile-pct-width-number");
       const ordersMobilePctDebugValue = document.getElementById("orders-mobile-pct-debug-value");
       const ordersMobilePctDebugCopy = document.getElementById("orders-mobile-pct-debug-copy");
-      const ORDERS_MOBILE_CLIENT_DEBUG_STORAGE = "paletlist_orders_mobile_client_width_rem";
-      const ORDERS_MOBILE_CLIENT_WIDTH_DEFAULT = 8;
-      const ORDERS_MOBILE_CLIENT_WIDTH_MIN = 4;
-      const ORDERS_MOBILE_CLIENT_WIDTH_MAX = 16;
+      const ORDERS_MOBILE_DATE_DEBUG_STORAGE = "paletlist_orders_mobile_date_width_rem";
+      const ORDERS_MOBILE_DATE_WIDTH_DEFAULT = 3;
+      const ORDERS_MOBILE_DATE_WIDTH_MIN = 2;
+      const ORDERS_MOBILE_DATE_WIDTH_MAX = 8;
 
       function getOrdersTableWrapEl() {
         return ordersWorkspace ? ordersWorkspace.querySelector(".orders-table-wrap") : null;
       }
 
-      function clampOrdersMobileClientWidthRem(value) {
+      function clampOrdersMobileDateWidthRem(value) {
         const n = Number(value);
         if (!Number.isFinite(n)) {
-          return ORDERS_MOBILE_CLIENT_WIDTH_DEFAULT;
+          return ORDERS_MOBILE_DATE_WIDTH_DEFAULT;
         }
         return Math.max(
-          ORDERS_MOBILE_CLIENT_WIDTH_MIN,
-          Math.min(ORDERS_MOBILE_CLIENT_WIDTH_MAX, Math.round(n * 10) / 10),
+          ORDERS_MOBILE_DATE_WIDTH_MIN,
+          Math.min(ORDERS_MOBILE_DATE_WIDTH_MAX, Math.round(n * 10) / 10),
         );
       }
 
-      function formatOrdersMobileClientWidthLabel(rem) {
-        const val = clampOrdersMobileClientWidthRem(rem);
+      function formatOrdersMobileDateWidthLabel(rem) {
+        const val = clampOrdersMobileDateWidthRem(rem);
         const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const px = Math.round(val * rootPx);
         return `${val}rem (≈ ${px}px)`;
       }
 
-      function applyOrdersMobileClientWidth(rem, opts = {}) {
-        const val = clampOrdersMobileClientWidthRem(rem);
+      function applyOrdersMobileDateWidth(rem, opts = {}) {
+        const val = clampOrdersMobileDateWidthRem(rem);
         const wrap = getOrdersTableWrapEl();
+        const widthValue = `${val}rem`;
         if (wrap) {
-          wrap.style.setProperty("--orders-mobile-col-client-width", `${val}rem`);
+          wrap.style.setProperty("--orders-mobile-col-date-width", widthValue);
+          const table = wrap.querySelector(".orders-table");
+          if (table) {
+            table.style.setProperty("--orders-mobile-col-date-width", widthValue);
+          }
         }
         if (ordersMobilePctWidthRange) {
           ordersMobilePctWidthRange.value = String(val);
@@ -7212,11 +7217,11 @@
           ordersMobilePctWidthNumber.value = String(val);
         }
         if (ordersMobilePctDebugValue) {
-          ordersMobilePctDebugValue.textContent = formatOrdersMobileClientWidthLabel(val);
+          ordersMobilePctDebugValue.textContent = formatOrdersMobileDateWidthLabel(val);
         }
         if (opts.persist !== false) {
           try {
-            localStorage.setItem(ORDERS_MOBILE_CLIENT_DEBUG_STORAGE, String(val));
+            localStorage.setItem(ORDERS_MOBILE_DATE_DEBUG_STORAGE, String(val));
           } catch (error) {
             /* ignore */
           }
@@ -7224,17 +7229,17 @@
         return val;
       }
 
-      function loadOrdersMobileClientWidthFromStorage() {
-        let stored = ORDERS_MOBILE_CLIENT_WIDTH_DEFAULT;
+      function loadOrdersMobileDateWidthFromStorage() {
+        let stored = ORDERS_MOBILE_DATE_WIDTH_DEFAULT;
         try {
-          const raw = localStorage.getItem(ORDERS_MOBILE_CLIENT_DEBUG_STORAGE);
+          const raw = localStorage.getItem(ORDERS_MOBILE_DATE_DEBUG_STORAGE);
           if (raw != null && raw !== "") {
-            stored = clampOrdersMobileClientWidthRem(raw);
+            stored = clampOrdersMobileDateWidthRem(raw);
           }
         } catch (error) {
           /* ignore */
         }
-        applyOrdersMobileClientWidth(stored, { persist: false });
+        applyOrdersMobileDateWidth(stored, { persist: false });
       }
 
       function syncOrdersMobilePctDebugPanel() {
@@ -7245,31 +7250,31 @@
           currentStage === "orders" && window.matchMedia("(max-width: 768px)").matches;
         ordersMobilePctDebug.hidden = !show;
         if (show) {
-          applyOrdersMobileClientWidth(
+          applyOrdersMobileDateWidth(
             ordersMobilePctWidthNumber
               ? ordersMobilePctWidthNumber.value
-              : ORDERS_MOBILE_CLIENT_WIDTH_DEFAULT,
+              : ORDERS_MOBILE_DATE_WIDTH_DEFAULT,
             { persist: false },
           );
         }
       }
 
-      loadOrdersMobileClientWidthFromStorage();
+      loadOrdersMobileDateWidthFromStorage();
       if (ordersMobilePctWidthRange) {
         ordersMobilePctWidthRange.addEventListener("input", () => {
-          applyOrdersMobileClientWidth(ordersMobilePctWidthRange.value);
+          applyOrdersMobileDateWidth(ordersMobilePctWidthRange.value);
         });
       }
       if (ordersMobilePctWidthNumber) {
         ordersMobilePctWidthNumber.addEventListener("change", () => {
-          applyOrdersMobileClientWidth(ordersMobilePctWidthNumber.value);
+          applyOrdersMobileDateWidth(ordersMobilePctWidthNumber.value);
         });
       }
       if (ordersMobilePctDebugCopy) {
         ordersMobilePctDebugCopy.addEventListener("click", async () => {
           const label = ordersMobilePctDebugValue
             ? ordersMobilePctDebugValue.textContent
-            : formatOrdersMobileClientWidthLabel(ORDERS_MOBILE_CLIENT_WIDTH_DEFAULT);
+            : formatOrdersMobileDateWidthLabel(ORDERS_MOBILE_DATE_WIDTH_DEFAULT);
           try {
             await navigator.clipboard.writeText(label);
             ordersMobilePctDebugCopy.textContent = "Скопировано";
@@ -7327,10 +7332,12 @@
       const newOrderAddItem = document.getElementById("new-order-add-item");
       const newOrderCancel = document.getElementById("new-order-cancel");
       const newOrderTitle = document.getElementById("new-order-title");
+      const newOrderShipmentLockNotice = document.getElementById("new-order-shipment-lock-notice");
       const orderItemRowTemplate = document.getElementById("order-item-row-template");
       const stageOrderContextEl = document.getElementById("stage-order-context");
       let editingOrderId = null;
       let editingOrderSnapshot = null;
+      let orderEditShipmentLocked = false;
       /** Номер заказа при переходе из строки таблицы в «Сборка» / «Паллетные листы»; иначе null. */
       let activeStageOrderId = null;
 
@@ -10751,6 +10758,106 @@
         return ORDER_READINESS_CYCLE[(idx + 1) % ORDER_READINESS_CYCLE.length];
       }
 
+      function isOrderShipmentLocked(orderRow) {
+        return normalizeOrderReadiness(orderRow?.order_readiness) === "shipped";
+      }
+
+      function isAssembleShipmentLocked() {
+        return !!(assembleOrderSnapshot && isOrderShipmentLocked(assembleOrderSnapshot));
+      }
+
+      function syncAssembleShipmentLockFromOrder(dataOrRow) {
+        if (!assembleOrderSnapshot) {
+          return;
+        }
+        const readiness = normalizeOrderReadiness(
+          dataOrRow?.order_readiness ?? assembleOrderSnapshot.order_readiness,
+        );
+        assembleOrderSnapshot.order_readiness = readiness;
+        syncAssembleShipmentLockUi();
+      }
+
+      function syncAssembleShipmentLockUi() {
+        const locked = isAssembleShipmentLocked();
+        if (assembleWorkspace) {
+          assembleWorkspace.classList.toggle("is-shipment-locked", locked);
+        }
+        if (assembleSyncBannerEl) {
+          if (locked) {
+            assembleSyncBannerEl.textContent =
+              "Заказ отгружен — сборка доступна только для просмотра.";
+            assembleSyncBannerEl.className = "assemble-sync-banner is-idle";
+          }
+        }
+        if (assembleAddPalletBtn) {
+          assembleAddPalletBtn.disabled = locked;
+        }
+        if (!assembleLoadedEl) {
+          return;
+        }
+        assembleLoadedEl
+          .querySelectorAll(
+            "[data-assemble-input], [data-add-slot], [data-remove-pallet-id], .assemble-btn--remove-slot, .assemble-btn--add-slot, .assemble-btn--remove-pallet",
+          )
+          .forEach((el) => {
+            if (el.matches("[data-assemble-input]")) {
+              el.disabled = locked;
+              if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+                el.readOnly = locked;
+              }
+              return;
+            }
+            if (el.tagName === "BUTTON") {
+              el.disabled = locked;
+            }
+          });
+        if (assembleOptionalBatchRoot) {
+          assembleOptionalBatchRoot.querySelectorAll("button, input").forEach((el) => {
+            el.disabled = locked;
+          });
+        }
+      }
+
+      function applyOrderEditShipmentLock(locked) {
+        orderEditShipmentLocked = !!locked;
+        if (newOrderOverlay) {
+          newOrderOverlay.classList.toggle("is-shipment-locked", orderEditShipmentLocked);
+        }
+        if (newOrderShipmentLockNotice) {
+          newOrderShipmentLockNotice.hidden = !orderEditShipmentLocked;
+        }
+        const submitBtn = newOrderForm
+          ? newOrderForm.querySelector('button[type="submit"]')
+          : null;
+        if (submitBtn) {
+          submitBtn.disabled = orderEditShipmentLocked;
+        }
+        if (newOrderAddItem) {
+          newOrderAddItem.disabled = orderEditShipmentLocked;
+        }
+        if (!newOrderForm) {
+          return;
+        }
+        newOrderForm.querySelectorAll("input, select, textarea").forEach((el) => {
+          el.disabled = orderEditShipmentLocked;
+          if (
+            orderEditShipmentLocked &&
+            (el.tagName === "INPUT" || el.tagName === "TEXTAREA") &&
+            el.type !== "hidden"
+          ) {
+            el.readOnly = true;
+          } else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+            el.readOnly = false;
+          }
+        });
+        newOrderForm.querySelectorAll(".new-order-delivery-btn").forEach((btn) => {
+          btn.disabled = orderEditShipmentLocked;
+        });
+        newOrderForm.querySelectorAll(".order-item-remove").forEach((btn) => {
+          btn.disabled = orderEditShipmentLocked;
+        });
+      }
+
       function renderOrderReadinessButton(orderRow) {
         const orderId = Number(orderRow?.id);
         if (!Number.isFinite(orderId)) {
@@ -10770,6 +10877,10 @@
         cachedOrdersListRows = cachedOrdersListRows.map((row) =>
           row.id === oid ? { ...row, order_readiness: normalized } : row,
         );
+        if (assembleOrderSnapshot && assembleOrderSnapshot.id === oid) {
+          assembleOrderSnapshot.order_readiness = normalized;
+          syncAssembleShipmentLockUi();
+        }
       }
 
       async function cycleOrderReadiness(btn) {
@@ -10812,6 +10923,9 @@
           updateOrderReadinessLocally(id, saved);
           if (currentStage === "orders") {
             renderOrdersTable();
+          } else if (currentStage === "assemble" && assembleOrderSnapshot?.id === id) {
+            syncAssembleShipmentLockUi();
+            renderAssemblePalletCards();
           }
         } catch (e) {
           window.alert("Нет связи с сервером.");
@@ -14448,6 +14562,18 @@
         if (data.id !== assembleOrderSnapshot.id) {
           return;
         }
+        syncAssembleShipmentLockFromOrder(data);
+        if (isAssembleShipmentLocked()) {
+          assembleDirty = false;
+          assembleSavePending = false;
+          assembleQueuedPayload = null;
+          clearTimeout(assembleSaveTimer);
+          if (!isAssembleEditableFocused()) {
+            applyRemoteAssemblePayload(data);
+          }
+          noteAssembleServerSnapshot(data);
+          return;
+        }
         if (isAssembleEditableFocused()) {
           return;
         }
@@ -14963,7 +15089,7 @@
       }
 
       function captureAssembleSavePayload() {
-        if (!assembleOrderSnapshot || !assembleAllocState) {
+        if (!assembleOrderSnapshot || !assembleAllocState || isAssembleShipmentLocked()) {
           return null;
         }
         syncAssembleStateFromDom();
@@ -15048,6 +15174,9 @@
 
       async function patchAssemblePayload(payload) {
         if (!payload || payload.orderId == null) {
+          return false;
+        }
+        if (isAssembleShipmentLocked()) {
           return false;
         }
         const oid = payload.orderId;
@@ -15203,6 +15332,30 @@
             });
             markAssembleSaveFailed();
             return false;
+          }
+          if (res.status === 403) {
+            let errBody = null;
+            try {
+              errBody = await res.json();
+            } catch (e) {
+              /* ignore */
+            }
+            if (errBody && errBody.error === "order_shipped") {
+              updateOrderReadinessLocally(oid, "shipped");
+              syncAssembleShipmentLockFromOrder({ order_readiness: "shipped" });
+              assembleDirty = false;
+              assembleSavePending = false;
+              assembleQueuedPayload = null;
+              renderAssemblePalletCards();
+              setAssembleSaveUiState("idle", {
+                orderId: oid,
+                message:
+                  errBody.message ||
+                  "Заказ отгружен — сборка доступна только для просмотра.",
+              });
+              markAssembleSaveSucceeded();
+              return false;
+            }
           }
           if (!res.ok) {
             if (assembleDeviceIsOffline()) {
@@ -15389,6 +15542,12 @@
 
       function flushAssembleSaveNow() {
         clearTimeout(assembleSaveTimer);
+        if (isAssembleShipmentLocked()) {
+          assembleDirty = false;
+          assembleSavePending = false;
+          assembleQueuedPayload = null;
+          return assembleSaveDrainPromise || Promise.resolve(true);
+        }
         if (!assembleDirty && !assembleSavePending) {
           return assembleSaveDrainPromise || Promise.resolve(true);
         }
@@ -15588,6 +15747,12 @@
       }
 
       function applyRemoteAssemblePayload(data) {
+        if (isAssembleShipmentLocked()) {
+          if (data) {
+            syncAssembleShipmentLockFromOrder(data);
+          }
+          return;
+        }
         if (!assembleOrderSnapshot || !assembleAllocState || data.id !== assembleOrderSnapshot.id) {
           return;
         }
@@ -15967,6 +16132,9 @@
       }
 
       function saveAssembleDraft(opts) {
+        if (isAssembleShipmentLocked()) {
+          return;
+        }
         assembleDirty = true;
         const immediate = !!(opts && opts.immediate);
         beginAssembleMobileNavSyncProgress();
@@ -16590,6 +16758,7 @@
         }
         assemblePalletCardsRenderedAt = Date.now();
         assemblePalletActionPointerBtn = null;
+        syncAssembleShipmentLockUi();
       }
 
       function isIntentionalAssemblePalletActionClick(ev, btn) {
@@ -16645,6 +16814,9 @@
 
       function syncAssembleStateFromDom(editHint) {
         if (!assemblePalletsRoot || !assembleAllocState || !assembleOrderSnapshot) {
+          return;
+        }
+        if (isAssembleShipmentLocked()) {
           return;
         }
         const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
@@ -16745,6 +16917,9 @@
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
           return;
         }
+        if (isAssembleShipmentLocked()) {
+          return;
+        }
         const editHint = t.matches("[data-assemble-input]") ? assembleInputEditHint(t) : null;
         if (t.matches("[data-assemble-input]")) {
           if (t.dataset.field === "batchNumber") {
@@ -16817,6 +16992,9 @@
       function onAssemblePalletClick(ev) {
         const t = ev.target;
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
+          return;
+        }
+        if (isAssembleShipmentLocked()) {
           return;
         }
         const rmPal = t.closest("[data-remove-pallet-id]");
@@ -16900,6 +17078,9 @@
       }
 
       function addAssemblePallet() {
+        if (isAssembleShipmentLocked()) {
+          return;
+        }
         if (!assembleAllocState) {
           return;
         }
@@ -17001,6 +17182,7 @@
           id: data.id,
           ship_date: data.ship_date,
           client: data.client,
+          order_readiness: data.order_readiness,
           buyer_order_mode: data.buyer_order_mode || "",
           buyer_order: data.buyer_order || "",
           total_order_quantity: data.total_order_quantity,
@@ -17057,7 +17239,7 @@
         }
         writeAssembleOptionalBatchFlagForOrder(orderId, assembleOptionalBatchEnabled);
         mirrorAssembleDraftLocal();
-        if (picked.pushToServer) {
+        if (picked.pushToServer && !isOrderShipmentLocked(data)) {
           saveAssembleDraft();
         }
         startAssembleSyncPoll();
@@ -17071,7 +17253,8 @@
         renderAssemblePalletCards();
         renderAssembleSummary();
         renderAssembleAlerts();
-        if (picked.pushToServer) {
+        syncAssembleShipmentLockUi();
+        if (picked.pushToServer && !isOrderShipmentLocked(data)) {
           refreshAssembleSyncUiState(orderId, { serverReachable: navigator.onLine });
         } else {
           setAssembleSaveUiState("idle", { orderId });
@@ -17863,6 +18046,7 @@
         }
         syncNewOrderClientUi();
         editingOrderSnapshot = captureOrderEditSnapshotFromForm();
+        applyOrderEditShipmentLock(isOrderShipmentLocked(data));
         newOrderOverlay.hidden = false;
         requestAnimationFrame(() => syncAllOrderItemSearchHeights());
         newOrderShipDate.focus();
@@ -18046,6 +18230,7 @@
       function openNewOrderModal() {
         editingOrderId = null;
         editingOrderSnapshot = null;
+        applyOrderEditShipmentLock(false);
         newOrderTitle.textContent = "Новый заказ";
         clearNewOrderError();
         newOrderForm.reset();
@@ -18063,6 +18248,7 @@
       function closeNewOrderModal() {
         newOrderOverlay.hidden = true;
         clearNewOrderError();
+        applyOrderEditShipmentLock(false);
         newOrderForm.reset();
         newOrderItems.innerHTML = "";
         setNewOrderDeliveryType("Обычный");
@@ -18191,6 +18377,10 @@
 
       newOrderForm.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (orderEditShipmentLocked) {
+          showNewOrderError("Заказ отгружен — редактирование недоступно.");
+          return;
+        }
         clearNewOrderError();
         const shipDate = newOrderShipDate.value;
         const client = newOrderClient.value.trim();
@@ -18283,6 +18473,13 @@
         }
         if (response.status === 400 && payload && payload.message) {
           showNewOrderError(payload.message);
+          return;
+        }
+        if (response.status === 403 && payload && payload.error === "order_shipped") {
+          applyOrderEditShipmentLock(true);
+          showNewOrderError(
+            payload.message || "Заказ отгружен — редактирование недоступно.",
+          );
           return;
         }
         if (response.status === 404 && payload && payload.message) {

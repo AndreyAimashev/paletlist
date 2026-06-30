@@ -5264,6 +5264,7 @@ def fetch_orders(session: dict | None = None):
             """
         ).fetchall()
         ids = [int(r["id"]) for r in rows]
+        messages_map = _order_chat_has_messages_map(cur, ids) if ids else {}
         unread_map = _order_chat_unread_map(cur, session, ids) if session else {}
         items_by_oid = {oid: [] for oid in ids}
         if ids:
@@ -5328,6 +5329,7 @@ def fetch_orders(session: dict | None = None):
                 else False,
                 **_order_editor_fields_from_row(row),
                 "items": items,
+                "chat_has_messages": bool(messages_map.get(oid, False)),
                 "chat_has_unread": bool(unread_map.get(oid, False)),
                 **extra_fields,
             }
@@ -5936,6 +5938,22 @@ def _order_chat_mark_read(cur, order_id: int, session: dict | None) -> None:
         """,
         (int(order_id), uid, now),
     )
+
+
+def _order_chat_has_messages_map(cur, order_ids: list[int]) -> dict[int, bool]:
+    if not order_ids:
+        return {}
+    placeholders = ",".join("?" * len(order_ids))
+    rows = cur.execute(
+        f"""
+        SELECT order_id, COUNT(*) AS cnt
+        FROM order_messages
+        WHERE order_id IN ({placeholders})
+        GROUP BY order_id
+        """,
+        order_ids,
+    ).fetchall()
+    return {int(r["order_id"]): int(r["cnt"] or 0) > 0 for r in rows}
 
 
 def _order_chat_unread_map(

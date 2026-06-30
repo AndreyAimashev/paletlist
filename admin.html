@@ -2713,6 +2713,23 @@
         display: block;
       }
 
+      .orders-chat-btn--has-messages {
+        position: relative;
+        border-color: rgba(0, 200, 160, 0.55);
+        color: #9edfd4;
+      }
+
+      .orders-chat-btn--has-messages::after {
+        content: "";
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(130, 165, 185, 0.9);
+      }
+
       .orders-chat-btn--unread {
         position: relative;
         border-color: rgba(255, 196, 86, 0.72);
@@ -11124,12 +11141,43 @@
         await loadOrders();
       }
 
-      function renderOrderChatButton(orderId, hasUnread) {
+      function orderChatStateFromRow(orderRow) {
+        const hasUnread = !!(orderRow && orderRow.chat_has_unread);
+        const hasMessages = !!(orderRow && orderRow.chat_has_messages);
+        return { hasUnread, hasMessages };
+      }
+
+      function orderChatButtonTitle(hasUnread, hasMessages) {
+        if (hasUnread) {
+          return "Чат заказа — есть непрочитанные";
+        }
+        if (hasMessages) {
+          return "Чат заказа — все сообщения прочитаны";
+        }
+        return "Чат заказа";
+      }
+
+      function syncOrderChatButtonEl(btn, orderRow) {
+        if (!btn) {
+          return;
+        }
+        const { hasUnread, hasMessages } = orderChatStateFromRow(orderRow);
+        btn.classList.toggle("orders-chat-btn--unread", hasUnread);
+        btn.classList.toggle("orders-chat-btn--has-messages", !hasUnread && hasMessages);
+        btn.title = orderChatButtonTitle(hasUnread, hasMessages);
+      }
+
+      function renderOrderChatButton(orderId, orderRow) {
         const sid = Number.isFinite(Number(orderId)) ? String(orderId) : "";
-        const cls = hasUnread
-          ? "icon-btn orders-chat-btn orders-chat-btn--unread"
-          : "icon-btn orders-chat-btn";
-        return `<button type="button" class="${cls}" data-order-id="${sid}" data-order-action="chat" title="Чат заказа">${ORDER_ROW_ICON_CHAT}</button>`;
+        const { hasUnread, hasMessages } = orderChatStateFromRow(orderRow);
+        let cls = "icon-btn orders-chat-btn";
+        if (hasUnread) {
+          cls += " orders-chat-btn--unread";
+        } else if (hasMessages) {
+          cls += " orders-chat-btn--has-messages";
+        }
+        const title = escapeXml(orderChatButtonTitle(hasUnread, hasMessages));
+        return `<button type="button" class="${cls}" data-order-id="${sid}" data-order-action="chat" title="${title}">${ORDER_ROW_ICON_CHAT}</button>`;
       }
 
       function orderChatMessagesSignature(messages) {
@@ -11195,18 +11243,26 @@
         }
       }
 
-      function markOrderChatReadLocally(orderId) {
+      function markOrderChatReadLocally(orderId, hasMessages) {
         const oid = Number(orderId);
         if (!Number.isFinite(oid)) {
           return;
         }
-        cachedOrdersListRows = cachedOrdersListRows.map((row) =>
-          row.id === oid ? { ...row, chat_has_unread: false } : row,
-        );
+        cachedOrdersListRows = cachedOrdersListRows.map((row) => {
+          if (row.id !== oid) {
+            return row;
+          }
+          const next = { ...row, chat_has_unread: false };
+          if (hasMessages !== undefined) {
+            next.chat_has_messages = !!hasMessages;
+          }
+          return next;
+        });
         if (currentStage === "orders" && ordersTableBody) {
-          ordersTableBody.querySelectorAll(`button[data-order-action="chat"][data-order-id="${oid}"]`).forEach((btn) => {
-            btn.classList.remove("orders-chat-btn--unread");
-          });
+          const row = cachedOrdersListRows.find((o) => o.id === oid);
+          ordersTableBody
+            .querySelectorAll(`button[data-order-action="chat"][data-order-id="${oid}"]`)
+            .forEach((btn) => syncOrderChatButtonEl(btn, row));
         }
       }
 
@@ -11228,7 +11284,8 @@
             .join(" · ");
         }
         renderOrderChatMessages(data.messages, opts);
-        markOrderChatReadLocally(orderChatActiveId);
+        const hasMessages = Array.isArray(data.messages) && data.messages.length > 0;
+        markOrderChatReadLocally(orderChatActiveId, hasMessages);
       }
 
       function stopOrderChatSyncPoll() {
@@ -11374,12 +11431,11 @@
       function renderOrderRowActions(orderId, variant, orderRow) {
         const id = Number(orderId);
         const sid = Number.isFinite(id) ? String(id) : "";
-        const hasUnread = !!(orderRow && orderRow.chat_has_unread);
         const editBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="edit" title="Редактировать заказ">${ORDER_ROW_ICON_EDIT}</button>`;
         const assembleBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="assemble" title="Сборка заказа">${ORDER_ROW_ICON_ASSEMBLE}</button>`;
         const palletBtn = `<button type="button" class="icon-btn" data-order-id="${sid}" data-order-action="pallet" title="Сформировать паллетные листы">${ORDER_ROW_ICON_PALLET}</button>`;
         const deleteBtn = `<button type="button" class="icon-btn icon-btn-danger" data-order-id="${sid}" data-order-action="delete" title="Удалить заказ">${ORDER_ROW_ICON_DELETE}</button>`;
-        const chatBtn = renderOrderChatButton(sid, hasUnread);
+        const chatBtn = renderOrderChatButton(sid, orderRow);
         if (variant === "mobile-date") {
           return `<div class="orders-row-actions orders-row-actions--mobile-date">${assembleBtn}</div>`;
         }
@@ -15206,7 +15262,7 @@
                   if (!row) {
                     return;
                   }
-                  btn.classList.toggle("orders-chat-btn--unread", !!row.chat_has_unread);
+                  syncOrderChatButtonEl(btn, row);
                 });
             }
           }

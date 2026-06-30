@@ -511,6 +511,138 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .order-monitoring-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .order-monitoring-head {
+        margin: 0 0 14px;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .order-monitoring-table .col-expand {
+        width: 2.25rem;
+        text-align: center;
+        vertical-align: middle;
+      }
+
+      .order-monitoring-table .col-id {
+        width: 3.25rem;
+        white-space: nowrap;
+      }
+
+      .om-expand-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.65rem;
+        height: 1.65rem;
+        padding: 0;
+        border: 1px solid rgba(0, 200, 160, 0.35);
+        border-radius: 6px;
+        background: rgba(0, 200, 160, 0.08);
+        color: #9ef5e4;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+
+      .om-expand-btn:hover {
+        background: rgba(0, 200, 160, 0.16);
+        border-color: rgba(0, 200, 160, 0.55);
+      }
+
+      .om-expand-btn[aria-expanded="true"] {
+        background: rgba(0, 200, 160, 0.22);
+        border-color: rgba(0, 200, 160, 0.65);
+      }
+
+      .om-order-row.is-expanded td {
+        border-bottom-color: transparent;
+      }
+
+      .om-order-detail-row td {
+        padding: 0;
+        border-top: none;
+        background: rgba(10, 16, 28, 0.55);
+      }
+
+      .om-order-detail {
+        padding: 14px 16px 16px;
+        border-top: 1px solid rgba(0, 200, 160, 0.14);
+      }
+
+      .om-order-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 10px 18px;
+        margin-bottom: 14px;
+      }
+
+      .om-order-detail-field {
+        min-width: 0;
+      }
+
+      .om-order-detail-label {
+        display: block;
+        font-size: 10px;
+        letter-spacing: 0.35px;
+        text-transform: uppercase;
+        color: rgba(180, 200, 220, 0.72);
+        margin-bottom: 3px;
+      }
+
+      .om-order-detail-value {
+        font-size: 13px;
+        line-height: 1.4;
+        word-break: break-word;
+      }
+
+      .om-order-items-title {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: rgba(180, 220, 210, 0.9);
+      }
+
+      .om-order-items-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      .om-order-items-table th,
+      .om-order-items-table td {
+        padding: 6px 8px;
+        border: 1px solid rgba(0, 200, 160, 0.12);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .om-order-items-table th {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        color: rgba(180, 200, 220, 0.8);
+        background: rgba(0, 200, 160, 0.06);
+      }
+
+      .om-readiness-label {
+        display: inline-block;
+        margin-top: 4px;
+        pointer-events: none;
+        cursor: default;
+      }
+
+      .order-monitoring-table .col-actions .orders-row-actions {
+        justify-content: flex-end;
+      }
+
       .pallet-sheets-workspace {
         display: none;
         margin-top: 20px;
@@ -4807,6 +4939,13 @@
             <button id="back-to-main-feedback-button" class="menu-button menu-step back-button" type="button">
               Назад
             </button>
+            <button
+              id="back-to-main-order-monitoring-button"
+              class="menu-button menu-step back-button"
+              type="button"
+            >
+              Назад
+            </button>
           </div>
 
           <section id="orders-workspace" class="orders-workspace" aria-label="Список заказов">
@@ -5025,6 +5164,141 @@
                 <button type="button" id="orders-filter-extra-none">Снять</button>
               </div>
               <div id="orders-filter-extra-checkboxes" class="orders-filter-extra-checkboxes"></div>
+            </div>
+          </section>
+
+          <section
+            id="order-monitoring-workspace"
+            class="orders-workspace order-monitoring-workspace"
+            aria-label="Мониторинг заказов"
+          >
+            <p class="order-monitoring-head muted">
+              Обзор всех заказов для бухгалтерии. Список обновляется автоматически. Нажмите
+              <strong>▶</strong> в строке, чтобы развернуть подробности.
+            </p>
+            <div class="orders-names-toolbar muted">
+              <div class="orders-names-unit-toggle" role="group" aria-label="Единицы для суммы по заказу">
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="piece">
+                  Штуки
+                </button>
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="box">
+                  Коробки
+                </button>
+                <button type="button" class="orders-names-unit-btn" data-orders-names-unit="set">
+                  Наборы
+                </button>
+              </div>
+            </div>
+            <div class="orders-table-wrap">
+              <table class="orders-table order-monitoring-table">
+                <thead>
+                  <tr>
+                    <th scope="col" class="col-expand" aria-label="Развернуть"></th>
+                    <th scope="col" class="col-id">№</th>
+                    <th scope="col" class="col-date">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Дата отгрузки</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Дата</span>
+                          </span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="ship_date" title="Сортировка по дате" aria-label="Сортировка по дате отгрузки">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <input type="search" class="orders-filter-input" id="om-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                        </div>
+                      </div>
+                    </th>
+                    <th scope="col" class="col-client">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Клиент</span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="client" title="Сортировка по клиенту" aria-label="Сортировка по клиенту">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-client-filter-btn"
+                            id="om-filter-client-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-client-popover"
+                            title="Фильтр по клиенту"
+                          >
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
+                          </button>
+                        </div>
+                      </div>
+                    </th>
+                    <th scope="col" class="col-pct">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Собран (%)</span>
+                            <span class="orders-th-label-short" aria-hidden="true">%</span>
+                          </span>
+                          <button type="button" class="orders-th-sort" data-orders-sort="assembled" title="Сортировка по %" aria-label="Сортировка по проценту сборки">
+                            <span class="orders-th-sort-icon" aria-hidden="true">⇅</span>
+                          </button>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-pct-filter-btn"
+                            id="om-filter-pct-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-pct-popover"
+                            title="Фильтр по проценту сборки"
+                          >
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
+                          </button>
+                        </div>
+                      </div>
+                    </th>
+                    <th scope="col" class="col-qty">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">
+                            <span class="orders-th-label-full">Количество</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Кол-во</span>
+                          </span>
+                        </div>
+                        <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
+                      </div>
+                    </th>
+                    <th scope="col" class="col-extra-info">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title orders-th-title--block">
+                            <span class="orders-th-label-full">Доп. информация</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Доп.</span>
+                          </span>
+                        </div>
+                        <div class="orders-th-controls">
+                          <button
+                            type="button"
+                            class="orders-th-filter-btn orders-extra-info-filter-btn"
+                            id="om-filter-extra-toggle"
+                            aria-expanded="false"
+                            aria-controls="orders-filter-extra-popover"
+                            title="Фильтр по доп. информации"
+                          >
+                            <span class="orders-th-label-full">Фильтр</span>
+                            <span class="orders-th-label-short" aria-hidden="true">Фил.</span>
+                          </button>
+                        </div>
+                      </div>
+                    </th>
+                    <th scope="col" class="col-actions">Чат</th>
+                  </tr>
+                </thead>
+                <tbody id="order-monitoring-table-body"></tbody>
+              </table>
             </div>
           </section>
 
@@ -5905,6 +6179,9 @@
       const ordersButton = document.getElementById("orders-button");
       const nomenclatureButton = document.getElementById("nomenclature-button");
       const orderMonitoringButton = document.getElementById("order-monitoring-button");
+      const backToMainOrderMonitoringButton = document.getElementById(
+        "back-to-main-order-monitoring-button",
+      );
       const usersButton = document.getElementById("users-button");
       const menuTitle = document.getElementById("menu-title");
       const createPalletButton = document.getElementById("create-pallet-button");
@@ -5942,6 +6219,7 @@
       const navUsers = document.getElementById("nav-users");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
+      const orderMonitoringWorkspace = document.getElementById("order-monitoring-workspace");
       const palletSheetsWorkspace = document.getElementById("pallet-sheets-workspace");
       const palletSheetsBackOrdersBtn = document.getElementById("pallet-sheets-back-orders");
       const palletSheetsOrderMeta = document.getElementById("pallet-sheets-order-meta");
@@ -7043,6 +7321,9 @@
         if (stage === "orders" && !perms.orders) {
           return "main";
         }
+        if (stage === "order_monitoring" && !canAccessOrderMonitoring()) {
+          return "main";
+        }
         if (stage === "nomenclature" && !perms.nomenclature) {
           return "main";
         }
@@ -7093,6 +7374,7 @@
       const assembleOptionalBatchRoot = document.getElementById("assemble-optional-batch-root");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
+      const orderMonitoringTableBody = document.getElementById("order-monitoring-table-body");
       const orderChatOverlay = document.getElementById("order-chat-overlay");
       const orderChatDialog = document.getElementById("order-chat-dialog");
       const orderChatTitleEl = document.getElementById("order-chat-title");
@@ -9164,9 +9446,15 @@
         backToMainNomenclatureButton.classList.remove("visible");
         backToMainUsersButton.classList.remove("visible");
         backToMainFeedbackButton.classList.remove("visible");
+        if (backToMainOrderMonitoringButton) {
+          backToMainOrderMonitoringButton.classList.remove("visible");
+        }
         nomenclatureCreateProductButton.classList.remove("visible");
         arnestWorkspace.classList.remove("visible");
         ordersWorkspace.classList.remove("visible");
+        if (orderMonitoringWorkspace) {
+          orderMonitoringWorkspace.classList.remove("visible");
+        }
         palletSheetsWorkspace.classList.remove("visible");
         assembleWorkspace.classList.remove("visible");
         nomenclatureWorkspace.classList.remove("visible");
@@ -9210,6 +9498,20 @@
           assembleOrderButton.classList.add("visible");
           backToMainOrdersButton.classList.add("visible");
           ordersWorkspace.classList.add("visible");
+          loadOrders();
+        }
+
+        if (stage === "order_monitoring") {
+          menuTitle.textContent = "Мониторинг заказов";
+          ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
+          if (backToMainOrderMonitoringButton) {
+            backToMainOrderMonitoringButton.classList.add("visible");
+          }
+          if (orderMonitoringWorkspace) {
+            orderMonitoringWorkspace.classList.add("visible");
+          }
           loadOrders();
         }
 
@@ -9296,7 +9598,7 @@
 
         currentStage = stage;
 
-        if (stage === "orders" || stage === "assemble") {
+        if (stage === "orders" || stage === "assemble" || stage === "order_monitoring") {
           startOrdersListSyncPoll();
         } else {
           stopOrdersListSyncPoll();
@@ -9485,6 +9787,9 @@
       }
 
       ordersButton.addEventListener("click", () => setStage("orders"));
+      if (orderMonitoringButton) {
+        orderMonitoringButton.addEventListener("click", () => setStage("order_monitoring"));
+      }
       nomenclatureButton.addEventListener("click", () => setStage("nomenclature"));
       usersButton.addEventListener("click", () => setStage("users"));
       if (feedbackUserButton) {
@@ -9563,6 +9868,9 @@
         openNewOrderModal();
       });
       backToMainOrdersButton.addEventListener("click", () => setStage("main"));
+      if (backToMainOrderMonitoringButton) {
+        backToMainOrderMonitoringButton.addEventListener("click", () => setStage("main"));
+      }
       backToMainNomenclatureButton.addEventListener("click", () => setStage("main"));
       backToMainUsersButton.addEventListener("click", () => setStage("main"));
       nomenclatureCreateProductButton.addEventListener("click", () => {
@@ -10825,6 +11133,11 @@
       let ordersFilterShip = "";
       let ordersFilterPct = "";
       let ordersFilterInputTimer = null;
+      let ordersClientFilterActiveToggleId = "orders-filter-client-toggle";
+      let ordersPctFilterActiveToggleId = "orders-filter-pct-toggle";
+      let ordersExtraFilterActiveToggleId = "orders-filter-extra-toggle";
+      /** @type {Set<number>} */
+      const orderMonitoringExpandedIds = new Set();
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -10937,10 +11250,12 @@
       }
 
       function updateOrdersExtraInfoFilterToggle() {
-        const toggle = document.getElementById("orders-filter-extra-toggle");
-        if (toggle) {
-          toggle.classList.toggle("is-active", isOrdersExtraInfoFilterNarrowed());
-        }
+        const narrowed = isOrdersExtraInfoFilterNarrowed();
+        document
+          .querySelectorAll("#orders-filter-extra-toggle, #om-filter-extra-toggle")
+          .forEach((toggle) => {
+            toggle.classList.toggle("is-active", narrowed);
+          });
       }
 
       function rebuildOrdersExtraInfoFilterCheckboxes() {
@@ -10991,7 +11306,7 @@
 
       function positionOrdersExtraInfoFilterPopover() {
         const pop = document.getElementById("orders-filter-extra-popover");
-        const toggle = document.getElementById("orders-filter-extra-toggle");
+        const toggle = document.getElementById(ordersExtraFilterActiveToggleId);
         if (!pop || !toggle || pop.hidden) {
           return;
         }
@@ -11013,16 +11328,22 @@
         pop.style.left = `${Math.round(left)}px`;
       }
 
-      function setOrdersExtraInfoFilterOpen(open) {
+      function setOrdersExtraInfoFilterOpen(open, toggleId) {
         const pop = document.getElementById("orders-filter-extra-popover");
-        const toggle = document.getElementById("orders-filter-extra-toggle");
+        const activeToggleId = toggleId || ordersExtraFilterActiveToggleId;
+        const toggle = document.getElementById(activeToggleId);
         if (!pop || !toggle) {
           return;
         }
+        ordersExtraFilterActiveToggleId = activeToggleId;
         ensureOrdersExtraInfoFilterPopoverMounted();
         const show = !!open;
         pop.hidden = !show;
-        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        document
+          .querySelectorAll("#orders-filter-extra-toggle, #om-filter-extra-toggle")
+          .forEach((t) => {
+            t.setAttribute("aria-expanded", show && t.id === activeToggleId ? "true" : "false");
+          });
         if (show) {
           requestAnimationFrame(() => {
             positionOrdersExtraInfoFilterPopover();
@@ -11038,10 +11359,10 @@
       }
 
       function updateOrdersPctFilterToggle() {
-        const toggle = document.getElementById("orders-filter-pct-toggle");
-        if (toggle) {
-          toggle.classList.toggle("is-active", ordersFilterPct !== "");
-        }
+        const active = ordersFilterPct !== "";
+        document.querySelectorAll("#orders-filter-pct-toggle, #om-filter-pct-toggle").forEach((toggle) => {
+          toggle.classList.toggle("is-active", active);
+        });
       }
 
       function syncOrdersPctFilterRadios() {
@@ -11064,7 +11385,7 @@
 
       function positionOrdersPctFilterPopover() {
         const pop = document.getElementById("orders-filter-pct-popover");
-        const toggle = document.getElementById("orders-filter-pct-toggle");
+        const toggle = document.getElementById(ordersPctFilterActiveToggleId);
         if (!pop || !toggle || pop.hidden) {
           return;
         }
@@ -11086,16 +11407,20 @@
         pop.style.left = `${Math.round(left)}px`;
       }
 
-      function setOrdersPctFilterOpen(open) {
+      function setOrdersPctFilterOpen(open, toggleId) {
         const pop = document.getElementById("orders-filter-pct-popover");
-        const toggle = document.getElementById("orders-filter-pct-toggle");
+        const activeToggleId = toggleId || ordersPctFilterActiveToggleId;
+        const toggle = document.getElementById(activeToggleId);
         if (!pop || !toggle) {
           return;
         }
+        ordersPctFilterActiveToggleId = activeToggleId;
         ensureOrdersPctFilterPopoverMounted();
         const show = !!open;
         pop.hidden = !show;
-        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        document.querySelectorAll("#orders-filter-pct-toggle, #om-filter-pct-toggle").forEach((t) => {
+          t.setAttribute("aria-expanded", show && t.id === activeToggleId ? "true" : "false");
+        });
         if (show) {
           syncOrdersPctFilterRadios();
           requestAnimationFrame(() => {
@@ -11120,7 +11445,7 @@
 
       function positionOrdersClientFilterPopover() {
         const pop = document.getElementById("orders-filter-client-popover");
-        const toggle = document.getElementById("orders-filter-client-toggle");
+        const toggle = document.getElementById(ordersClientFilterActiveToggleId);
         if (!pop || !toggle || pop.hidden) {
           return;
         }
@@ -11142,16 +11467,22 @@
         pop.style.left = `${Math.round(left)}px`;
       }
 
-      function setOrdersClientFilterOpen(open) {
+      function setOrdersClientFilterOpen(open, toggleId) {
         const pop = document.getElementById("orders-filter-client-popover");
-        const toggle = document.getElementById("orders-filter-client-toggle");
+        const activeToggleId = toggleId || ordersClientFilterActiveToggleId;
+        const toggle = document.getElementById(activeToggleId);
         if (!pop || !toggle) {
           return;
         }
+        ordersClientFilterActiveToggleId = activeToggleId;
         ensureOrdersClientFilterPopoverMounted();
         const show = !!open;
         pop.hidden = !show;
-        toggle.setAttribute("aria-expanded", show ? "true" : "false");
+        document
+          .querySelectorAll("#orders-filter-client-toggle, #om-filter-client-toggle")
+          .forEach((t) => {
+            t.setAttribute("aria-expanded", show && t.id === activeToggleId ? "true" : "false");
+          });
         if (show) {
           syncOrdersClientFilterUi();
           requestAnimationFrame(() => {
@@ -11404,11 +11735,22 @@
       }
 
       function syncOrdersNamesUnitButtons() {
-        if (!ordersWorkspace) {
-          return;
-        }
-        ordersWorkspace.querySelectorAll("[data-orders-names-unit]").forEach((btn) => {
-          btn.classList.toggle("active", btn.dataset.ordersNamesUnit === ordersNamesDisplayUnit);
+        document
+          .querySelectorAll(".orders-workspace, .order-monitoring-workspace")
+          .forEach((ws) => {
+            ws.querySelectorAll("[data-orders-names-unit]").forEach((btn) => {
+              btn.classList.toggle("active", btn.dataset.ordersNamesUnit === ordersNamesDisplayUnit);
+            });
+          });
+      }
+
+      function syncOrdersFilterShipInputs() {
+        const v = ordersFilterShip;
+        ["orders-filter-ship", "om-filter-ship"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && el.value !== v) {
+            el.value = v;
+          }
         });
       }
 
@@ -11424,7 +11766,11 @@
         }
         syncOrdersNamesUnitButtons();
         if (cachedOrdersListRows.length) {
-          renderOrdersTable();
+          if (currentStage === "order_monitoring") {
+            renderOrderMonitoringTable();
+          } else if (currentStage === "orders") {
+            renderOrdersTable();
+          }
         }
       }
 
@@ -11529,22 +11875,23 @@
       }
 
       function syncOrdersSortIndicators() {
-        if (!ordersWorkspace) {
-          return;
-        }
-        ordersWorkspace.querySelectorAll("[data-orders-sort]").forEach((btn) => {
-          const k = btn.dataset.ordersSort;
-          const active = ordersSortKey === k;
-          btn.classList.toggle("is-active", active);
-          const icon = btn.querySelector(".orders-th-sort-icon");
-          if (icon) {
-            if (!active) {
-              icon.textContent = "⇅";
-            } else {
-              icon.textContent = ordersSortDir === "asc" ? "▲" : "▼";
-            }
-          }
-        });
+        document
+          .querySelectorAll(".orders-workspace, .order-monitoring-workspace")
+          .forEach((ws) => {
+            ws.querySelectorAll("[data-orders-sort]").forEach((btn) => {
+              const k = btn.dataset.ordersSort;
+              const active = ordersSortKey === k;
+              btn.classList.toggle("is-active", active);
+              const icon = btn.querySelector(".orders-th-sort-icon");
+              if (icon) {
+                if (!active) {
+                  icon.textContent = "⇅";
+                } else {
+                  icon.textContent = ordersSortDir === "asc" ? "▲" : "▼";
+                }
+              }
+            });
+          });
       }
 
       function collectOrdersClientFilterValues() {
@@ -11599,10 +11946,12 @@
       }
 
       function updateOrdersClientFilterToggle() {
-        const toggle = document.getElementById("orders-filter-client-toggle");
-        if (toggle) {
-          toggle.classList.toggle("is-active", isOrdersClientFilterNarrowed());
-        }
+        const narrowed = isOrdersClientFilterNarrowed();
+        document
+          .querySelectorAll("#orders-filter-client-toggle, #om-filter-client-toggle")
+          .forEach((toggle) => {
+            toggle.classList.toggle("is-active", narrowed);
+          });
       }
 
       function ordersClientFilterMatchesSearch(label, query) {
@@ -11679,7 +12028,7 @@
         }
         ordersFilterInputTimer = setTimeout(() => {
           ordersFilterInputTimer = null;
-          renderOrdersTable();
+          renderActiveOrdersListTable();
         }, 220);
       }
 
@@ -12060,6 +12409,14 @@
         return `<div class="orders-row-actions">${editBtn}${assembleBtn}${palletBtn}${chatBtn}${deleteBtn}</div>`;
       }
 
+      function renderActiveOrdersListTable() {
+        if (currentStage === "order_monitoring") {
+          renderOrderMonitoringTable();
+        } else if (currentStage === "orders") {
+          renderOrdersTable();
+        }
+      }
+
       function renderOrdersTable() {
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
@@ -12120,6 +12477,172 @@
                   <td class="col-extra-info">${formatOrderExtraInfoCell(o)}</td>
                   <td class="col-actions">${actionsHtml}</td>
                 </tr>`;
+          })
+          .join("");
+        syncOrdersFilterShipInputs();
+      }
+
+      function formatOrderMonitoringPctCell(orderRow) {
+        const pct = formatOrderPct(orderRow.assembled_percent);
+        const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
+        const readiness = getEffectiveOrderReadiness(orderRow);
+        const readinessLabel =
+          ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
+        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span><span class="om-readiness-label orders-readiness-btn orders-readiness-btn--${escapeXml(readiness)}">${escapeXml(readinessLabel)}</span></div>`;
+      }
+
+      function formatOrderMonitoringDetailField(label, value) {
+        const text = String(value || "").trim() || "—";
+        return `<div class="om-order-detail-field"><span class="om-order-detail-label">${escapeXml(label)}</span><span class="om-order-detail-value">${escapeXml(text)}</span></div>`;
+      }
+
+      function formatOrderMonitoringItemRow(it, displayUnit) {
+        const article = escapeXml(it.article || "—");
+        const name = escapeXml(it.name || "—");
+        const rawQty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
+        const unitLabel = escapeXml(it.unit || "");
+        const converted = orderItemQuantityInDisplayUnit(it, displayUnit);
+        let convertedLabel = "—";
+        if (converted != null && Number.isFinite(converted)) {
+          const suf =
+            displayUnit === "box" ? "кор" : displayUnit === "set" ? "наб" : "шт";
+          convertedLabel = `${converted.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${suf}`;
+        }
+        return `<tr><td>${article}</td><td>${name}</td><td>${escapeXml(rawQty)} ${unitLabel}</td><td>${escapeXml(convertedLabel)}</td></tr>`;
+      }
+
+      function formatOrderMonitoringDetail(orderRow) {
+        const items = Array.isArray(orderRow.items) ? orderRow.items : [];
+        const deliveryType = getOrderExtraInfoFilterLabel(orderRow);
+        const readiness =
+          ORDER_READINESS_LABELS[getEffectiveOrderReadiness(orderRow)] ||
+          ORDER_READINESS_LABELS.assembling;
+        const editedBy = String(
+          orderRow.last_edited_by || orderRow.last_modified_by || "",
+        ).trim();
+        const assembledBy = String(orderRow.last_assembled_by || "").trim();
+        const unitLabel =
+          ordersNamesDisplayUnit === "box"
+            ? "коробки"
+            : ordersNamesDisplayUnit === "set"
+              ? "наборы"
+              : "штуки";
+        const itemsHtml = items.length
+          ? `<table class="om-order-items-table"><thead><tr><th>Артикул</th><th>Наименование</th><th>Кол-во в заказе</th><th>Сумма (${escapeXml(unitLabel)})</th></tr></thead><tbody>${items.map((it) => formatOrderMonitoringItemRow(it, ordersNamesDisplayUnit)).join("")}</tbody></table>`
+          : `<p class="muted" style="margin:0;">${escapeXml(String(orderRow.names || "").trim() || "Позиции не указаны")}</p>`;
+        const skipped = Array.isArray(orderRow.import_skipped_names)
+          ? orderRow.import_skipped_names.filter((n) => String(n || "").trim())
+          : [];
+        const skippedHtml = skipped.length
+          ? `<div class="om-order-detail-field" style="grid-column:1/-1;"><span class="om-order-detail-label">Пропущено при импорте</span><span class="om-order-detail-value">${skipped.map((n) => escapeXml(String(n))).join("; ")}</span></div>`
+          : "";
+        const labHtml = isLabIndustriesClient(orderRow.client)
+          ? formatOrderMonitoringDetailField(
+              "SSCC / отгрузка",
+              orderRow.lab_sscc_shipped
+                ? `Отгружен${orderRow.lab_sscc_seq_start != null ? `, старт SSCC: ${orderRow.lab_sscc_seq_start}` : ""}`
+                : orderRow.lab_sscc_seq_start != null
+                  ? `Не отгружен, старт SSCC: ${orderRow.lab_sscc_seq_start}`
+                  : "Не отгружен",
+            )
+          : "";
+        return `<div class="om-order-detail">
+            <div class="om-order-detail-grid">
+              ${formatOrderMonitoringDetailField("Клиент", orderRow.client)}
+              ${formatOrderMonitoringDetailField("Город", orderRow.client_city)}
+              ${formatOrderMonitoringDetailField("Дата отгрузки", orderRow.ship_date)}
+              ${formatOrderMonitoringDetailField("Доставка", deliveryType)}
+              ${formatOrderMonitoringDetailField("Готовность", readiness)}
+              ${formatOrderMonitoringDetailField("Собрано", `${formatOrderPct(orderRow.assembled_percent)} %`)}
+              ${formatOrderMonitoringDetailField("Паллеты", formatOrderPalletCount(orderAssemblePalletCount(orderRow)))}
+              ${formatOrderMonitoringDetailField("Редактировал", editedBy)}
+              ${formatOrderMonitoringDetailField("Собирал", assembledBy)}
+              ${formatOrderMonitoringDetailField(
+                "Обновление сборки",
+                orderRow.assemble_state_updated_at || "",
+              )}
+              ${labHtml}
+              ${skippedHtml}
+            </div>
+            <h4 class="om-order-items-title">Позиции заказа (${items.length || "—"})</h4>
+            ${itemsHtml}
+          </div>`;
+      }
+
+      function toggleOrderMonitoringExpand(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        if (orderMonitoringExpandedIds.has(oid)) {
+          orderMonitoringExpandedIds.delete(oid);
+        } else {
+          orderMonitoringExpandedIds.add(oid);
+        }
+        renderOrderMonitoringTable();
+      }
+
+      function renderOrderMonitoringTable() {
+        syncOrdersNamesUnitButtons();
+        syncOrdersClientFilterSelect();
+        syncOrdersExtraInfoFilterUi();
+        updateOrdersExtraInfoFilterToggle();
+        updateOrdersClientFilterToggle();
+        syncOrdersSortIndicators();
+        syncOrdersFilterShipInputs();
+        if (!orderMonitoringTableBody) {
+          return;
+        }
+        if (!cachedOrdersListRows.length) {
+          orderMonitoringTableBody.innerHTML =
+            '<tr><td colspan="8" class="muted">Заказов пока нет.</td></tr>';
+          return;
+        }
+        const rows = getOrdersRowsForDisplay();
+        if (!rows.length) {
+          orderMonitoringTableBody.innerHTML =
+            '<tr><td colspan="8" class="muted">Нет заказов по текущим фильтрам.</td></tr>';
+          return;
+        }
+        orderMonitoringTableBody.innerHTML = rows
+          .map((o) => {
+            const oid = Number(o.id);
+            const expanded = orderMonitoringExpandedIds.has(oid);
+            const pctRounded = Math.max(
+              0,
+              Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
+            );
+            const pctCellClass =
+              pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
+            const skippedNote = formatOrderSkippedImportNote(o);
+            const qtyCellHtml = skippedNote
+              ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit)}${skippedNote}</div>`
+              : formatOrderQuantityCell(o, ordersNamesDisplayUnit);
+            const chatBtn = renderOrderChatButton(o.id, o);
+            const expandBtn = `<button type="button" class="om-expand-btn" data-order-monitoring-expand="${oid}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "▼" : "▶"}</button>`;
+            const mainRow = `<tr class="om-order-row${expanded ? " is-expanded" : ""}" data-order-id="${oid}">
+                  <td class="col-expand">${expandBtn}</td>
+                  <td class="col-id">${escapeXml(String(o.id))}</td>
+                  <td class="col-date">
+                    <div class="orders-date-cell">
+                      <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
+                      <span class="orders-date-text orders-date-text--short">${escapeXml(formatOrderShipDateDayMonth(o.ship_date))}</span>
+                    </div>
+                  </td>
+                  <td class="col-client">
+                    <div class="orders-client-cell">
+                      <span class="orders-client-text">${escapeXml(o.client || "—")}${formatOrderClientCityLine(o)}</span>
+                    </div>
+                  </td>
+                  <td class="${pctCellClass}">${formatOrderMonitoringPctCell(o)}</td>
+                  <td class="col-qty">${qtyCellHtml}</td>
+                  <td class="col-extra-info">${formatOrderExtraInfoCell(o)}</td>
+                  <td class="col-actions"><div class="orders-row-actions">${chatBtn}</div></td>
+                </tr>`;
+            const detailRow = expanded
+              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="8">${formatOrderMonitoringDetail(o)}</td></tr>`
+              : "";
+            return mainRow + detailRow;
           })
           .join("");
       }
@@ -14676,7 +15199,11 @@
       function startOrdersListSyncPoll() {
         stopOrdersListSyncPoll();
         ordersListSyncPollTimer = setInterval(() => {
-          if (currentStage !== "orders" && currentStage !== "assemble") {
+          if (
+            currentStage !== "orders" &&
+            currentStage !== "assemble" &&
+            currentStage !== "order_monitoring"
+          ) {
             return;
           }
           void loadOrders({ quiet: true });
@@ -15927,11 +16454,26 @@
           cachedOrdersListRows = mergeOrderReadinessFromServer(enriched);
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
-          if (currentStage === "orders" || !quiet) {
+          if (currentStage === "orders") {
             if (!isOrderChatModalOpen()) {
               renderOrdersTable();
-            } else {
+            } else if (ordersTableBody) {
               ordersTableBody
+                .querySelectorAll('button[data-order-action="chat"]')
+                .forEach((btn) => {
+                  const oid = Number(btn.dataset.orderId);
+                  const row = enriched.find((o) => o.id === oid);
+                  if (!row) {
+                    return;
+                  }
+                  syncOrderChatButtonEl(btn, row);
+                });
+            }
+          } else if (currentStage === "order_monitoring") {
+            if (!isOrderChatModalOpen()) {
+              renderOrderMonitoringTable();
+            } else if (orderMonitoringTableBody) {
+              orderMonitoringTableBody
                 .querySelectorAll('button[data-order-action="chat"]')
                 .forEach((btn) => {
                   const oid = Number(btn.dataset.orderId);
@@ -15949,6 +16491,10 @@
             if (ordersTableBody) {
               ordersTableBody.innerHTML =
                 "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
+            }
+            if (orderMonitoringTableBody) {
+              orderMonitoringTableBody.innerHTML =
+                '<tr><td colspan="8" class="muted">Не удалось загрузить заказы.</td></tr>';
             }
             syncOrdersSortIndicators();
           }
@@ -17418,7 +17964,7 @@
             scheduleAssembleSyncPollSoon();
             return;
           }
-          if (currentStage === "orders") {
+          if (currentStage === "orders" || currentStage === "order_monitoring") {
             void loadOrders({ quiet: true });
           }
         });
@@ -17468,7 +18014,7 @@
                 ordersSortKey = k;
                 ordersSortDir = "asc";
               }
-              renderOrdersTable();
+              renderActiveOrdersListTable();
             }
             return;
           }
@@ -17486,6 +18032,10 @@
           const t = ev.target;
           if (t.id === "orders-filter-ship") {
             ordersFilterShip = t.value;
+            const omShip = document.getElementById("om-filter-ship");
+            if (omShip && omShip.value !== t.value) {
+              omShip.value = t.value;
+            }
             scheduleOrdersTableReRender();
           }
         });
@@ -17524,7 +18074,7 @@
             ev.stopPropagation();
             ordersFilterClientsSelected = new Set(collectOrdersClientFilterValues());
             syncOrdersClientFilterUi();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         if (clientNoneBtn) {
@@ -17532,7 +18082,7 @@
             ev.stopPropagation();
             ordersFilterClientsSelected = new Set();
             syncOrdersClientFilterUi();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         if (clientOptions) {
@@ -17552,7 +18102,7 @@
               ordersFilterClientsSelected.delete(label);
             }
             updateOrdersClientFilterToggle();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         updateOrdersClientFilterToggle();
@@ -17579,7 +18129,7 @@
             }
             ordersFilterPct = String(radio.value || "");
             updateOrdersPctFilterToggle();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
             closeOrdersPctFilterPopover();
           });
         }
@@ -17606,7 +18156,7 @@
             ev.stopPropagation();
             ordersFilterExtraInfoSelected = new Set(collectOrdersExtraInfoFilterValues());
             syncOrdersExtraInfoFilterUi();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         if (extraNoneBtn) {
@@ -17614,7 +18164,7 @@
             ev.stopPropagation();
             ordersFilterExtraInfoSelected = new Set();
             syncOrdersExtraInfoFilterUi();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         if (extraCheckboxes) {
@@ -17634,14 +18184,15 @@
               ordersFilterExtraInfoSelected.delete(label);
             }
             updateOrdersExtraInfoFilterToggle();
-            renderOrdersTable();
+            renderActiveOrdersListTable();
           });
         }
         document.addEventListener("click", (ev) => {
           if (extraPopover && !extraPopover.hidden) {
             if (
               !ev.target.closest("#orders-filter-extra-popover") &&
-              !ev.target.closest("#orders-filter-extra-toggle")
+              !ev.target.closest("#orders-filter-extra-toggle") &&
+              !ev.target.closest("#om-filter-extra-toggle")
             ) {
               closeOrdersExtraInfoFilterPopover();
             }
@@ -17649,7 +18200,8 @@
           if (pctPopover && !pctPopover.hidden) {
             if (
               !ev.target.closest("#orders-filter-pct-popover") &&
-              !ev.target.closest("#orders-filter-pct-toggle")
+              !ev.target.closest("#orders-filter-pct-toggle") &&
+              !ev.target.closest("#om-filter-pct-toggle")
             ) {
               closeOrdersPctFilterPopover();
             }
@@ -17657,7 +18209,8 @@
           if (clientPopover && !clientPopover.hidden) {
             if (
               !ev.target.closest("#orders-filter-client-popover") &&
-              !ev.target.closest("#orders-filter-client-toggle")
+              !ev.target.closest("#orders-filter-client-toggle") &&
+              !ev.target.closest("#om-filter-client-toggle")
             ) {
               closeOrdersClientFilterPopover();
             }
@@ -17677,6 +18230,140 @@
         );
         window.addEventListener("resize", () => {
           positionOpenOrdersFilterPopovers();
+        });
+      }
+
+      if (orderMonitoringWorkspace) {
+        orderMonitoringWorkspace.addEventListener("click", (ev) => {
+          const sortBtn = ev.target.closest("[data-orders-sort]");
+          if (sortBtn && orderMonitoringWorkspace.contains(sortBtn)) {
+            ev.preventDefault();
+            const k = sortBtn.dataset.ordersSort;
+            if (k === "ship_date" || k === "client" || k === "assembled") {
+              if (ordersSortKey === k) {
+                if (ordersSortDir === "asc") {
+                  ordersSortDir = "desc";
+                } else {
+                  ordersSortKey = null;
+                  ordersSortDir = "asc";
+                }
+              } else {
+                ordersSortKey = k;
+                ordersSortDir = "asc";
+              }
+              renderOrderMonitoringTable();
+            }
+            return;
+          }
+          const unitBtn = ev.target.closest("[data-orders-names-unit]");
+          if (unitBtn && orderMonitoringWorkspace.contains(unitBtn)) {
+            const u = unitBtn.dataset.ordersNamesUnit;
+            if (u === "piece" || u === "box" || u === "set") {
+              ev.preventDefault();
+              setOrdersNamesDisplayUnit(u);
+            }
+          }
+        });
+        orderMonitoringWorkspace.addEventListener("input", (ev) => {
+          const t = ev.target;
+          if (t.id === "om-filter-ship") {
+            ordersFilterShip = t.value;
+            const ordersShip = document.getElementById("orders-filter-ship");
+            if (ordersShip && ordersShip.value !== t.value) {
+              ordersShip.value = t.value;
+            }
+            scheduleOrdersTableReRender();
+          }
+        });
+        const omClientToggle = document.getElementById("om-filter-client-toggle");
+        const omPctToggle = document.getElementById("om-filter-pct-toggle");
+        const omExtraToggle = document.getElementById("om-filter-extra-toggle");
+        const clientPopover = document.getElementById("orders-filter-client-popover");
+        const pctPopover = document.getElementById("orders-filter-pct-popover");
+        if (omClientToggle && clientPopover) {
+          omClientToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const willOpen = clientPopover.hidden;
+            if (willOpen) {
+              closeOrdersExtraInfoFilterPopover();
+              closeOrdersPctFilterPopover();
+              syncOrdersClientFilterUi();
+            }
+            setOrdersClientFilterOpen(willOpen, "om-filter-client-toggle");
+            if (willOpen) {
+              const clientSearch = document.getElementById("orders-filter-client-search");
+              if (clientSearch) {
+                requestAnimationFrame(() => clientSearch.focus());
+              }
+            }
+          });
+        }
+        if (omPctToggle && pctPopover) {
+          omPctToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const willOpen = pctPopover.hidden;
+            if (willOpen) {
+              closeOrdersExtraInfoFilterPopover();
+              closeOrdersClientFilterPopover();
+            }
+            setOrdersPctFilterOpen(willOpen, "om-filter-pct-toggle");
+          });
+        }
+        if (omExtraToggle) {
+          omExtraToggle.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const extraPopover = document.getElementById("orders-filter-extra-popover");
+            if (!extraPopover) {
+              return;
+            }
+            const willOpen = extraPopover.hidden;
+            if (willOpen) {
+              closeOrdersPctFilterPopover();
+              closeOrdersClientFilterPopover();
+              syncOrdersExtraInfoFilterUi();
+            }
+            setOrdersExtraInfoFilterOpen(willOpen, "om-filter-extra-toggle");
+          });
+        }
+      }
+
+      if (orderMonitoringTableBody) {
+        orderMonitoringTableBody.addEventListener("click", (ev) => {
+          const expandBtn = ev.target.closest("[data-order-monitoring-expand]");
+          if (expandBtn && orderMonitoringTableBody.contains(expandBtn)) {
+            ev.preventDefault();
+            toggleOrderMonitoringExpand(expandBtn.dataset.orderMonitoringExpand);
+            return;
+          }
+          const chatBtn = ev.target.closest('button[data-order-action="chat"]');
+          if (chatBtn && orderMonitoringTableBody.contains(chatBtn)) {
+            const id = Number(chatBtn.dataset.orderId);
+            if (Number.isFinite(id)) {
+              void openOrderChatModal(id);
+            }
+          }
+        });
+        orderMonitoringTableBody.addEventListener("mouseover", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (!note || !orderMonitoringTableBody.contains(note)) {
+            return;
+          }
+          const from = ev.relatedTarget;
+          if (from && note.contains(from)) {
+            return;
+          }
+          showOrdersImportSkippedFloatingTip(note, note.dataset.orderId);
+        });
+        orderMonitoringTableBody.addEventListener("mouseout", (ev) => {
+          const note = ev.target.closest(".orders-import-skipped-note[data-order-id]");
+          if (!note || !orderMonitoringTableBody.contains(note)) {
+            return;
+          }
+          const to = ev.relatedTarget;
+          if (to && note.contains(to)) {
+            return;
+          }
+          hideOrdersImportSkippedFloatingTip();
         });
       }
 

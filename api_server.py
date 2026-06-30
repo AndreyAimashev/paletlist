@@ -2357,6 +2357,20 @@ def _parse_order_message_detail_id(path: str) -> tuple[int, int] | None:
         return None
 
 
+def _path_allowed_for_order_monitoring(path: str, method: str) -> bool:
+    """Только просмотр заказов и чат — для perm order_monitoring без orders."""
+    m = (method or "GET").upper()
+    if _is_orders_list_path(path) and m == "GET":
+        return True
+    if _parse_orders_detail_id(path) is not None and m == "GET":
+        return True
+    if _parse_order_messages_id(path) is not None and m in ("GET", "POST"):
+        return True
+    if _parse_order_message_detail_id(path) is not None and m == "DELETE":
+        return True
+    return False
+
+
 def _path_needs_orders_permission(path: str) -> bool:
     if (
         _is_orders_list_path(path)
@@ -6703,10 +6717,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         revoke_auth_session(self._bearer_token())
         self._send_json(200, {"ok": True})
 
-    def _ensure_path_permissions(self, path: str) -> bool:
+    def _ensure_path_permissions(self, path: str, method: str = "GET") -> bool:
         if _path_needs_orders_permission(path):
-            if not self._require_permission("orders", "Нет доступа к заказам."):
-                return False
+            session = self._auth_session or {}
+            if not session.get("is_admin"):
+                perms = self._session_permissions()
+                if not perms.get("orders"):
+                    if not (
+                        perms.get("order_monitoring")
+                        and _path_allowed_for_order_monitoring(path, method)
+                    ):
+                        if not self._require_permission(
+                            "orders", "Нет доступа к заказам."
+                        ):
+                            return False
         if _path_needs_nomenclature_permission(path):
             if not self._require_permission(
                 "nomenclature", "Нет доступа к номенклатуре."
@@ -7008,7 +7032,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, result)
             return
-        if not self._ensure_path_permissions(path):
+        if not self._ensure_path_permissions(path, "GET"):
             return
         packing_html_oid = _parse_orders_packing_sheets_html_id(path)
         if packing_html_oid is not None:
@@ -7155,7 +7179,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         order_chat_oid = _parse_order_messages_id(path)
         if order_chat_oid is not None:
-            if not self._ensure_path_permissions(path):
+            if not self._ensure_path_permissions(path, "GET"):
                 return
             result = fetch_order_chat(self._auth_session, order_chat_oid)
             err = result.get("error")
@@ -7168,7 +7192,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
         if _is_orders_list_path(path):
-            if not self._ensure_path_permissions(path):
+            if not self._ensure_path_permissions(path, "GET"):
                 return
             self._send_json(200, fetch_orders(session=self._auth_session))
             return
@@ -7264,7 +7288,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         order_chat_oid = _parse_order_messages_id(path)
         if order_chat_oid is not None:
-            if not self._ensure_path_permissions(path):
+            if not self._ensure_path_permissions(path, "POST"):
                 return
             try:
                 body = self._read_json_body()
@@ -7290,7 +7314,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(201, result)
             return
-        if not self._ensure_path_permissions(path):
+        if not self._ensure_path_permissions(path, "POST"):
             return
         if _is_print_arnest_unirus_pallet_sheets_raw_path(path):
             try:
@@ -7578,7 +7602,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
         if not _is_auth_account_path(path) and not _parse_user_id_path(path):
-            if not self._ensure_path_permissions(path):
+            if not self._ensure_path_permissions(path, "PUT"):
                 return
         if _is_auth_account_path(path):
             try:
@@ -7759,7 +7783,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, result)
             return
-        if not self._ensure_path_permissions(path):
+        if not self._ensure_path_permissions(path, "PUT"):
             return
         oid = _parse_orders_detail_id(path)
         if oid is None:
@@ -7798,7 +7822,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         user_id = _parse_user_id_path(path)
-        if user_id is None and not self._ensure_path_permissions(path):
+        if user_id is None and not self._ensure_path_permissions(path, "DELETE"):
             return
         if user_id is not None:
             if not self._require_users_manager():

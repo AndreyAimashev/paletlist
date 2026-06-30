@@ -1585,6 +1585,34 @@
         border-color: rgba(100, 150, 255, 0.35);
       }
 
+      .order-shipment-lock-notice {
+        margin: 0 0 12px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(100, 150, 255, 0.12);
+        border: 1px solid rgba(100, 150, 255, 0.35);
+        color: #8eb8ff;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .assemble-workspace.is-shipment-locked .assemble-btn--add-pallet,
+      .assemble-workspace.is-shipment-locked .assemble-btn--add-slot,
+      .assemble-workspace.is-shipment-locked .assemble-btn--remove-pallet,
+      .assemble-workspace.is-shipment-locked .assemble-btn--remove-slot {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+
+      .assemble-workspace.is-shipment-locked [data-assemble-input] {
+        opacity: 0.82;
+      }
+
+      .new-order-overlay.is-shipment-locked .order-item-remove {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
       .orders-table .col-date {
         white-space: nowrap;
       }
@@ -4342,9 +4370,9 @@
 
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: 3rem;
-          min-width: 3rem;
-          max-width: 3rem;
+          width: var(--orders-mobile-col-date-width, 3rem);
+          min-width: var(--orders-mobile-col-date-width, 3rem);
+          max-width: var(--orders-mobile-col-date-width, 3rem);
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
@@ -4467,9 +4495,9 @@
 
         .orders-table thead th.col-client,
         .orders-table tbody td.col-client {
-          width: var(--orders-mobile-col-client-width, 8rem);
-          min-width: var(--orders-mobile-col-client-width, 8rem);
-          max-width: var(--orders-mobile-col-client-width, 8rem);
+          width: 6.5rem;
+          min-width: 6.5rem;
+          max-width: 6.5rem;
           padding-left: 4px;
           padding-right: 4px;
           vertical-align: top;
@@ -4482,7 +4510,7 @@
         }
 
         .orders-table-wrap {
-          --orders-mobile-col-client-width: 8rem;
+          --orders-mobile-col-date-width: 3rem;
         }
 
         .orders-table thead th.col-pct,
@@ -4903,32 +4931,32 @@
               id="orders-mobile-pct-debug"
               class="orders-mobile-pct-debug"
               role="region"
-              aria-label="Временная настройка ширины колонки клиента"
+              aria-label="Временная настройка ширины колонки даты"
               hidden
             >
-              <p class="orders-mobile-pct-debug__title">Временно: ширина колонки «Клиент»</p>
+              <p class="orders-mobile-pct-debug__title">Временно: ширина колонки «Дата»</p>
               <div class="orders-mobile-pct-debug__row">
                 <input
                   type="range"
                   id="orders-mobile-pct-width-range"
-                  min="4"
-                  max="16"
+                  min="2"
+                  max="8"
                   step="0.1"
-                  value="8"
-                  aria-label="Ширина колонки клиента в rem"
+                  value="3"
+                  aria-label="Ширина колонки даты в rem"
                 />
                 <input
                   type="number"
                   id="orders-mobile-pct-width-number"
-                  min="4"
-                  max="16"
+                  min="2"
+                  max="8"
                   step="0.1"
-                  value="8"
-                  aria-label="Ширина колонки клиента в rem"
+                  value="3"
+                  aria-label="Ширина колонки даты в rem"
                 />
                 <span class="orders-mobile-pct-debug__unit">rem</span>
               </div>
-              <p id="orders-mobile-pct-debug-value" class="orders-mobile-pct-debug__value">8rem</p>
+              <p id="orders-mobile-pct-debug-value" class="orders-mobile-pct-debug__value">3rem</p>
               <button type="button" id="orders-mobile-pct-debug-copy" class="orders-mobile-pct-debug__copy">
                 Скопировать значение
               </button>
@@ -5808,6 +5836,9 @@
       >
         <h3 id="new-order-title">Новый заказ</h3>
         <p id="new-order-error" class="modal-error" hidden></p>
+        <p id="new-order-shipment-lock-notice" class="order-shipment-lock-notice" hidden>
+          Заказ отгружен. Редактирование недоступно — только просмотр.
+        </p>
         <form id="new-order-form">
           <div class="arnest-grid">
             <div class="arnest-field">

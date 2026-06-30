@@ -1540,6 +1540,51 @@
         color: #ffc4b8;
       }
 
+      .orders-readiness-btn {
+        margin-top: 2px;
+        padding: 2px 6px;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.2;
+        border-radius: 4px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        white-space: nowrap;
+        background: transparent;
+        font-family: inherit;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .orders-readiness-btn:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+
+      .orders-readiness-btn:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+
+      .orders-readiness-btn--assembling {
+        color: #ff9b8a;
+        background: rgba(255, 120, 100, 0.12);
+        border-color: rgba(255, 120, 100, 0.35);
+      }
+
+      .orders-readiness-btn--assembled {
+        color: #7ef4c8;
+        background: rgba(0, 220, 170, 0.12);
+        border-color: rgba(0, 220, 170, 0.35);
+      }
+
+      .orders-readiness-btn--shipped {
+        color: #8eb8ff;
+        background: rgba(100, 150, 255, 0.12);
+        border-color: rgba(100, 150, 255, 0.35);
+      }
+
       .orders-table .col-date {
         white-space: nowrap;
       }
@@ -2482,6 +2527,35 @@
         font-size: 11px;
         padding: 6px 11px;
         border-radius: 8px;
+      }
+
+      .users-department-input {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 120px;
+        max-width: 220px;
+        padding: 6px 8px;
+        border: 1px solid rgba(0, 200, 160, 0.28);
+        border-radius: 8px;
+        background: rgba(12, 18, 28, 0.8);
+        color: var(--text-main);
+        font-family: "Roboto", sans-serif;
+        font-size: 13px;
+      }
+
+      .users-department-input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .users-department-input:focus {
+        outline: none;
+        border-color: rgba(0, 200, 160, 0.55);
+        box-shadow: 0 0 0 2px rgba(0, 200, 160, 0.14);
+      }
+
+      .users-department-input:disabled {
+        opacity: 0.65;
+        cursor: wait;
       }
 
       .users-perm-toggle {
@@ -4382,9 +4456,9 @@
 
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
-          width: 3.5rem;
-          min-width: 3.5rem;
-          max-width: 3.5rem;
+          width: 4.75rem;
+          min-width: 4.75rem;
+          max-width: 4.75rem;
           padding-left: 4px;
           padding-right: 4px;
           box-sizing: border-box;
@@ -4406,6 +4480,11 @@
         .orders-table tbody td.col-pct .orders-pct-pallets {
           font-size: 14px;
           line-height: 1.2;
+        }
+
+        .orders-table tbody td.col-pct .orders-readiness-btn {
+          font-size: 9px;
+          padding: 1px 4px;
         }
 
         .orders-table thead th.col-extra-info,
@@ -5174,6 +5253,7 @@
                     <tr>
                       <th scope="col">Логин</th>
                       <th scope="col">Имя</th>
+                      <th scope="col">Подразделение</th>
                       <th scope="col">Доступ</th>
                       <th scope="col">Создан</th>
                       <th scope="col" style="text-align: right">Действия</th>
@@ -5181,10 +5261,11 @@
                   </thead>
                   <tbody id="users-table-body">
                     <tr>
-                      <td colspan="5" class="muted">Загрузка…</td>
+                      <td colspan="6" class="muted">Загрузка…</td>
                     </tr>
                   </tbody>
                 </table>
+                <datalist id="users-department-datalist"></datalist>
               </div>
             </div>
             <div id="account-self-panel" class="account-self-panel" hidden>
@@ -9482,6 +9563,27 @@
         });
       }
 
+      function collectUserDepartments() {
+        const seen = new Set();
+        usersListCache.forEach((user) => {
+          const value = String(user.department || "").trim();
+          if (value) {
+            seen.add(value);
+          }
+        });
+        return Array.from(seen).sort((a, b) => a.localeCompare(b, "ru"));
+      }
+
+      function syncUsersDepartmentDatalist() {
+        const datalist = document.getElementById("users-department-datalist");
+        if (!datalist) {
+          return;
+        }
+        datalist.innerHTML = collectUserDepartments()
+          .map((value) => `<option value="${escapeXml(value)}"></option>`)
+          .join("");
+      }
+
       function renderUserPermToggle(userId, key, enabled) {
         const label = USER_PERM_LABELS[key] || key;
         const active = enabled ? " active" : "";
@@ -9494,16 +9596,19 @@
         }
         if (!usersListCache.length) {
           usersTableBody.innerHTML =
-            '<tr><td colspan="5" class="muted">Пользователей пока нет. Нажмите «Добавить пользователя».</td></tr>';
+            '<tr><td colspan="6" class="muted">Пользователей пока нет. Нажмите «Добавить пользователя».</td></tr>';
+          syncUsersDepartmentDatalist();
           return;
         }
         usersTableBody.innerHTML = usersListCache
           .map((user) => {
             const login = escapeXml(user.login || "");
             const name = escapeXml(user.display_name || "—");
+            const department = escapeXml(user.department || "");
             const created = escapeXml(formatUserCreatedAt(user.created_at));
             const id = Number(user.id);
             const perms = user.permissions || {};
+            const departmentInput = `<input type="text" class="users-department-input" data-user-id="${id}" value="${department}" list="users-department-datalist" placeholder="—" maxlength="128" autocomplete="off" aria-label="Подразделение для ${login}" />`;
             const permCell = `<div class="users-perm-toggle" role="group" aria-label="Доступ для ${login}">
               ${renderUserPermToggle(id, "orders", !!perms.orders)}
               ${renderUserPermToggle(id, "nomenclature", !!perms.nomenclature)}
@@ -9513,6 +9618,7 @@
             return `<tr data-user-id="${id}">
               <td>${login}</td>
               <td>${name}</td>
+              <td>${departmentInput}</td>
               <td>${permCell}</td>
               <td>${created}</td>
               <td>
@@ -9524,6 +9630,57 @@
             </tr>`;
           })
           .join("");
+        syncUsersDepartmentDatalist();
+      }
+
+      let usersDepartmentSaveBusy = false;
+
+      async function saveUserDepartment(userId, department) {
+        const row = usersListCache.find((u) => Number(u.id) === Number(userId));
+        if (!row) {
+          return;
+        }
+        const prev = String(row.department || "").trim();
+        const next = String(department || "").trim();
+        if (next === prev) {
+          return;
+        }
+        row.department = next;
+        syncUsersDepartmentDatalist();
+        setUsersStatus("");
+        try {
+          const res = await fetch(`/api/users/${userId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ department: next }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            throw new Error(data.message || "Не удалось сохранить подразделение.");
+          }
+          if (data.user) {
+            const idx = usersListCache.findIndex((u) => Number(u.id) === Number(userId));
+            if (idx >= 0) {
+              usersListCache[idx] = normalizeUserRecord(data.user);
+            }
+            syncUsersDepartmentDatalist();
+          }
+        } catch (error) {
+          row.department = prev;
+          syncUsersDepartmentDatalist();
+          const input = usersTableBody
+            ? usersTableBody.querySelector(
+                `.users-department-input[data-user-id="${Number(userId)}"]`,
+              )
+            : null;
+          if (input) {
+            input.value = prev;
+          }
+          setUsersStatus(
+            error && error.message ? String(error.message) : "Ошибка сохранения подразделения.",
+            true,
+          );
+        }
       }
 
       let usersPermToggleBusy = false;
@@ -9583,7 +9740,7 @@
         if (!usersTableBody) {
           return;
         }
-        usersTableBody.innerHTML = '<tr><td colspan="5" class="muted">Загрузка…</td></tr>';
+        usersTableBody.innerHTML = '<tr><td colspan="6" class="muted">Загрузка…</td></tr>';
         setUsersStatus("");
         try {
           const res = await fetch("/api/users", { cache: "no-store" });
@@ -9600,7 +9757,7 @@
         } catch (error) {
           usersListCache = [];
           usersTableBody.innerHTML =
-            '<tr><td colspan="5" class="muted">Не удалось загрузить пользователей.</td></tr>';
+            '<tr><td colspan="6" class="muted">Не удалось загрузить пользователей.</td></tr>';
           setUsersStatus(
             error && error.message ? String(error.message) : "Ошибка загрузки.",
             true,
@@ -9798,6 +9955,30 @@
       });
       syncUpdatesAdminControls();
       if (usersAdminPanel) {
+        usersAdminPanel.addEventListener("focusout", (event) => {
+          const input = event.target.closest(".users-department-input");
+          if (!input || usersDepartmentSaveBusy) {
+            return;
+          }
+          const id = Number(input.getAttribute("data-user-id"));
+          if (!Number.isFinite(id)) {
+            return;
+          }
+          usersDepartmentSaveBusy = true;
+          input.disabled = true;
+          void saveUserDepartment(id, input.value).finally(() => {
+            input.disabled = false;
+            usersDepartmentSaveBusy = false;
+          });
+        });
+        usersAdminPanel.addEventListener("keydown", (event) => {
+          const input = event.target.closest(".users-department-input");
+          if (!input || event.key !== "Enter") {
+            return;
+          }
+          event.preventDefault();
+          input.blur();
+        });
         usersAdminPanel.addEventListener("click", (event) => {
           const permBtn = event.target.closest(".users-perm-btn");
           if (permBtn) {
@@ -10210,7 +10391,98 @@
       function formatOrderAssembledPctCell(orderRow) {
         const pct = formatOrderPct(orderRow.assembled_percent);
         const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
-        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span></div>`;
+        const readinessBtn = renderOrderReadinessButton(orderRow);
+        return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span>${readinessBtn}</div>`;
+      }
+
+      const ORDER_READINESS_LABELS = {
+        assembling: "В сборке",
+        assembled: "Собран",
+        shipped: "Отгружен",
+      };
+      const ORDER_READINESS_CYCLE = ["assembling", "assembled", "shipped"];
+
+      function normalizeOrderReadiness(value) {
+        const v = String(value || "").trim().toLowerCase();
+        if (ORDER_READINESS_CYCLE.includes(v)) {
+          return v;
+        }
+        return "assembling";
+      }
+
+      function nextOrderReadiness(current) {
+        const cur = normalizeOrderReadiness(current);
+        const idx = ORDER_READINESS_CYCLE.indexOf(cur);
+        return ORDER_READINESS_CYCLE[(idx + 1) % ORDER_READINESS_CYCLE.length];
+      }
+
+      function renderOrderReadinessButton(orderRow) {
+        const orderId = Number(orderRow?.id);
+        if (!Number.isFinite(orderId)) {
+          return "";
+        }
+        const readiness = normalizeOrderReadiness(orderRow.order_readiness);
+        const label = ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
+        return `<button type="button" class="orders-readiness-btn orders-readiness-btn--${readiness}" data-order-readiness-toggle data-order-id="${orderId}" data-order-readiness="${escapeXml(readiness)}" title="Готовность заказа: ${escapeXml(label)}" aria-label="Готовность заказа: ${escapeXml(label)}">${escapeXml(label)}</button>`;
+      }
+
+      function updateOrderReadinessLocally(orderId, readiness) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        const normalized = normalizeOrderReadiness(readiness);
+        cachedOrdersListRows = cachedOrdersListRows.map((row) =>
+          row.id === oid ? { ...row, order_readiness: normalized } : row,
+        );
+      }
+
+      async function cycleOrderReadiness(btn) {
+        const id = Number(btn.dataset.orderId);
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        const current = normalizeOrderReadiness(btn.dataset.orderReadiness);
+        const next = nextOrderReadiness(current);
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/orders/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_readiness: next }),
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            let msg = "Не удалось изменить готовность заказа.";
+            try {
+              const err = await res.json();
+              if (err && (err.message || err.error)) {
+                msg = String(err.message || err.error);
+              }
+            } catch (e) {
+              /* ignore */
+            }
+            window.alert(msg);
+            return;
+          }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (e) {
+            /* ignore */
+          }
+          const saved = normalizeOrderReadiness(
+            (data && data.order_readiness) || next,
+          );
+          updateOrderReadinessLocally(id, saved);
+          if (currentStage === "orders") {
+            renderOrdersTable();
+          }
+        } catch (e) {
+          window.alert("Нет связи с сервером.");
+        } finally {
+          btn.disabled = false;
+        }
       }
 
       const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";
@@ -17858,6 +18130,13 @@
       }
 
       ordersTableBody.addEventListener("click", (e) => {
+        const readinessBtn = e.target.closest("[data-order-readiness-toggle]");
+        if (readinessBtn && ordersTableBody.contains(readinessBtn)) {
+          e.preventDefault();
+          e.stopPropagation();
+          void cycleOrderReadiness(readinessBtn);
+          return;
+        }
         const btn = e.target.closest("button[data-order-action]");
         if (!btn || !ordersTableBody.contains(btn)) {
           return;

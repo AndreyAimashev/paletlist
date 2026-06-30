@@ -425,6 +425,10 @@ def _migrate_app_users_permissions(cur) -> None:
             cur.execute(
                 f"ALTER TABLE app_users ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}"
             )
+    if "department" not in cols:
+        cur.execute(
+            "ALTER TABLE app_users ADD COLUMN department TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _perm_cell_bool(row, col: str, default: int) -> bool:
@@ -509,13 +513,16 @@ def _user_row_to_api(row) -> dict:
         "id": int(row["id"]),
         "login": row["login"] or "",
         "display_name": row["display_name"] or "",
+        "department": (row["department"] or "")
+        if "department" in row.keys()
+        else "",
         "created_at": row["created_at"] or "",
         "permissions": _permissions_from_row(row),
     }
 
 
 _APP_USER_SELECT = """
-    SELECT id, login, display_name, created_at,
+    SELECT id, login, display_name, department, created_at,
            perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
     FROM app_users
 """
@@ -541,6 +548,12 @@ def create_app_user(body: dict) -> dict:
     login = _normalize_str(body.get("login", ""))
     password = str(body.get("password") or "")
     display_name = _normalize_str(body.get("display_name", ""))
+    department = _normalize_str(body.get("department", ""))
+    if len(department) > 128:
+        return {
+            "error": "validation",
+            "message": "Подразделение не длиннее 128 символов.",
+        }
     if not login:
         return {"error": "validation", "message": "Укажите логин."}
     if _is_reserved_admin_login(login):
@@ -572,15 +585,16 @@ def create_app_user(body: dict) -> dict:
             cur.execute(
                 """
                 INSERT INTO app_users (
-                  login, password_hash, display_name, created_at,
+                  login, password_hash, display_name, department, created_at,
                   perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     login,
                     pwd_hash,
                     display_name,
+                    department,
                     created_at,
                     perm_orders,
                     perm_nomenclature,
@@ -626,6 +640,18 @@ def update_app_user(user_id: int, body: dict) -> dict:
         display_name = _normalize_str(
             body.get("display_name", row["display_name"] or "")
         )
+        department_in_body = "department" in body
+        department = (
+            _normalize_str(body.get("department", ""))
+            if department_in_body
+            else (row["department"] or "" if "department" in row.keys() else "")
+        )
+        if department_in_body and len(department) > 128:
+            con.close()
+            return {
+                "error": "validation",
+                "message": "Подразделение не длиннее 128 символов.",
+            }
         password = body.get("password")
         if _is_reserved_admin_login(login):
             con.close()
@@ -654,9 +680,22 @@ def update_app_user(user_id: int, body: dict) -> dict:
             and "login" not in body
             and "display_name" not in body
             and "password" not in body
+            and not department_in_body
+        )
+        only_department = (
+            department_in_body
+            and "login" not in body
+            and "display_name" not in body
+            and "password" not in body
+            and (perm_patch is None or len(perm_patch) == 0)
         )
         try:
-            if only_permissions and perm_patch:
+            if only_department:
+                cur.execute(
+                    "UPDATE app_users SET department = ? WHERE id = ?",
+                    (department, int(user_id)),
+                )
+            elif only_permissions and perm_patch:
                 sets = ", ".join(f"{col} = ?" for col in perm_patch)
                 cur.execute(
                     f"UPDATE app_users SET {sets} WHERE id = ?",
@@ -671,6 +710,11 @@ def update_app_user(user_id: int, body: dict) -> dict:
                     """,
                     (login, display_name, pwd_hash, int(user_id)),
                 )
+                if department_in_body:
+                    cur.execute(
+                        "UPDATE app_users SET department = ? WHERE id = ?",
+                        (department, int(user_id)),
+                    )
                 if perm_patch:
                     sets = ", ".join(f"{col} = ?" for col in perm_patch)
                     cur.execute(
@@ -684,6 +728,11 @@ def update_app_user(user_id: int, body: dict) -> dict:
                     """,
                     (login, display_name, int(user_id)),
                 )
+                if department_in_body:
+                    cur.execute(
+                        "UPDATE app_users SET department = ? WHERE id = ?",
+                        (department, int(user_id)),
+                    )
                 if perm_patch:
                     sets = ", ".join(f"{col} = ?" for col in perm_patch)
                     cur.execute(
@@ -2802,6 +2851,19 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE orders ADD COLUMN last_assembled_by TEXT NOT NULL DEFAULT ''"
         )
+    order_cols = {r[1] for r in cur.execute("PRAGMA table_info(orders)").fetchall()}
+    if "order_readiness" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN order_readiness TEXT NOT NULL DEFAULT 'assembling'"
+        )
+        cur.execute(
+            """
+            UPDATE orders
+            SET order_readiness = 'assembled'
+            WHERE assembled_percent >= 100
+              AND COALESCE(order_readiness, 'assembling') = 'assembling'
+            """
+        )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -3356,19 +3418,61 @@ def _assemble_state_has_meaningful_pallets(pallets) -> bool:
     return len(pallets) > 1
 
 
+_ORDER_READINESS_ASSEMBLING = "assembling"
+_ORDER_READINESS_ASSEMBLED = "assembled"
+_ORDER_READINESS_SHIPPED = "shipped"
+_VALID_ORDER_READINESS = frozenset(
+    {
+        _ORDER_READINESS_ASSEMBLING,
+        _ORDER_READINESS_ASSEMBLED,
+        _ORDER_READINESS_SHIPPED,
+    }
+)
+
+
+def _normalize_order_readiness(
+    value, *, default: str = _ORDER_READINESS_ASSEMBLING
+) -> str:
+    v = (value or "").strip().lower()
+    if v in _VALID_ORDER_READINESS:
+        return v
+    return default
+
+
+def _order_readiness_from_row(row) -> str:
+    if row is not None and "order_readiness" in row.keys():
+        return _normalize_order_readiness(row["order_readiness"])
+    pct = max(0, min(100, int(row["assembled_percent"] or 0))) if row else 0
+    return (
+        _ORDER_READINESS_ASSEMBLED
+        if pct >= 100
+        else _ORDER_READINESS_ASSEMBLING
+    )
+
+
 def patch_order_assembly(
     order_id: int, body: dict, *, modified_by: str = ""
 ) -> dict:
-    """Частичное обновление: assembled_percent и/или assemble_state (распределение по паллетам)."""
+    """Частичное обновление: assembled_percent, assemble_state и/или order_readiness."""
     if not isinstance(body, dict):
         return {"error": "validation", "message": "Ожидался JSON-объект."}
     has_pct = "assembled_percent" in body
     has_state = "assemble_state" in body
-    if not has_pct and not has_state:
+    has_readiness = "order_readiness" in body
+    if not has_pct and not has_state and not has_readiness:
         return {
             "error": "validation",
-            "message": "Передайте assembled_percent и/или assemble_state.",
+            "message": "Передайте assembled_percent, assemble_state и/или order_readiness.",
         }
+    new_readiness = None
+    if has_readiness:
+        raw_readiness = (body.get("order_readiness") or "").strip().lower()
+        if raw_readiness not in _VALID_ORDER_READINESS:
+            return {
+                "error": "validation",
+                "message": "order_readiness: допустимы assembling, assembled, shipped.",
+            }
+        new_readiness = raw_readiness
     expected_rev = None
     if "expected_assemble_revision" in body:
         try:
@@ -3416,7 +3520,7 @@ def patch_order_assembly(
         row = cur.execute(
             """
             SELECT id, assembled_percent, assemble_state, assemble_revision,
-                   assemble_state_updated_at, client,
+                   assemble_state_updated_at, client, order_readiness,
                    COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
             FROM orders WHERE id = ?
             """,
@@ -3425,6 +3529,27 @@ def patch_order_assembly(
         if not row:
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
+        current_readiness = _order_readiness_from_row(row)
+        if has_readiness and not has_pct and not has_state:
+            if new_readiness == current_readiness:
+                con.close()
+                return {
+                    "ok": True,
+                    "id": int(order_id),
+                    "order_readiness": current_readiness,
+                    "unchanged": True,
+                }
+            cur.execute(
+                "UPDATE orders SET order_readiness = ? WHERE id = ?",
+                (new_readiness, order_id),
+            )
+            con.commit()
+            con.close()
+            return {
+                "ok": True,
+                "id": int(order_id),
+                "order_readiness": new_readiness,
+            }
         current_rev = max(0, int(row["assemble_revision"] or 0))
         if expected_rev is not None and expected_rev != current_rev:
             con.close()
@@ -3446,7 +3571,21 @@ def patch_order_assembly(
             ajson = new_state_json
         else:
             ajson = old_ajson
-        if apct == old_pct and _assemble_states_equal(old_ajson, ajson):
+        effective_readiness = (
+            new_readiness if new_readiness is not None else current_readiness
+        )
+        if (has_pct or has_state) and new_readiness is None:
+            if (
+                apct >= 100
+                and old_pct < 100
+                and current_readiness == _ORDER_READINESS_ASSEMBLING
+            ):
+                effective_readiness = _ORDER_READINESS_ASSEMBLED
+        if (
+            apct == old_pct
+            and _assemble_states_equal(old_ajson, ajson)
+            and effective_readiness == current_readiness
+        ):
             con.close()
             return {
                 "ok": True,
@@ -3454,6 +3593,7 @@ def patch_order_assembly(
                 "assemble_revision": current_rev,
                 "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip(),
                 "assembled_percent": old_pct,
+                "order_readiness": current_readiness,
                 "unchanged": True,
             }
         new_rev = current_rev + 1
@@ -3466,10 +3606,11 @@ def patch_order_assembly(
             UPDATE orders
             SET assembled_percent = ?, assemble_state = ?,
                 assemble_revision = ?, assemble_state_updated_at = ?,
-                last_assembled_by = CASE WHEN ? != '' THEN ? ELSE last_assembled_by END
+                last_assembled_by = CASE WHEN ? != '' THEN ? ELSE last_assembled_by END,
+                order_readiness = ?
             WHERE id = ?
             """,
-            (apct, ajson, new_rev, updated_at, modifier, modifier, order_id),
+            (apct, ajson, new_rev, updated_at, modifier, modifier, effective_readiness, order_id),
         )
         lab_sscc_seq_by_order: dict[int, int] = {}
         if has_state and _is_lab_industries_client(
@@ -3489,6 +3630,7 @@ def patch_order_assembly(
         "assemble_revision": new_rev,
         "assemble_state_updated_at": updated_at,
         "assembled_percent": apct,
+        "order_readiness": effective_readiness,
     }
     if lab_sscc_seq_by_order:
         out["lab_sscc_seq_by_order"] = {
@@ -5128,7 +5270,7 @@ def fetch_order_detail(order_id: int):
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    buyer_order_mode, buyer_order, client_city, total_order_quantity,
                    lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                   assemble_revision, assemble_state_updated_at,
+                   assemble_revision, assemble_state_updated_at, order_readiness,
                    last_edited_by, last_assembled_by, last_modified_by
             FROM orders WHERE id = ?
             """,
@@ -5146,7 +5288,7 @@ def fetch_order_detail(order_id: int):
                 SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                        buyer_order_mode, buyer_order, client_city, total_order_quantity,
                        lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                       assemble_revision, assemble_state_updated_at,
+                       assemble_revision, assemble_state_updated_at, order_readiness,
                        last_edited_by, last_assembled_by, last_modified_by
                 FROM orders WHERE id = ?
                 """,
@@ -5184,6 +5326,7 @@ def fetch_order_detail(order_id: int):
         "ship_date": row["ship_date"] or "",
         "client": row["client"] or "",
         "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+        "order_readiness": _order_readiness_from_row(row),
         "names": row["names"] or "",
         "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
         "assemble_revision": max(0, int(row["assemble_revision"] or 0))
@@ -5257,7 +5400,7 @@ def fetch_orders(session: dict | None = None):
         rows = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   client_city, lab_sscc_seq_start, lab_sscc_shipped,
+                   client_city, lab_sscc_seq_start, lab_sscc_shipped, order_readiness,
                    assemble_revision, assemble_state_updated_at,
                    last_edited_by, last_assembled_by, last_modified_by
             FROM orders ORDER BY id DESC
@@ -5312,6 +5455,7 @@ def fetch_orders(session: dict | None = None):
                 if "client_city" in row.keys()
                 else "",
                 "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+                "order_readiness": _order_readiness_from_row(row),
                 "names": row["names"] or "",
                 "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
                 "assemble_revision": max(0, int(row["assemble_revision"] or 0))

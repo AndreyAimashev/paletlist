@@ -15747,15 +15747,11 @@
       }
 
       function applyRemoteAssemblePayload(data) {
-        if (isAssembleShipmentLocked()) {
-          if (data) {
-            syncAssembleShipmentLockFromOrder(data);
-          }
+        if (!assembleOrderSnapshot || !assembleAllocState || !data || data.id !== assembleOrderSnapshot.id) {
           return;
         }
-        if (!assembleOrderSnapshot || !assembleAllocState || data.id !== assembleOrderSnapshot.id) {
-          return;
-        }
+        syncAssembleShipmentLockFromOrder(data);
+        const locked = isAssembleShipmentLocked();
         if (isAssembleEditableFocused()) {
           return;
         }
@@ -15767,8 +15763,9 @@
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : [{ id: 1, palletNumber: "1", slots: [] }];
         if (
-          hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
-          assembleShouldBlockRemoteOverwrite(pallets)
+          !locked &&
+          (hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
+            assembleShouldBlockRemoteOverwrite(pallets))
         ) {
           return;
         }
@@ -15780,6 +15777,9 @@
         if (assembleStatesContentEqual(assembleAllocState.pallets, pallets)) {
           noteAssembleServerSnapshot(data);
           syncOptionalBatchToggleFromServer(data);
+          if (locked) {
+            syncAssembleShipmentLockUi();
+          }
           return;
         }
         noteAssembleServerSnapshot(data);
@@ -15795,7 +15795,14 @@
         mirrorAssembleDraftLocal();
         mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
         if (!assembleSaveBusy()) {
-          setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
+          if (locked) {
+            setAssembleSaveUiState("idle", {
+              orderId: assembleOrderSnapshot.id,
+              message: "Заказ отгружен — сборка доступна только для просмотра.",
+            });
+          } else {
+            setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
+          }
         }
         renderAssemblePalletCards();
         renderAssembleSummary();

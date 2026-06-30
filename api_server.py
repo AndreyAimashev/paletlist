@@ -3516,6 +3516,17 @@ def _order_readiness_from_row(row) -> str:
     )
 
 
+def _order_is_shipment_locked(row) -> bool:
+    return _order_readiness_from_row(row) == _ORDER_READINESS_SHIPPED
+
+
+def _order_shipment_locked_error() -> dict:
+    return {
+        "error": "order_shipped",
+        "message": "Заказ отгружен — изменения сборки и редактирование заказа недоступны.",
+    }
+
+
 def patch_order_assembly(
     order_id: int, body: dict, *, modified_by: str = ""
 ) -> dict:
@@ -3596,6 +3607,9 @@ def patch_order_assembly(
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
         current_readiness = _order_readiness_from_row(row)
+        if (has_pct or has_state) and current_readiness == _ORDER_READINESS_SHIPPED:
+            con.close()
+            return _order_shipment_locked_error()
         if has_readiness and not has_pct and not has_state:
             if new_readiness == current_readiness:
                 con.close()
@@ -5214,7 +5228,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, client_city
+                   buyer_order_mode, buyer_order, client_city, order_readiness
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -5222,6 +5236,9 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         if not row:
             con.close()
             return {"error": "not_found", "message": "Заказ не найден."}
+        if _order_is_shipment_locked(row):
+            con.close()
+            return _order_shipment_locked_error()
         apct = max(0, min(100, int(row["assembled_percent"] or 0)))
         skipped, baseline, skipped_names, user_xinfo = _parse_import_skip_extra_info(
             row["extra_info"] or ""
@@ -7594,6 +7611,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if err == "not_found":
                 self._send_json(404, result)
                 return
+            if err == "order_shipped":
+                self._send_json(403, result)
+                return
             self._send_json(200, result)
             return
         if not parsed.path.startswith("/api/nomenclature/"):
@@ -7708,6 +7728,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if err == "conflict":
             self._send_json(409, result)
+            return
+        if err == "order_shipped":
+            self._send_json(403, result)
             return
         self._send_json(200, result)
 

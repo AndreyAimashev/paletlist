@@ -4757,6 +4757,9 @@
           <div class="menu-items">
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
             <button id="nomenclature-button" class="menu-button" type="button">Номенклатура</button>
+            <button id="order-monitoring-button" class="menu-button" type="button" hidden>
+              Мониторинг заказов
+            </button>
             <button id="users-button" class="menu-button" type="button">Управление пользователями</button>
             <button id="feedback-user-button" class="menu-button menu-button--feedback" type="button" hidden>
               <span class="feedback-menu-btn__label">Жалоба/предложение</span>
@@ -5901,6 +5904,7 @@
 
       const ordersButton = document.getElementById("orders-button");
       const nomenclatureButton = document.getElementById("nomenclature-button");
+      const orderMonitoringButton = document.getElementById("order-monitoring-button");
       const usersButton = document.getElementById("users-button");
       const menuTitle = document.getElementById("menu-title");
       const createPalletButton = document.getElementById("create-pallet-button");
@@ -6022,15 +6026,28 @@
         nomenclature: "Номенклатура",
         manage_users: "Управление пользователями",
         feedback: "Жалоба/предложение",
+        order_monitoring: "Мониторинг заказов",
       };
 
       function getAuthPermissions() {
         const auth = window.__PALETLIST_AUTH;
         if (!auth) {
-          return { orders: false, nomenclature: false, manage_users: false, feedback: false };
+          return {
+            orders: false,
+            nomenclature: false,
+            manage_users: false,
+            feedback: false,
+            order_monitoring: false,
+          };
         }
         if (auth.is_admin) {
-          return { orders: true, nomenclature: true, manage_users: true, feedback: true };
+          return {
+            orders: true,
+            nomenclature: true,
+            manage_users: true,
+            feedback: true,
+            order_monitoring: true,
+          };
         }
         const p = auth.permissions || {};
         return {
@@ -6038,7 +6055,12 @@
           nomenclature: !!p.nomenclature,
           manage_users: !!p.manage_users,
           feedback: !!p.feedback,
+          order_monitoring: !!p.order_monitoring,
         };
+      }
+
+      function canAccessOrderMonitoring() {
+        return isAdminUser() || getAuthPermissions().order_monitoring;
       }
 
       function canAccessFeedback() {
@@ -6059,6 +6081,7 @@
             nomenclature: !!p.nomenclature,
             manage_users: !!p.manage_users,
             feedback: !!p.feedback,
+            order_monitoring: !!p.order_monitoring,
           },
         };
       }
@@ -6081,6 +6104,7 @@
               nomenclature: true,
               manage_users: true,
               feedback: true,
+              order_monitoring: true,
             };
           } else if (data.permissions) {
             auth.permissions = {
@@ -6088,6 +6112,7 @@
               nomenclature: !!data.permissions.nomenclature,
               manage_users: !!data.permissions.manage_users,
               feedback: !!data.permissions.feedback,
+              order_monitoring: !!data.permissions.order_monitoring,
             };
           }
           auth.department = data.department || "";
@@ -6121,6 +6146,10 @@
         if (nomenclatureButton) {
           nomenclatureButton.style.display =
             st === "main" && perms.nomenclature ? "" : "none";
+        }
+        if (orderMonitoringButton) {
+          orderMonitoringButton.style.display =
+            st === "main" && canAccessOrderMonitoring() ? "" : "none";
         }
         if (feedbackUserButton) {
           feedbackUserButton.style.display =
@@ -9727,6 +9756,7 @@
               ${renderUserPermToggle(id, "nomenclature", !!perms.nomenclature)}
               ${renderUserPermToggle(id, "manage_users", !!perms.manage_users)}
               ${renderUserPermToggle(id, "feedback", !!perms.feedback)}
+              ${renderUserPermToggle(id, "order_monitoring", !!perms.order_monitoring)}
             </div>`;
             return `<tr data-user-id="${id}">
               <td>${login}</td>
@@ -9837,6 +9867,7 @@
               nomenclature: !!data.user.permissions.nomenclature,
               manage_users: !!data.user.permissions.manage_users,
               feedback: !!data.user.permissions.feedback,
+              order_monitoring: !!data.user.permissions.order_monitoring,
             };
             applyMainMenuPermissions(currentStage);
             syncFeedbackAdminControls();

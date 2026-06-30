@@ -189,7 +189,7 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT id, login, password_hash, display_name,
+            SELECT id, login, password_hash, display_name, department,
                    perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
             FROM app_users
             WHERE login = ? COLLATE NOCASE
@@ -205,6 +205,7 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         "user_id": int(row["id"]),
         "login": row["login"] or login_norm,
         "display_name": row["display_name"] or "",
+        "department": (row["department"] or "") if "department" in row.keys() else "",
         "is_admin": False,
         "permissions": _permissions_from_row(row),
     }
@@ -220,6 +221,7 @@ def create_auth_session(user: dict) -> str:
         "user_id": int(user.get("user_id", 0)),
         "login": user.get("login") or "",
         "display_name": user.get("display_name") or "",
+        "department": user.get("department") or "",
         "is_admin": bool(user.get("is_admin")),
         "permissions": dict(perms),
         "expires_at": expires_at,
@@ -297,6 +299,15 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
     new_password = (
         str(password_raw).strip() if password_raw is not None else ""
     )
+    department_in_body = "department" in body
+    department = (
+        _normalize_str(body.get("department", "")) if department_in_body else None
+    )
+    if department_in_body and len(department or "") > 128:
+        return {
+            "error": "validation",
+            "message": "Подразделение не длиннее 128 символов.",
+        }
     if new_password and len(new_password) < 4:
         return {
             "error": "validation",
@@ -340,6 +351,11 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
                     "UPDATE app_users SET login = ? WHERE id = ?",
                     (new_login, user_id),
                 )
+            if department_in_body:
+                cur.execute(
+                    "UPDATE app_users SET department = ? WHERE id = ?",
+                    (department or "", user_id),
+                )
             row = cur.execute(
                 f"{_APP_USER_SELECT} WHERE id = ?",
                 (user_id,),
@@ -359,10 +375,17 @@ def update_auth_account(session: dict, body: dict, token: str | None) -> dict:
             if stored:
                 stored["login"] = user_api["login"]
                 stored["display_name"] = user_api.get("display_name") or ""
-    if password_unchanged and not login_changed:
+                stored["department"] = user_api.get("department") or ""
+    if department_in_body:
+        sync_auth_sessions_department_for_user(
+            user_id, user_api.get("department") or ""
+        )
+    if password_unchanged and not login_changed and not department_in_body:
         msg = "Пароль совпадает с текущим — изменений не было."
-    elif password_unchanged:
+    elif password_unchanged and login_changed:
         msg = "Логин обновлён. Пароль совпадает с текущим — он не менялся."
+    elif password_unchanged and department_in_body:
+        msg = "Подразделение сохранено."
     else:
         msg = "Данные аккаунта сохранены."
     return {
@@ -467,6 +490,15 @@ def fetch_app_user_permissions(user_id: int) -> dict | None:
     return _permissions_from_row(row)
 
 
+def sync_auth_sessions_department_for_user(user_id: int, department: str) -> None:
+    uid = int(user_id)
+    dept = _normalize_str(department)
+    with _AUTH_SESSIONS_LOCK:
+        for session in _AUTH_SESSIONS.values():
+            if int(session.get("user_id") or 0) == uid and not session.get("is_admin"):
+                session["department"] = dept
+
+
 def sync_auth_sessions_permissions_for_user(user_id: int, permissions: dict) -> None:
     uid = int(user_id)
     perms = {
@@ -526,6 +558,36 @@ _APP_USER_SELECT = """
            perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
     FROM app_users
 """
+
+
+def fetch_app_user_department_options() -> list[str]:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        rows = cur.execute(
+            """
+            SELECT DISTINCT trim(department) AS department
+            FROM app_users
+            WHERE trim(department) != ''
+            ORDER BY department COLLATE NOCASE ASC
+            """
+        ).fetchall()
+        con.close()
+    return [str(r["department"] or "").strip() for r in rows if str(r["department"] or "").strip()]
+
+
+def fetch_app_user_department(user_id: int) -> str:
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT department FROM app_users WHERE id = ?",
+            (int(user_id),),
+        ).fetchone()
+        con.close()
+    if not row:
+        return ""
+    return _normalize_str(row["department"] or "")
 
 
 def fetch_app_users() -> list[dict]:
@@ -755,6 +817,10 @@ def update_app_user(user_id: int, body: dict) -> dict:
     if perm_patch:
         sync_auth_sessions_permissions_for_user(
             int(user_id), user_api.get("permissions") or {}
+        )
+    if department_in_body:
+        sync_auth_sessions_department_for_user(
+            int(user_id), user_api.get("department") or ""
         )
     return {"ok": True, "user": user_api}
 
@@ -6465,6 +6531,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "user_id": int(user.get("user_id", 0)),
                     "login": user["login"],
                     "display_name": user.get("display_name") or "",
+                    "department": user.get("department") or "",
                     "is_admin": bool(user.get("is_admin")),
                     "permissions": user.get("permissions") or _admin_permissions(),
                 },
@@ -6538,13 +6605,21 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _handle_auth_me(self) -> None:
         session = self._auth_session or {}
+        is_admin = bool(session.get("is_admin"))
+        department = ""
+        if not is_admin:
+            uid = int(session.get("user_id") or 0)
+            if uid > 0:
+                department = fetch_app_user_department(uid)
         self._send_json(
             200,
             {
                 "user_id": int(session.get("user_id") or 0),
                 "login": session.get("login") or "",
                 "display_name": session.get("display_name") or "",
-                "is_admin": bool(session.get("is_admin")),
+                "department": department,
+                "department_options": fetch_app_user_department_options(),
+                "is_admin": is_admin,
                 "permissions": self._session_permissions(),
             },
         )

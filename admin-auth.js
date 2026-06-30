@@ -78,6 +78,7 @@
     user_id: user.user_id != null ? Number(user.user_id) : 0,
     login: user.login || "",
     display_name: user.display_name || "",
+    department: user.department || "",
     is_admin: !!user.is_admin,
     permissions: {
       orders: !!perms.orders,

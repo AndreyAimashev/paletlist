@@ -2620,6 +2620,57 @@
         color: #ff8a8a;
       }
 
+      .admin-login-note {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 8px;
+        margin: 0 0 12px;
+      }
+
+      .admin-login-name {
+        color: var(--text-main);
+        font-weight: 500;
+      }
+
+      .admin-login-dept-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .admin-login-dept-sep {
+        opacity: 0.55;
+      }
+
+      .admin-login-department-input {
+        box-sizing: border-box;
+        min-width: 110px;
+        max-width: 200px;
+        padding: 4px 8px;
+        border: 1px solid rgba(0, 200, 160, 0.28);
+        border-radius: 8px;
+        background: rgba(12, 18, 28, 0.8);
+        color: var(--text-main);
+        font-family: "Roboto", sans-serif;
+        font-size: 13px;
+      }
+
+      .admin-login-department-input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .admin-login-department-input:focus {
+        outline: none;
+        border-color: rgba(0, 200, 160, 0.55);
+        box-shadow: 0 0 0 2px rgba(0, 200, 160, 0.14);
+      }
+
+      .admin-login-department-input:disabled {
+        opacity: 0.65;
+        cursor: wait;
+      }
+
       .nomenclature-workspace-scroll {
         max-height: 68vh;
         overflow-x: hidden;
@@ -4456,9 +4507,9 @@
 
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
-          width: 4.75rem;
-          min-width: 4.75rem;
-          max-width: 4.75rem;
+          width: 5.5rem;
+          min-width: 5.5rem;
+          max-width: 5.5rem;
           padding-left: 4px;
           padding-right: 4px;
           box-sizing: border-box;
@@ -4657,7 +4708,23 @@
           <h1 id="menu-title">Главное меню</h1>
           <p id="assemble-presence-hint" class="assemble-presence-hint" hidden aria-live="polite"></p>
           <p id="stage-order-context" class="muted stage-order-context" hidden></p>
-          <p id="admin-login-note" class="muted">Вы вошли как администратор.</p>
+          <p id="admin-login-note" class="admin-login-note muted">
+            <span id="admin-login-name">Администратор</span>
+            <span id="admin-login-dept-wrap" class="admin-login-dept-wrap" hidden>
+              <span class="admin-login-dept-sep" aria-hidden="true">·</span>
+              <input
+                type="text"
+                id="admin-login-department"
+                class="admin-login-department-input"
+                list="admin-department-datalist"
+                placeholder="Подразделение"
+                maxlength="128"
+                autocomplete="off"
+                aria-label="Подразделение"
+              />
+            </span>
+          </p>
+          <datalist id="admin-department-datalist"></datalist>
           <div class="main-menu-tools">
             <button
               id="updates-open-btn"
@@ -5885,15 +5952,146 @@
       const assembleEmptyEl = document.getElementById("assemble-empty");
       const assembleLoadedEl = document.getElementById("assemble-loaded");
       const adminLoginNote = document.getElementById("admin-login-note");
-      if (adminLoginNote && window.__PALETLIST_AUTH) {
-        const authUser = window.__PALETLIST_AUTH;
-        if (authUser.is_admin) {
-          adminLoginNote.textContent = "Вы вошли как администратор.";
-        } else {
-          const label = authUser.display_name || authUser.login || "пользователь";
-          adminLoginNote.textContent = `Вы вошли как ${label}.`;
+      const adminLoginName = document.getElementById("admin-login-name");
+      const adminLoginDeptWrap = document.getElementById("admin-login-dept-wrap");
+      const adminLoginDepartmentInput = document.getElementById("admin-login-department");
+      let adminDepartmentOptionsCache = [];
+
+      function adminLoginDisplayName(auth) {
+        if (!auth) {
+          return "пользователь";
+        }
+        if (auth.is_admin) {
+          return "Администратор";
+        }
+        return auth.display_name || auth.login || "пользователь";
+      }
+
+      function syncAdminDepartmentDatalist(options) {
+        if (Array.isArray(options)) {
+          adminDepartmentOptionsCache = options
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+        }
+        const seen = new Set(adminDepartmentOptionsCache);
+        usersListCache.forEach((user) => {
+          const value = String(user.department || "").trim();
+          if (value) {
+            seen.add(value);
+          }
+        });
+        const datalist = document.getElementById("admin-department-datalist");
+        if (!datalist) {
+          return;
+        }
+        datalist.innerHTML = Array.from(seen)
+          .sort((a, b) => a.localeCompare(b, "ru"))
+          .map((value) => `<option value="${escapeXml(value)}"></option>`)
+          .join("");
+      }
+
+      function syncAdminLoginNote() {
+        const auth = window.__PALETLIST_AUTH;
+        if (!auth) {
+          return;
+        }
+        if (adminLoginName) {
+          adminLoginName.textContent = adminLoginDisplayName(auth);
+        }
+        if (adminLoginDeptWrap) {
+          adminLoginDeptWrap.hidden = !!auth.is_admin;
+        }
+        if (adminLoginDepartmentInput && !auth.is_admin) {
+          adminLoginDepartmentInput.value = String(auth.department || "").trim();
+        }
+        syncAdminDepartmentDatalist();
+      }
+
+      async function refreshAuthProfileFromServer() {
+        try {
+          const res = await fetch("/api/auth/me", { cache: "no-store" });
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json().catch(() => null);
+          const auth = window.__PALETLIST_AUTH;
+          if (!auth || !data) {
+            return;
+          }
+          auth.login = data.login || auth.login || "";
+          auth.display_name = data.display_name || "";
+          auth.department = data.department || "";
+          if (Array.isArray(data.department_options)) {
+            syncAdminDepartmentDatalist(data.department_options);
+          }
+          syncAdminLoginNote();
+        } catch (error) {
+          /* ignore */
         }
       }
+
+      let adminSelfDepartmentSaveBusy = false;
+
+      async function saveSelfDepartment(department) {
+        const auth = window.__PALETLIST_AUTH;
+        if (!auth || auth.is_admin) {
+          return;
+        }
+        const prev = String(auth.department || "").trim();
+        const next = String(department || "").trim();
+        if (next === prev) {
+          return;
+        }
+        auth.department = next;
+        const selfIdx = usersListCache.findIndex(
+          (user) => Number(user.id) === Number(auth.user_id),
+        );
+        if (selfIdx >= 0) {
+          usersListCache[selfIdx] = { ...usersListCache[selfIdx], department: next };
+        }
+        syncAdminDepartmentDatalist();
+        syncUsersDepartmentDatalist();
+        try {
+          const res = await fetch("/api/auth/account", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ login: auth.login || "", department: next }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            throw new Error(data.message || "Не удалось сохранить подразделение.");
+          }
+          if (data.user) {
+            auth.department = String(data.user.department || "").trim();
+            if (selfIdx >= 0) {
+              usersListCache[selfIdx] = normalizeUserRecord(data.user);
+            }
+            syncAdminLoginNote();
+            if (currentStage === "users") {
+              renderUsersTable();
+            }
+          }
+          if (Array.isArray(data.department_options)) {
+            syncAdminDepartmentDatalist(data.department_options);
+          } else {
+            await refreshAuthProfileFromServer();
+          }
+        } catch (error) {
+          auth.department = prev;
+          if (selfIdx >= 0) {
+            usersListCache[selfIdx] = { ...usersListCache[selfIdx], department: prev };
+          }
+          if (adminLoginDepartmentInput) {
+            adminLoginDepartmentInput.value = prev;
+          }
+          syncAdminDepartmentDatalist();
+          syncUsersDepartmentDatalist();
+          console.error(error);
+        }
+      }
+
+      syncAdminLoginNote();
+      void refreshAuthProfileFromServer();
       const usersAdminPanel = document.getElementById("users-admin-panel");
       const accountSelfPanel = document.getElementById("account-self-panel");
       const accountSelfForm = document.getElementById("account-self-form");
@@ -5941,6 +6139,7 @@
         const p = (user && user.permissions) || {};
         return {
           ...user,
+          department: String((user && user.department) || "").trim(),
           permissions: {
             orders: !!p.orders,
             nomenclature: !!p.nomenclature,
@@ -5977,6 +6176,11 @@
               feedback: !!data.permissions.feedback,
             };
           }
+          auth.department = data.department || "";
+          if (Array.isArray(data.department_options)) {
+            syncAdminDepartmentDatalist(data.department_options);
+          }
+          syncAdminLoginNote();
           applyMainMenuPermissions(currentStage);
           syncUpdatesAdminControls();
           syncFeedbackAdminControls();
@@ -9513,12 +9717,9 @@
           if (window.__PALETLIST_AUTH) {
             window.__PALETLIST_AUTH.login = user.login || login;
             window.__PALETLIST_AUTH.display_name = user.display_name || "";
+            window.__PALETLIST_AUTH.department = String(user.department || "").trim();
           }
-          if (adminLoginNote) {
-            const label =
-              user.display_name || user.login || window.__PALETLIST_AUTH.login;
-            adminLoginNote.textContent = `Вы вошли как ${label}.`;
-          }
+          syncAdminLoginNote();
           accountSelfForm.reset();
           initAccountSelfForm();
           setAccountSelfStatus(data.message || "Данные аккаунта сохранены.");
@@ -9582,6 +9783,7 @@
         datalist.innerHTML = collectUserDepartments()
           .map((value) => `<option value="${escapeXml(value)}"></option>`)
           .join("");
+        syncAdminDepartmentDatalist();
       }
 
       function renderUserPermToggle(userId, key, enabled) {
@@ -9664,6 +9866,11 @@
               usersListCache[idx] = normalizeUserRecord(data.user);
             }
             syncUsersDepartmentDatalist();
+            const auth = window.__PALETLIST_AUTH;
+            if (auth && Number(auth.user_id) === Number(userId)) {
+              auth.department = String(data.user.department || "").trim();
+              syncAdminLoginNote();
+            }
           }
         } catch (error) {
           row.department = prev;
@@ -9954,6 +10161,26 @@
         }
       });
       syncUpdatesAdminControls();
+      if (adminLoginDepartmentInput) {
+        adminLoginDepartmentInput.addEventListener("focusout", () => {
+          if (adminSelfDepartmentSaveBusy) {
+            return;
+          }
+          adminSelfDepartmentSaveBusy = true;
+          adminLoginDepartmentInput.disabled = true;
+          void saveSelfDepartment(adminLoginDepartmentInput.value).finally(() => {
+            adminLoginDepartmentInput.disabled = false;
+            adminSelfDepartmentSaveBusy = false;
+          });
+        });
+        adminLoginDepartmentInput.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") {
+            return;
+          }
+          event.preventDefault();
+          adminLoginDepartmentInput.blur();
+        });
+      }
       if (usersAdminPanel) {
         usersAdminPanel.addEventListener("focusout", (event) => {
           const input = event.target.closest(".users-department-input");

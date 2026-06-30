@@ -4481,11 +4481,15 @@
           height: 1px;
         }
 
+        .orders-table-wrap {
+          --orders-mobile-col-pct-width: 5.5rem;
+        }
+
         .orders-table thead th.col-pct,
         .orders-table tbody td.col-pct {
-          width: 5.5rem;
-          min-width: 5.5rem;
-          max-width: 5.5rem;
+          width: var(--orders-mobile-col-pct-width);
+          min-width: var(--orders-mobile-col-pct-width);
+          max-width: var(--orders-mobile-col-pct-width);
           padding-left: 4px;
           padding-right: 4px;
           box-sizing: border-box;
@@ -4516,6 +4520,71 @@
           padding: 4px 7px;
           border-radius: 6px;
           min-height: 28px;
+        }
+
+        .orders-mobile-pct-debug {
+          margin: 0 0 10px;
+          padding: 10px 12px;
+          border: 1px dashed rgba(255, 196, 86, 0.65);
+          border-radius: 10px;
+          background: rgba(48, 38, 18, 0.55);
+          font-size: 12px;
+          line-height: 1.35;
+        }
+
+        .orders-mobile-pct-debug:not([hidden]) {
+          display: block;
+        }
+
+        .orders-mobile-pct-debug__title {
+          margin: 0 0 8px;
+          font-weight: 600;
+          color: #ffd89a;
+        }
+
+        .orders-mobile-pct-debug__row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .orders-mobile-pct-debug__row input[type="range"] {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+
+        .orders-mobile-pct-debug__row input[type="number"] {
+          width: 4.5rem;
+          box-sizing: border-box;
+          padding: 4px 6px;
+          border: 1px solid rgba(255, 196, 86, 0.45);
+          border-radius: 6px;
+          background: rgba(12, 18, 28, 0.85);
+          color: var(--text-main);
+          font-size: 12px;
+        }
+
+        .orders-mobile-pct-debug__unit {
+          color: var(--text-muted);
+          flex-shrink: 0;
+        }
+
+        .orders-mobile-pct-debug__value {
+          margin: 8px 0;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          color: #ffe8b8;
+        }
+
+        .orders-mobile-pct-debug__copy {
+          box-sizing: border-box;
+          border: 1px solid rgba(255, 196, 86, 0.45);
+          border-radius: 8px;
+          background: rgba(255, 196, 86, 0.12);
+          color: #ffd89a;
+          font-size: 11px;
+          font-weight: 600;
+          padding: 6px 10px;
+          cursor: pointer;
         }
 
         .orders-table thead th.col-extra-info,
@@ -4829,6 +4898,40 @@
                   Наборы
                 </button>
               </div>
+            </div>
+            <div
+              id="orders-mobile-pct-debug"
+              class="orders-mobile-pct-debug"
+              role="region"
+              aria-label="Временная настройка ширины колонки процента"
+              hidden
+            >
+              <p class="orders-mobile-pct-debug__title">Временно: ширина колонки %</p>
+              <div class="orders-mobile-pct-debug__row">
+                <input
+                  type="range"
+                  id="orders-mobile-pct-width-range"
+                  min="3"
+                  max="12"
+                  step="0.1"
+                  value="5.5"
+                  aria-label="Ширина колонки в rem"
+                />
+                <input
+                  type="number"
+                  id="orders-mobile-pct-width-number"
+                  min="3"
+                  max="12"
+                  step="0.1"
+                  value="5.5"
+                  aria-label="Ширина колонки в rem"
+                />
+                <span class="orders-mobile-pct-debug__unit">rem</span>
+              </div>
+              <p id="orders-mobile-pct-debug-value" class="orders-mobile-pct-debug__value">5.5rem</p>
+              <button type="button" id="orders-mobile-pct-debug-copy" class="orders-mobile-pct-debug__copy">
+                Скопировать значение
+              </button>
             </div>
             <div class="orders-table-wrap">
               <table class="orders-table">
@@ -7033,6 +7136,121 @@
       const assembleOptionalBatchRoot = document.getElementById("assemble-optional-batch-root");
       const assembleBackOrdersBtn = document.getElementById("assemble-back-orders");
       const ordersTableBody = document.getElementById("orders-table-body");
+      const ordersMobilePctDebug = document.getElementById("orders-mobile-pct-debug");
+      const ordersMobilePctWidthRange = document.getElementById("orders-mobile-pct-width-range");
+      const ordersMobilePctWidthNumber = document.getElementById("orders-mobile-pct-width-number");
+      const ordersMobilePctDebugValue = document.getElementById("orders-mobile-pct-debug-value");
+      const ordersMobilePctDebugCopy = document.getElementById("orders-mobile-pct-debug-copy");
+      const ORDERS_MOBILE_PCT_DEBUG_STORAGE = "paletlist_orders_mobile_pct_width_rem";
+      const ORDERS_MOBILE_PCT_WIDTH_DEFAULT = 5.5;
+      const ORDERS_MOBILE_PCT_WIDTH_MIN = 3;
+      const ORDERS_MOBILE_PCT_WIDTH_MAX = 12;
+
+      function getOrdersTableWrapEl() {
+        return ordersWorkspace ? ordersWorkspace.querySelector(".orders-table-wrap") : null;
+      }
+
+      function clampOrdersMobilePctWidthRem(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return ORDERS_MOBILE_PCT_WIDTH_DEFAULT;
+        }
+        return Math.max(
+          ORDERS_MOBILE_PCT_WIDTH_MIN,
+          Math.min(ORDERS_MOBILE_PCT_WIDTH_MAX, Math.round(n * 10) / 10),
+        );
+      }
+
+      function formatOrdersMobilePctWidthLabel(rem) {
+        const val = clampOrdersMobilePctWidthRem(rem);
+        const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const px = Math.round(val * rootPx);
+        return `${val}rem (≈ ${px}px)`;
+      }
+
+      function applyOrdersMobilePctWidth(rem, opts = {}) {
+        const val = clampOrdersMobilePctWidthRem(rem);
+        const wrap = getOrdersTableWrapEl();
+        if (wrap) {
+          wrap.style.setProperty("--orders-mobile-col-pct-width", `${val}rem`);
+        }
+        if (ordersMobilePctWidthRange) {
+          ordersMobilePctWidthRange.value = String(val);
+        }
+        if (ordersMobilePctWidthNumber) {
+          ordersMobilePctWidthNumber.value = String(val);
+        }
+        if (ordersMobilePctDebugValue) {
+          ordersMobilePctDebugValue.textContent = formatOrdersMobilePctWidthLabel(val);
+        }
+        if (opts.persist !== false) {
+          try {
+            localStorage.setItem(ORDERS_MOBILE_PCT_DEBUG_STORAGE, String(val));
+          } catch (error) {
+            /* ignore */
+          }
+        }
+        return val;
+      }
+
+      function loadOrdersMobilePctWidthFromStorage() {
+        let stored = ORDERS_MOBILE_PCT_WIDTH_DEFAULT;
+        try {
+          const raw = localStorage.getItem(ORDERS_MOBILE_PCT_DEBUG_STORAGE);
+          if (raw != null && raw !== "") {
+            stored = clampOrdersMobilePctWidthRem(raw);
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        applyOrdersMobilePctWidth(stored, { persist: false });
+      }
+
+      function syncOrdersMobilePctDebugPanel() {
+        if (!ordersMobilePctDebug) {
+          return;
+        }
+        const show =
+          currentStage === "orders" && window.matchMedia("(max-width: 768px)").matches;
+        ordersMobilePctDebug.hidden = !show;
+        if (show) {
+          applyOrdersMobilePctWidth(
+            ordersMobilePctWidthNumber
+              ? ordersMobilePctWidthNumber.value
+              : ORDERS_MOBILE_PCT_WIDTH_DEFAULT,
+            { persist: false },
+          );
+        }
+      }
+
+      loadOrdersMobilePctWidthFromStorage();
+      if (ordersMobilePctWidthRange) {
+        ordersMobilePctWidthRange.addEventListener("input", () => {
+          applyOrdersMobilePctWidth(ordersMobilePctWidthRange.value);
+        });
+      }
+      if (ordersMobilePctWidthNumber) {
+        ordersMobilePctWidthNumber.addEventListener("change", () => {
+          applyOrdersMobilePctWidth(ordersMobilePctWidthNumber.value);
+        });
+      }
+      if (ordersMobilePctDebugCopy) {
+        ordersMobilePctDebugCopy.addEventListener("click", async () => {
+          const label = ordersMobilePctDebugValue
+            ? ordersMobilePctDebugValue.textContent
+            : formatOrdersMobilePctWidthLabel(ORDERS_MOBILE_PCT_WIDTH_DEFAULT);
+          try {
+            await navigator.clipboard.writeText(label);
+            ordersMobilePctDebugCopy.textContent = "Скопировано";
+            setTimeout(() => {
+              ordersMobilePctDebugCopy.textContent = "Скопировать значение";
+            }, 1200);
+          } catch (error) {
+            window.prompt("Скопируйте значение:", label);
+          }
+        });
+      }
+      window.addEventListener("resize", syncOrdersMobilePctDebugPanel);
       const orderChatOverlay = document.getElementById("order-chat-overlay");
       const orderChatDialog = document.getElementById("order-chat-dialog");
       const orderChatTitleEl = document.getElementById("order-chat-title");
@@ -9279,6 +9497,7 @@
 
         syncAssemblePalletNavVisibility();
         applyMainMenuPermissions(stage);
+        syncOrdersMobilePctDebugPanel();
         closeMobileNavDrawer();
       }
 

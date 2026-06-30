@@ -10519,6 +10519,10 @@
         shipped: "Отгружен",
       };
       const ORDER_READINESS_CYCLE = ["assembling", "assembled", "shipped"];
+      /** @type {Map<number, string>} */
+      const orderReadinessPending = new Map();
+      /** @type {Set<number>} */
+      const orderReadinessInFlight = new Set();
 
       function normalizeOrderReadiness(value) {
         const v = String(value || "").trim().toLowerCase();
@@ -10532,6 +10536,65 @@
         const cur = normalizeOrderReadiness(current);
         const idx = ORDER_READINESS_CYCLE.indexOf(cur);
         return ORDER_READINESS_CYCLE[(idx + 1) % ORDER_READINESS_CYCLE.length];
+      }
+
+      function setOrderReadinessPending(orderId, readiness) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        orderReadinessPending.set(oid, normalizeOrderReadiness(readiness));
+      }
+
+      function clearOrderReadinessPending(orderId) {
+        orderReadinessPending.delete(Number(orderId));
+      }
+
+      function getEffectiveOrderReadiness(orderRow) {
+        const oid = Number(orderRow?.id);
+        if (Number.isFinite(oid) && orderReadinessPending.has(oid)) {
+          return orderReadinessPending.get(oid);
+        }
+        return normalizeOrderReadiness(orderRow?.order_readiness);
+      }
+
+      function mergeOrderReadinessFromServer(rows) {
+        return rows.map((row) => {
+          const oid = Number(row.id);
+          const pending = orderReadinessPending.get(oid);
+          if (!pending) {
+            return row;
+          }
+          const server = normalizeOrderReadiness(row.order_readiness);
+          if (server === pending) {
+            orderReadinessPending.delete(oid);
+            return row;
+          }
+          return { ...row, order_readiness: pending };
+        });
+      }
+
+      function refreshOrderReadinessButtonsForOrder(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid) || !ordersTableBody) {
+          return;
+        }
+        const row = cachedOrdersListRows.find((r) => Number(r.id) === oid);
+        if (!row) {
+          return;
+        }
+        const readiness = getEffectiveOrderReadiness(row);
+        const label = ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
+        ordersTableBody
+          .querySelectorAll(`[data-order-readiness-toggle][data-order-id="${oid}"]`)
+          .forEach((btn) => {
+            btn.dataset.orderReadiness = readiness;
+            btn.className = `orders-readiness-btn orders-readiness-btn--${readiness}`;
+            btn.textContent = label;
+            btn.title = `Готовность заказа: ${label}`;
+            btn.setAttribute("aria-label", `Готовность заказа: ${label}`);
+            btn.disabled = btn.dataset.readinessBusy === "1";
+          });
       }
 
       function isOrderShipmentLocked(orderRow) {
@@ -10639,7 +10702,7 @@
         if (!Number.isFinite(orderId)) {
           return "";
         }
-        const readiness = normalizeOrderReadiness(orderRow.order_readiness);
+        const readiness = getEffectiveOrderReadiness(orderRow);
         const label = ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
         return `<button type="button" class="orders-readiness-btn orders-readiness-btn--${readiness}" data-order-readiness-toggle data-order-id="${orderId}" data-order-readiness="${escapeXml(readiness)}" title="Готовность заказа: ${escapeXml(label)}" aria-label="Готовность заказа: ${escapeXml(label)}">${escapeXml(label)}</button>`;
       }
@@ -10657,6 +10720,9 @@
           assembleOrderSnapshot.order_readiness = normalized;
           syncAssembleShipmentLockUi();
         }
+        if (currentStage === "orders") {
+          refreshOrderReadinessButtonsForOrder(oid);
+        }
       }
 
       async function cycleOrderReadiness(btn) {
@@ -10664,9 +10730,19 @@
         if (!Number.isFinite(id)) {
           return;
         }
-        const current = normalizeOrderReadiness(btn.dataset.orderReadiness);
+        if (btn.dataset.readinessBusy === "1" || orderReadinessInFlight.has(id)) {
+          return;
+        }
+        const row = cachedOrdersListRows.find((r) => Number(r.id) === id);
+        const current = getEffectiveOrderReadiness(
+          row || { id, order_readiness: btn.dataset.orderReadiness },
+        );
         const next = nextOrderReadiness(current);
+        orderReadinessInFlight.add(id);
+        btn.dataset.readinessBusy = "1";
         btn.disabled = true;
+        setOrderReadinessPending(id, next);
+        updateOrderReadinessLocally(id, next);
         try {
           const res = await fetch(`/api/orders/${id}`, {
             method: "PATCH",
@@ -10684,6 +10760,8 @@
             } catch (e) {
               /* ignore */
             }
+            clearOrderReadinessPending(id);
+            updateOrderReadinessLocally(id, current);
             window.alert(msg);
             return;
           }
@@ -10696,17 +10774,16 @@
           const saved = normalizeOrderReadiness(
             (data && data.order_readiness) || next,
           );
+          setOrderReadinessPending(id, saved);
           updateOrderReadinessLocally(id, saved);
-          if (currentStage === "orders") {
-            renderOrdersTable();
-          } else if (currentStage === "assemble" && assembleOrderSnapshot?.id === id) {
-            syncAssembleShipmentLockUi();
-            renderAssemblePalletCards();
-          }
         } catch (e) {
+          clearOrderReadinessPending(id);
+          updateOrderReadinessLocally(id, current);
           window.alert("Нет связи с сервером.");
         } finally {
-          btn.disabled = false;
+          orderReadinessInFlight.delete(id);
+          btn.dataset.readinessBusy = "0";
+          refreshOrderReadinessButtonsForOrder(id);
         }
       }
 
@@ -15229,6 +15306,10 @@
             assembleDirty = false;
           }
           mirrorAssembleDraftForPayload(payload, newRev);
+          if (data && data.order_readiness != null) {
+            setOrderReadinessPending(oid, data.order_readiness);
+            updateOrderReadinessLocally(oid, data.order_readiness);
+          }
           markAssembleSaveSucceeded();
           setAssembleSaveUiState("idle", { orderId: oid });
           notifyAssembleSavedToOtherTabs(oid, newRev);
@@ -15805,7 +15886,7 @@
               };
             }),
           );
-          cachedOrdersListRows = enriched;
+          cachedOrdersListRows = mergeOrderReadinessFromServer(enriched);
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
           if (currentStage === "orders" || !quiet) {
@@ -18272,6 +18353,10 @@
         if (!response.ok) {
           showNewOrderError(`Не удалось сохранить заказ (код ${response.status}).`);
           return;
+        }
+        if (isEdit && editingOrderId != null && payload && payload.order_readiness != null) {
+          setOrderReadinessPending(editingOrderId, payload.order_readiness);
+          updateOrderReadinessLocally(editingOrderId, payload.order_readiness);
         }
         closeNewOrderModal();
         if (ordersWorkspace.classList.contains("visible")) {

@@ -190,7 +190,8 @@ def authenticate_app_login(login: str, password: str) -> dict | None:
         row = cur.execute(
             """
             SELECT id, login, password_hash, display_name, department,
-                   perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
+                   perm_orders, perm_nomenclature, perm_manage_users, perm_feedback,
+                   perm_order_monitoring
             FROM app_users
             WHERE login = ? COLLATE NOCASE
             """,
@@ -443,6 +444,7 @@ def _migrate_app_users_permissions(cur) -> None:
         ("perm_nomenclature", 1),
         ("perm_manage_users", 0),
         ("perm_feedback", 1),
+        ("perm_order_monitoring", 0),
     ):
         if col not in cols:
             cur.execute(
@@ -473,6 +475,7 @@ def _permissions_from_row(row) -> dict:
         "nomenclature": _perm_cell_bool(row, "perm_nomenclature", 1),
         "manage_users": _perm_cell_bool(row, "perm_manage_users", 0),
         "feedback": _perm_cell_bool(row, "perm_feedback", 1),
+        "order_monitoring": _perm_cell_bool(row, "perm_order_monitoring", 0),
     }
 
 
@@ -506,6 +509,7 @@ def sync_auth_sessions_permissions_for_user(user_id: int, permissions: dict) -> 
         "nomenclature": bool(permissions.get("nomenclature")),
         "manage_users": bool(permissions.get("manage_users")),
         "feedback": bool(permissions.get("feedback")),
+        "order_monitoring": bool(permissions.get("order_monitoring")),
     }
     with _AUTH_SESSIONS_LOCK:
         for session in _AUTH_SESSIONS.values():
@@ -519,6 +523,7 @@ def _admin_permissions() -> dict:
         "nomenclature": True,
         "manage_users": True,
         "feedback": True,
+        "order_monitoring": True,
     }
 
 
@@ -534,6 +539,7 @@ def _parse_permissions_patch(body: dict) -> dict | None:
         ("nomenclature", "perm_nomenclature"),
         ("manage_users", "perm_manage_users"),
         ("feedback", "perm_feedback"),
+        ("order_monitoring", "perm_order_monitoring"),
     ):
         if key in raw:
             out[col] = 1 if raw[key] else 0
@@ -555,7 +561,8 @@ def _user_row_to_api(row) -> dict:
 
 _APP_USER_SELECT = """
     SELECT id, login, display_name, department, created_at,
-           perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
+           perm_orders, perm_nomenclature, perm_manage_users, perm_feedback,
+           perm_order_monitoring
     FROM app_users
 """
 
@@ -640,6 +647,7 @@ def create_app_user(body: dict) -> dict:
     perm_nomenclature = perm_patch.get("perm_nomenclature", 1)
     perm_manage_users = perm_patch.get("perm_manage_users", 0)
     perm_feedback = perm_patch.get("perm_feedback", 1)
+    perm_order_monitoring = perm_patch.get("perm_order_monitoring", 0)
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
@@ -648,9 +656,10 @@ def create_app_user(body: dict) -> dict:
                 """
                 INSERT INTO app_users (
                   login, password_hash, display_name, department, created_at,
-                  perm_orders, perm_nomenclature, perm_manage_users, perm_feedback
+                  perm_orders, perm_nomenclature, perm_manage_users, perm_feedback,
+                  perm_order_monitoring
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     login,
@@ -662,6 +671,7 @@ def create_app_user(body: dict) -> dict:
                     perm_nomenclature,
                     perm_manage_users,
                     perm_feedback,
+                    perm_order_monitoring,
                 ),
             )
             uid = int(cur.lastrowid)
@@ -3527,6 +3537,28 @@ def _order_shipment_locked_error() -> dict:
     }
 
 
+def _readiness_after_assembly_patch(
+    current_readiness: str,
+    *,
+    explicit_readiness: str | None,
+    old_pct: int,
+    apct: int,
+    content_changed: bool,
+) -> str:
+    if explicit_readiness is not None:
+        return explicit_readiness
+    if content_changed and current_readiness == _ORDER_READINESS_ASSEMBLED:
+        return _ORDER_READINESS_ASSEMBLING
+    if (
+        content_changed
+        and apct >= 100
+        and old_pct < 100
+        and current_readiness == _ORDER_READINESS_ASSEMBLING
+    ):
+        return _ORDER_READINESS_ASSEMBLED
+    return current_readiness
+
+
 def patch_order_assembly(
     order_id: int, body: dict, *, modified_by: str = ""
 ) -> dict:
@@ -3651,19 +3683,18 @@ def patch_order_assembly(
             ajson = new_state_json
         else:
             ajson = old_ajson
-        effective_readiness = (
-            new_readiness if new_readiness is not None else current_readiness
+        content_changed = not (
+            apct == old_pct and _assemble_states_equal(old_ajson, ajson)
         )
-        if (has_pct or has_state) and new_readiness is None:
-            if (
-                apct >= 100
-                and old_pct < 100
-                and current_readiness == _ORDER_READINESS_ASSEMBLING
-            ):
-                effective_readiness = _ORDER_READINESS_ASSEMBLED
+        effective_readiness = _readiness_after_assembly_patch(
+            current_readiness,
+            explicit_readiness=new_readiness,
+            old_pct=old_pct,
+            apct=apct,
+            content_changed=content_changed,
+        )
         if (
-            apct == old_pct
-            and _assemble_states_equal(old_ajson, ajson)
+            not content_changed
             and effective_readiness == current_readiness
         ):
             con.close()
@@ -5266,13 +5297,22 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             and old_item_sigs == new_item_sigs
         ):
             con.close()
-            return {"ok": True, "id": int(order_id), "unchanged": True}
+            return {
+                "ok": True,
+                "id": int(order_id),
+                "unchanged": True,
+                "order_readiness": _order_readiness_from_row(row),
+            }
         modifier = _normalize_str(modified_by)
+        current_readiness = _order_readiness_from_row(row)
+        effective_readiness = current_readiness
+        if current_readiness == _ORDER_READINESS_ASSEMBLED:
+            effective_readiness = _ORDER_READINESS_ASSEMBLING
         cur.execute(
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
               extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
-              client_city = ?,
+              client_city = ?, order_readiness = ?,
               last_edited_by = CASE WHEN ? != '' THEN ? ELSE last_edited_by END
             WHERE id = ?
             """,
@@ -5286,6 +5326,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
                 buyer_order_mode,
                 order_buyer_order,
                 client_city,
+                effective_readiness,
                 modifier,
                 modifier,
                 order_id,
@@ -5305,7 +5346,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             )
         con.commit()
         con.close()
-    return {"ok": True, "id": int(order_id)}
+    return {"ok": True, "id": int(order_id), "order_readiness": effective_readiness}
 
 
 def _order_item_row_to_dict(ir):
@@ -6589,8 +6630,15 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "nomenclature": bool(perms.get("nomenclature")),
                 "manage_users": bool(perms.get("manage_users")),
                 "feedback": bool(perms.get("feedback")),
+                "order_monitoring": bool(perms.get("order_monitoring")),
             }
-        return {"orders": True, "nomenclature": True, "manage_users": False, "feedback": True}
+        return {
+            "orders": True,
+            "nomenclature": True,
+            "manage_users": False,
+            "feedback": True,
+            "order_monitoring": False,
+        }
 
     def _ensure_feedback_permission(self) -> bool:
         session = self._auth_session or {}

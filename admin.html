@@ -2643,32 +2643,8 @@
         opacity: 0.55;
       }
 
-      .admin-login-department-input {
-        box-sizing: border-box;
-        min-width: 110px;
-        max-width: 200px;
-        padding: 4px 8px;
-        border: 1px solid rgba(0, 200, 160, 0.28);
-        border-radius: 8px;
-        background: rgba(12, 18, 28, 0.8);
-        color: var(--text-main);
-        font-family: "Roboto", sans-serif;
-        font-size: 13px;
-      }
-
-      .admin-login-department-input::placeholder {
+      .admin-login-department {
         color: var(--text-muted);
-      }
-
-      .admin-login-department-input:focus {
-        outline: none;
-        border-color: rgba(0, 200, 160, 0.55);
-        box-shadow: 0 0 0 2px rgba(0, 200, 160, 0.14);
-      }
-
-      .admin-login-department-input:disabled {
-        opacity: 0.65;
-        cursor: wait;
       }
 
       .nomenclature-workspace-scroll {
@@ -4716,19 +4692,9 @@
             <span id="admin-login-name">Администратор</span>
             <span id="admin-login-dept-wrap" class="admin-login-dept-wrap" hidden>
               <span class="admin-login-dept-sep" aria-hidden="true">·</span>
-              <input
-                type="text"
-                id="admin-login-department"
-                class="admin-login-department-input"
-                list="admin-department-datalist"
-                placeholder="Подразделение"
-                maxlength="128"
-                autocomplete="off"
-                aria-label="Подразделение"
-              />
+              <span id="admin-login-department" class="admin-login-department"></span>
             </span>
           </p>
-          <datalist id="admin-department-datalist"></datalist>
           <div class="main-menu-tools">
             <button
               id="updates-open-btn"
@@ -5955,11 +5921,11 @@
       const assembleWorkspace = document.getElementById("assemble-workspace");
       const assembleEmptyEl = document.getElementById("assemble-empty");
       const assembleLoadedEl = document.getElementById("assemble-loaded");
+      let usersListCache = [];
       const adminLoginNote = document.getElementById("admin-login-note");
       const adminLoginName = document.getElementById("admin-login-name");
       const adminLoginDeptWrap = document.getElementById("admin-login-dept-wrap");
-      const adminLoginDepartmentInput = document.getElementById("admin-login-department");
-      let adminDepartmentOptionsCache = [];
+      const adminLoginDepartmentEl = document.getElementById("admin-login-department");
 
       function adminLoginDisplayName(auth) {
         if (!auth) {
@@ -5971,29 +5937,6 @@
         return auth.display_name || auth.login || "пользователь";
       }
 
-      function syncAdminDepartmentDatalist(options) {
-        if (Array.isArray(options)) {
-          adminDepartmentOptionsCache = options
-            .map((value) => String(value || "").trim())
-            .filter(Boolean);
-        }
-        const seen = new Set(adminDepartmentOptionsCache);
-        usersListCache.forEach((user) => {
-          const value = String(user.department || "").trim();
-          if (value) {
-            seen.add(value);
-          }
-        });
-        const datalist = document.getElementById("admin-department-datalist");
-        if (!datalist) {
-          return;
-        }
-        datalist.innerHTML = Array.from(seen)
-          .sort((a, b) => a.localeCompare(b, "ru"))
-          .map((value) => `<option value="${escapeXml(value)}"></option>`)
-          .join("");
-      }
-
       function syncAdminLoginNote() {
         const auth = window.__PALETLIST_AUTH;
         if (!auth) {
@@ -6002,13 +5945,12 @@
         if (adminLoginName) {
           adminLoginName.textContent = adminLoginDisplayName(auth);
         }
-        if (adminLoginDeptWrap) {
-          adminLoginDeptWrap.hidden = !!auth.is_admin;
+        const dept = String(auth.department || "").trim();
+        if (adminLoginDeptWrap && adminLoginDepartmentEl) {
+          const showDept = !auth.is_admin && !!dept;
+          adminLoginDeptWrap.hidden = !showDept;
+          adminLoginDepartmentEl.textContent = showDept ? dept : "";
         }
-        if (adminLoginDepartmentInput && !auth.is_admin) {
-          adminLoginDepartmentInput.value = String(auth.department || "").trim();
-        }
-        syncAdminDepartmentDatalist();
       }
 
       async function refreshAuthProfileFromServer() {
@@ -6025,72 +5967,9 @@
           auth.login = data.login || auth.login || "";
           auth.display_name = data.display_name || "";
           auth.department = data.department || "";
-          if (Array.isArray(data.department_options)) {
-            syncAdminDepartmentDatalist(data.department_options);
-          }
           syncAdminLoginNote();
         } catch (error) {
           /* ignore */
-        }
-      }
-
-      let adminSelfDepartmentSaveBusy = false;
-
-      async function saveSelfDepartment(department) {
-        const auth = window.__PALETLIST_AUTH;
-        if (!auth || auth.is_admin) {
-          return;
-        }
-        const prev = String(auth.department || "").trim();
-        const next = String(department || "").trim();
-        if (next === prev) {
-          return;
-        }
-        auth.department = next;
-        const selfIdx = usersListCache.findIndex(
-          (user) => Number(user.id) === Number(auth.user_id),
-        );
-        if (selfIdx >= 0) {
-          usersListCache[selfIdx] = { ...usersListCache[selfIdx], department: next };
-        }
-        syncAdminDepartmentDatalist();
-        syncUsersDepartmentDatalist();
-        try {
-          const res = await fetch("/api/auth/account", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ login: auth.login || "", department: next }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok || data.error) {
-            throw new Error(data.message || "Не удалось сохранить подразделение.");
-          }
-          if (data.user) {
-            auth.department = String(data.user.department || "").trim();
-            if (selfIdx >= 0) {
-              usersListCache[selfIdx] = normalizeUserRecord(data.user);
-            }
-            syncAdminLoginNote();
-            if (currentStage === "users") {
-              renderUsersTable();
-            }
-          }
-          if (Array.isArray(data.department_options)) {
-            syncAdminDepartmentDatalist(data.department_options);
-          } else {
-            await refreshAuthProfileFromServer();
-          }
-        } catch (error) {
-          auth.department = prev;
-          if (selfIdx >= 0) {
-            usersListCache[selfIdx] = { ...usersListCache[selfIdx], department: prev };
-          }
-          if (adminLoginDepartmentInput) {
-            adminLoginDepartmentInput.value = prev;
-          }
-          syncAdminDepartmentDatalist();
-          syncUsersDepartmentDatalist();
-          console.error(error);
         }
       }
 
@@ -6181,9 +6060,6 @@
             };
           }
           auth.department = data.department || "";
-          if (Array.isArray(data.department_options)) {
-            syncAdminDepartmentDatalist(data.department_options);
-          }
           syncAdminLoginNote();
           applyMainMenuPermissions(currentStage);
           syncUpdatesAdminControls();
@@ -7273,7 +7149,6 @@
       const userEditPasswordInput = document.getElementById("user-edit-password");
       const userEditPasswordLabel = document.getElementById("user-edit-password-label");
       const userEditPasswordHint = document.getElementById("user-edit-password-hint");
-      let usersListCache = [];
       let userEditId = null;
 
       const nomenclatureWorkspace = document.getElementById("nomenclature-workspace");
@@ -9787,7 +9662,6 @@
         datalist.innerHTML = collectUserDepartments()
           .map((value) => `<option value="${escapeXml(value)}"></option>`)
           .join("");
-        syncAdminDepartmentDatalist();
       }
 
       function renderUserPermToggle(userId, key, enabled) {
@@ -10165,26 +10039,6 @@
         }
       });
       syncUpdatesAdminControls();
-      if (adminLoginDepartmentInput) {
-        adminLoginDepartmentInput.addEventListener("focusout", () => {
-          if (adminSelfDepartmentSaveBusy) {
-            return;
-          }
-          adminSelfDepartmentSaveBusy = true;
-          adminLoginDepartmentInput.disabled = true;
-          void saveSelfDepartment(adminLoginDepartmentInput.value).finally(() => {
-            adminLoginDepartmentInput.disabled = false;
-            adminSelfDepartmentSaveBusy = false;
-          });
-        });
-        adminLoginDepartmentInput.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter") {
-            return;
-          }
-          event.preventDefault();
-          adminLoginDepartmentInput.blur();
-        });
-      }
       if (usersAdminPanel) {
         usersAdminPanel.addEventListener("focusout", (event) => {
           const input = event.target.closest(".users-department-input");

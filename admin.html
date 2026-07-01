@@ -13530,7 +13530,7 @@
               : formatOrderQuantityCell(o, ordersNamesDisplayUnit, { uniqueItemNames: true });
             const chatBtn = renderOrderChatButton(o.id, o);
             const settingsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-settings="${oid}" aria-expanded="${settingsExpanded ? "true" : "false"}" title="${settingsExpanded ? "Свернуть настройки заказа" : "Настройки заказа"}">Настройки заказа</button>`;
-            const assemblyBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-assembly="${oid}" aria-expanded="${assemblyExpanded ? "true" : "false"}" title="${assemblyExpanded ? "Свернуть информацию о сборке" : "Сборка заказа"}">Сборка заказа</button>`;
+            const assemblyBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-assembly="${oid}" aria-expanded="${assemblyExpanded ? "true" : "false"}" title="${assemblyExpanded ? "Свернуть настройку заказа" : "Настройка заказа"}">Настройка заказа</button>`;
             const palletsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-pallets="${oid}" aria-expanded="${palletsExpanded ? "true" : "false"}" title="${palletsExpanded ? "Свернуть сборку паллет" : "Сборка паллет"}">Сборка паллет</button>`;
             const expandActions = `<div class="om-expand-actions">${settingsBtn}${assemblyBtn}${palletsBtn}</div>`;
             const mainRow = `<tr class="om-order-row${rowExpanded ? " is-expanded" : ""}" data-order-id="${oid}">

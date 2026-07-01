@@ -2030,7 +2030,23 @@
         flex-shrink: 0;
       }
 
-      .orders-table th.col-client {
+      .orders-filter-pct-section + .orders-filter-pct-section {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(0, 200, 160, 0.18);
+      }
+
+      .orders-filter-pct-section-title {
+        margin: 0 0 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .orders-filter-pct-readiness .orders-filter-extra-toolbar {
+        margin-bottom: 6px;
+        padding-bottom: 0;
+        border-bottom: none;
+      }
         position: relative;
         vertical-align: top;
         min-width: 9rem;
@@ -5214,21 +5230,45 @@
               class="orders-filter-extra-popover orders-filter-pct-popover"
               hidden
               role="dialog"
-              aria-label="Фильтр по проценту сборки"
+              aria-label="Фильтр по проценту сборки и готовности"
             >
               <div id="orders-filter-pct-options" class="orders-filter-pct-options">
-                <label>
-                  <input type="radio" name="orders-filter-pct" value="" checked />
-                  <span>Все</span>
-                </label>
-                <label>
-                  <input type="radio" name="orders-filter-pct" value="100" />
-                  <span>Только 100%</span>
-                </label>
-                <label>
-                  <input type="radio" name="orders-filter-pct" value="open" />
-                  <span>Меньше 100%</span>
-                </label>
+                <div class="orders-filter-pct-section">
+                  <p class="orders-filter-pct-section-title">Процент сборки</p>
+                  <label>
+                    <input type="radio" name="orders-filter-pct" value="" checked />
+                    <span>Все</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="orders-filter-pct" value="100" />
+                    <span>Только 100%</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="orders-filter-pct" value="open" />
+                    <span>Меньше 100%</span>
+                  </label>
+                </div>
+                <div class="orders-filter-pct-section orders-filter-pct-readiness">
+                  <div class="orders-filter-extra-toolbar">
+                    <button type="button" id="orders-filter-readiness-all">Все</button>
+                    <button type="button" id="orders-filter-readiness-none">Снять</button>
+                  </div>
+                  <p class="orders-filter-pct-section-title">Готовность</p>
+                  <div id="orders-filter-readiness-checkboxes" class="orders-filter-pct-options">
+                    <label>
+                      <input type="checkbox" data-orders-readiness-filter="assembling" checked />
+                      <span>В сборке</span>
+                    </label>
+                    <label>
+                      <input type="checkbox" data-orders-readiness-filter="assembled" checked />
+                      <span>Собран</span>
+                    </label>
+                    <label>
+                      <input type="checkbox" data-orders-readiness-filter="shipped" checked />
+                      <span>Отгружен</span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
             <div
@@ -11214,6 +11254,8 @@
       let ordersSortDir = "asc";
       let ordersFilterShip = "";
       let ordersFilterPct = "";
+      /** @type {Set<string> | null} */
+      let ordersFilterReadinessSelected = null;
       let ordersFilterInputTimer = null;
       let ordersClientFilterActiveToggleId = "orders-filter-client-toggle";
       let ordersPctFilterActiveToggleId = "orders-filter-pct-toggle";
@@ -11442,14 +11484,36 @@
         setOrdersExtraInfoFilterOpen(false);
       }
 
+      function isOrdersReadinessFilterNarrowed() {
+        if (ordersFilterReadinessSelected === null) {
+          return false;
+        }
+        return ordersFilterReadinessSelected.size < ORDER_READINESS_CYCLE.length;
+      }
+
+      function syncOrdersReadinessFilterCheckboxes() {
+        const box = document.getElementById("orders-filter-readiness-checkboxes");
+        if (!box) {
+          return;
+        }
+        const selected =
+          ordersFilterReadinessSelected === null
+            ? new Set(ORDER_READINESS_CYCLE)
+            : ordersFilterReadinessSelected;
+        box.querySelectorAll("input[data-orders-readiness-filter]").forEach((cb) => {
+          const v = cb.dataset.ordersReadinessFilter;
+          cb.checked = selected.has(v);
+        });
+      }
+
       function updateOrdersPctFilterToggle() {
-        const active = ordersFilterPct !== "";
+        const active = ordersFilterPct !== "" || isOrdersReadinessFilterNarrowed();
         document.querySelectorAll("#orders-filter-pct-toggle, #om-filter-pct-toggle").forEach((toggle) => {
           toggle.classList.toggle("is-active", active);
         });
       }
 
-      function syncOrdersPctFilterRadios() {
+      function syncOrdersPctFilterUi() {
         const pop = document.getElementById("orders-filter-pct-popover");
         if (!pop) {
           return;
@@ -11457,6 +11521,7 @@
         pop.querySelectorAll('input[name="orders-filter-pct"]').forEach((radio) => {
           radio.checked = radio.value === (ordersFilterPct || "");
         });
+        syncOrdersReadinessFilterCheckboxes();
         updateOrdersPctFilterToggle();
       }
 
@@ -11506,7 +11571,7 @@
           t.setAttribute("aria-expanded", show && t.id === activeToggleId ? "true" : "false");
         });
         if (show) {
-          syncOrdersPctFilterRadios();
+          syncOrdersPctFilterUi();
           requestAnimationFrame(() => {
             positionOrdersPctFilterPopover();
           });
@@ -11938,6 +12003,15 @@
           list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) >= 100);
         } else if (ordersFilterPct === "open") {
           list = list.filter((o) => Math.round(Number(o.assembled_percent) || 0) < 100);
+        }
+        if (ordersFilterReadinessSelected !== null) {
+          if (ordersFilterReadinessSelected.size === 0) {
+            list = [];
+          } else if (ordersFilterReadinessSelected.size < ORDER_READINESS_CYCLE.length) {
+            list = list.filter((o) =>
+              ordersFilterReadinessSelected.has(getEffectiveOrderReadiness(o)),
+            );
+          }
         }
         const extraValues = collectOrdersExtraInfoFilterValues();
         if (
@@ -18400,6 +18474,47 @@
             updateOrdersPctFilterToggle();
             renderActiveOrdersListTable();
             closeOrdersPctFilterPopover();
+          });
+        }
+        const readinessAllBtn = document.getElementById("orders-filter-readiness-all");
+        const readinessNoneBtn = document.getElementById("orders-filter-readiness-none");
+        const readinessCheckboxes = document.getElementById("orders-filter-readiness-checkboxes");
+        if (readinessAllBtn) {
+          readinessAllBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterReadinessSelected = new Set(ORDER_READINESS_CYCLE);
+            syncOrdersReadinessFilterCheckboxes();
+            updateOrdersPctFilterToggle();
+            renderActiveOrdersListTable();
+          });
+        }
+        if (readinessNoneBtn) {
+          readinessNoneBtn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            ordersFilterReadinessSelected = new Set();
+            syncOrdersReadinessFilterCheckboxes();
+            updateOrdersPctFilterToggle();
+            renderActiveOrdersListTable();
+          });
+        }
+        if (readinessCheckboxes) {
+          readinessCheckboxes.addEventListener("change", (ev) => {
+            ev.stopPropagation();
+            const cb = ev.target;
+            if (!cb || cb.type !== "checkbox" || !cb.dataset.ordersReadinessFilter) {
+              return;
+            }
+            if (ordersFilterReadinessSelected === null) {
+              ordersFilterReadinessSelected = new Set(ORDER_READINESS_CYCLE);
+            }
+            const value = cb.dataset.ordersReadinessFilter;
+            if (cb.checked) {
+              ordersFilterReadinessSelected.add(value);
+            } else {
+              ordersFilterReadinessSelected.delete(value);
+            }
+            updateOrdersPctFilterToggle();
+            renderActiveOrdersListTable();
           });
         }
         updateOrdersPctFilterToggle();

@@ -559,66 +559,112 @@
         background: rgba(10, 16, 28, 0.55);
       }
 
-      .om-order-detail {
+      .om-order-edit-readonly {
         padding: 14px 16px 16px;
         border-top: 1px solid rgba(0, 200, 160, 0.14);
       }
 
-      .om-order-detail-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-        gap: 10px 18px;
-        margin-bottom: 14px;
+      .om-order-edit-readonly .arnest-grid {
+        margin-bottom: 4px;
       }
 
-      .om-order-detail-field {
-        min-width: 0;
-      }
-
-      .om-order-detail-label {
-        display: block;
-        font-size: 10px;
-        letter-spacing: 0.35px;
-        text-transform: uppercase;
-        color: rgba(180, 200, 220, 0.72);
-        margin-bottom: 3px;
-      }
-
-      .om-order-detail-value {
+      .om-order-edit-label {
+        color: var(--text-muted);
         font-size: 13px;
+      }
+
+      .om-order-edit-readonly-value {
+        border: 1px solid rgba(0, 200, 160, 0.25);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(10, 14, 23, 0.85);
+        color: var(--text-main);
+        font-size: 14px;
         line-height: 1.4;
         word-break: break-word;
       }
 
-      .om-order-items-title {
-        margin: 0 0 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.4px;
-        text-transform: uppercase;
-        color: rgba(180, 220, 210, 0.9);
+      .om-order-edit-city-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px;
       }
 
-      .om-order-items-table {
-        width: 100%;
-        border-collapse: collapse;
+      .om-order-edit-delivery-field {
+        grid-column: 1 / -1;
+      }
+
+      .om-order-edit-delivery-toggle {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .om-order-edit-delivery-pill {
+        display: inline-block;
+        padding: 8px 12px;
         font-size: 12px;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: rgba(10, 14, 23, 0.65);
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 8px;
       }
 
-      .om-order-items-table th,
-      .om-order-items-table td {
-        padding: 6px 8px;
-        border: 1px solid rgba(0, 200, 160, 0.12);
-        text-align: left;
-        vertical-align: top;
+      .om-order-edit-delivery-pill.is-active {
+        color: #09111e;
+        background: linear-gradient(45deg, rgba(0, 200, 160, 0.85), rgba(0, 168, 140, 0.9));
+        border-color: transparent;
+        font-weight: 600;
       }
 
-      .om-order-items-table th {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-        color: rgba(180, 200, 220, 0.8);
-        background: rgba(0, 200, 160, 0.06);
+      .om-order-edit-delivery-fixed {
+        margin: 0;
+        padding: 8px 0 0;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-main);
+      }
+
+      .om-order-edit-items-label {
+        margin: 16px 0 8px;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .om-order-edit-items-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px 130px;
+        gap: 8px;
+        align-items: end;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .om-order-edit-item-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px 130px;
+        gap: 8px;
+        align-items: start;
+        margin-bottom: 8px;
+      }
+
+      .om-order-edit-item-caption {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .om-order-edit-item-extra {
+        margin-top: 8px;
+      }
+
+      .om-order-edit-loading {
+        padding: 14px 16px 16px;
+        border-top: 1px solid rgba(0, 200, 160, 0.14);
       }
 
       .om-readiness-label {
@@ -11122,6 +11168,8 @@
       let ordersExtraFilterActiveToggleId = "orders-filter-extra-toggle";
       /** @type {Set<number>} */
       const orderMonitoringExpandedIds = new Set();
+      const orderMonitoringDetailCache = new Map();
+      const orderMonitoringDetailLoading = new Set();
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -12475,82 +12523,175 @@
         return `<div class="orders-pct-cell"><span class="orders-pct-value">${escapeXml(pct)} %</span><span class="orders-pct-pallets">${escapeXml(palletsLabel)}</span><span class="om-readiness-label orders-readiness-btn orders-readiness-btn--${escapeXml(readiness)}">${escapeXml(readinessLabel)}</span></div>`;
       }
 
-      function formatOrderMonitoringDetailField(label, value) {
-        const text = String(value || "").trim() || "—";
-        return `<div class="om-order-detail-field"><span class="om-order-detail-label">${escapeXml(label)}</span><span class="om-order-detail-value">${escapeXml(text)}</span></div>`;
-      }
-
-      function formatOrderMonitoringItemRow(it, displayUnit) {
-        const article = escapeXml(it.article || "—");
-        const name = escapeXml(it.name || "—");
-        const rawQty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
-        const unitLabel = escapeXml(it.unit || "");
-        const converted = orderItemQuantityInDisplayUnit(it, displayUnit);
-        let convertedLabel = "—";
-        if (converted != null && Number.isFinite(converted)) {
-          const suf =
-            displayUnit === "box" ? "кор" : displayUnit === "set" ? "наб" : "шт";
-          convertedLabel = `${converted.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${suf}`;
+      function formatOrderItemUnitLabel(unit) {
+        const u = String(unit || "piece").toLowerCase();
+        if (u === "box") {
+          return "Коробки";
         }
-        return `<tr><td>${article}</td><td>${name}</td><td>${escapeXml(rawQty)} ${unitLabel}</td><td>${escapeXml(convertedLabel)}</td></tr>`;
+        if (u === "set") {
+          return "Наборы";
+        }
+        return "Штуки";
       }
 
-      function formatOrderMonitoringDetail(orderRow) {
-        const items = Array.isArray(orderRow.items) ? orderRow.items : [];
-        const deliveryType = getOrderExtraInfoFilterLabel(orderRow);
-        const readiness =
-          ORDER_READINESS_LABELS[getEffectiveOrderReadiness(orderRow)] ||
-          ORDER_READINESS_LABELS.assembling;
-        const editedBy = String(
-          orderRow.last_edited_by || orderRow.last_modified_by || "",
-        ).trim();
-        const assembledBy = String(orderRow.last_assembled_by || "").trim();
-        const unitLabel =
-          ordersNamesDisplayUnit === "box"
-            ? "коробки"
-            : ordersNamesDisplayUnit === "set"
-              ? "наборы"
-              : "штуки";
-        const itemsHtml = items.length
-          ? `<table class="om-order-items-table"><thead><tr><th>Артикул</th><th>Наименование</th><th>Кол-во в заказе</th><th>Сумма (${escapeXml(unitLabel)})</th></tr></thead><tbody>${items.map((it) => formatOrderMonitoringItemRow(it, ordersNamesDisplayUnit)).join("")}</tbody></table>`
-          : `<p class="muted" style="margin:0;">${escapeXml(String(orderRow.names || "").trim() || "Позиции не указаны")}</p>`;
-        const skipped = Array.isArray(orderRow.import_skipped_names)
-          ? orderRow.import_skipped_names.filter((n) => String(n || "").trim())
-          : [];
-        const skippedHtml = skipped.length
-          ? `<div class="om-order-detail-field" style="grid-column:1/-1;"><span class="om-order-detail-label">Пропущено при импорте</span><span class="om-order-detail-value">${skipped.map((n) => escapeXml(String(n))).join("; ")}</span></div>`
+      function getOrderMonitoringEditItems(orderData) {
+        const client = String(orderData?.client || "");
+        const legacyOrderBuyer = String(orderData?.buyer_order || "").trim();
+        const items = Array.isArray(orderData?.items)
+          ? orderData.items
+          : Array.isArray(orderData?.order_items)
+            ? orderData.order_items
+            : [];
+        return items.map((it) => {
+          const row = { ...it };
+          if (
+            clientRequiresLineBuyerOrder(client) &&
+            legacyOrderBuyer &&
+            !String(row.buyer_order || "").trim()
+          ) {
+            row.buyer_order = legacyOrderBuyer;
+          }
+          return row;
+        });
+      }
+
+      function formatOrderMonitoringDeliveryTypeView(client, extraInfo) {
+        const deliveryType = getDeliveryTypeForClient(client, extraInfo || "Обычный");
+        if (isNewOrderSpecialClient(client)) {
+          return `<p class="om-order-edit-delivery-fixed">${escapeXml(deliveryType)}</p>`;
+        }
+        const pills = NEW_ORDER_DELIVERY_TOGGLE_TYPES.map((type) => {
+          const active = type === deliveryType ? " is-active" : "";
+          return `<span class="om-order-edit-delivery-pill${active}">${escapeXml(type)}</span>`;
+        }).join("");
+        return `<div class="om-order-edit-delivery-toggle">${pills}</div>`;
+      }
+
+      function formatOrderMonitoringEditItemRow(it, client) {
+        const name = formatOrderItemSearchInput(it.article, it.name) || "—";
+        const qty =
+          it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
+        const unit = formatOrderItemUnitLabel(it.unit);
+        const showBuyer = clientRequiresLineBuyerOrder(client);
+        const buyerCaption = isDrogeriRetailClient(client) ? "Номер заказа" : "Заказ покупателя";
+        const buyerHtml = showBuyer
+          ? `<div class="om-order-edit-item-extra"><span class="om-order-edit-item-caption">${escapeXml(buyerCaption)}</span><div class="om-order-edit-readonly-value">${escapeXml(String(it.buyer_order || "").trim() || "—")}</div></div>`
           : "";
-        const labHtml = isLabIndustriesClient(orderRow.client)
-          ? formatOrderMonitoringDetailField(
-              "SSCC / отгрузка",
-              orderRow.lab_sscc_shipped
-                ? `Отгружен${orderRow.lab_sscc_seq_start != null ? `, старт SSCC: ${orderRow.lab_sscc_seq_start}` : ""}`
-                : orderRow.lab_sscc_seq_start != null
-                  ? `Не отгружен, старт SSCC: ${orderRow.lab_sscc_seq_start}`
-                  : "Не отгружен",
-            )
+        const labHtml = isLabIndustriesClient(client)
+          ? `<div class="om-order-edit-item-extra"><span class="om-order-edit-item-caption">Общее количество заказа (от менеджера)</span><div class="om-order-edit-readonly-value">${escapeXml(it.total_order_quantity != null && it.total_order_quantity !== "" ? String(it.total_order_quantity) : "—")}</div></div>`
           : "";
-        return `<div class="om-order-detail">
-            <div class="om-order-detail-grid">
-              ${formatOrderMonitoringDetailField("Клиент", orderRow.client)}
-              ${formatOrderMonitoringDetailField("Город", orderRow.client_city)}
-              ${formatOrderMonitoringDetailField("Дата отгрузки", orderRow.ship_date)}
-              ${formatOrderMonitoringDetailField("Доставка", deliveryType)}
-              ${formatOrderMonitoringDetailField("Готовность", readiness)}
-              ${formatOrderMonitoringDetailField("Собрано", `${formatOrderPct(orderRow.assembled_percent)} %`)}
-              ${formatOrderMonitoringDetailField("Паллеты", formatOrderPalletCount(orderAssemblePalletCount(orderRow)))}
-              ${formatOrderMonitoringDetailField("Редактировал", editedBy)}
-              ${formatOrderMonitoringDetailField("Собирал", assembledBy)}
-              ${formatOrderMonitoringDetailField(
-                "Обновление сборки",
-                orderRow.assemble_state_updated_at || "",
-              )}
+        return `<div class="om-order-edit-item-row">
+            <div class="om-order-edit-item-name">
+              <span class="om-order-edit-item-caption">Наименование</span>
+              <div class="om-order-edit-readonly-value">${escapeXml(name)}</div>
+              ${buyerHtml}
               ${labHtml}
-              ${skippedHtml}
             </div>
-            <h4 class="om-order-items-title">Позиции заказа (${items.length || "—"})</h4>
+            <div class="om-order-edit-item-metric">
+              <span class="om-order-edit-item-caption">Количество</span>
+              <div class="om-order-edit-readonly-value">${escapeXml(qty)}</div>
+            </div>
+            <div class="om-order-edit-item-metric">
+              <span class="om-order-edit-item-caption">Единица</span>
+              <div class="om-order-edit-readonly-value">${escapeXml(unit)}</div>
+            </div>
+          </div>`;
+      }
+
+      function formatOrderMonitoringEditDetail(orderData) {
+        const client = String(orderData?.client || "");
+        const cityBlock = isDrogeriRetailClient(client)
+          ? `<div class="om-order-edit-city-wrap">
+              <span class="om-order-edit-label">Город</span>
+              <div class="om-order-edit-readonly-value">${escapeXml(String(orderData.client_city || "").trim() || "—")}</div>
+            </div>`
+          : "";
+        const items = getOrderMonitoringEditItems(orderData);
+        const itemsHtml = items.length
+          ? `<div class="om-order-edit-items-head">
+              <span>Наименование</span>
+              <span>Количество</span>
+              <span>Единица</span>
+            </div>${items.map((it) => formatOrderMonitoringEditItemRow(it, client)).join("")}`
+          : `<p class="muted" style="margin:0;">Позиции не указаны</p>`;
+        return `<div class="om-order-edit-readonly">
+            <div class="arnest-grid">
+              <div class="arnest-field">
+                <span class="om-order-edit-label">Дата отгрузки</span>
+                <div class="om-order-edit-readonly-value">${escapeXml(String(orderData.ship_date || "").trim() || "—")}</div>
+              </div>
+              <div class="arnest-field">
+                <span class="om-order-edit-label">Клиент</span>
+                <div class="om-order-edit-readonly-value">${escapeXml(client || "—")}</div>
+                ${cityBlock}
+              </div>
+              <div class="arnest-field om-order-edit-delivery-field">
+                <span class="om-order-edit-label">Тип отгрузки</span>
+                ${formatOrderMonitoringDeliveryTypeView(client, orderData.extra_info)}
+              </div>
+            </div>
+            <p class="om-order-edit-items-label">Позиции заказа</p>
             ${itemsHtml}
           </div>`;
+      }
+
+      function formatOrderMonitoringExpandPanel(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return "";
+        }
+        if (orderMonitoringDetailLoading.has(oid)) {
+          return '<div class="om-order-edit-loading muted">Загрузка настроек заказа…</div>';
+        }
+        const cached = orderMonitoringDetailCache.get(oid);
+        if (!cached) {
+          return '<div class="om-order-edit-loading muted">Загрузка настроек заказа…</div>';
+        }
+        if (cached.error) {
+          return `<div class="om-order-edit-loading muted">${escapeXml(cached.error)}</div>`;
+        }
+        return formatOrderMonitoringEditDetail(cached);
+      }
+
+      async function ensureOrderMonitoringDetailLoaded(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        const cached = orderMonitoringDetailCache.get(oid);
+        if (cached && !cached.error) {
+          return;
+        }
+        if (orderMonitoringDetailLoading.has(oid)) {
+          return;
+        }
+        orderMonitoringDetailLoading.add(oid);
+        try {
+          let res;
+          try {
+            res = await fetch(`/api/orders/${oid}`);
+          } catch (err) {
+            orderMonitoringDetailCache.set(oid, { error: "Нет связи с сервером." });
+            return;
+          }
+          if (res.status === 404) {
+            orderMonitoringDetailCache.set(oid, { error: "Заказ не найден." });
+          } else if (!res.ok) {
+            orderMonitoringDetailCache.set(oid, { error: "Не удалось загрузить заказ." });
+          } else {
+            try {
+              const data = await res.json();
+              orderMonitoringDetailCache.set(oid, data);
+            } catch (err) {
+              orderMonitoringDetailCache.set(oid, { error: "Некорректный ответ сервера." });
+            }
+          }
+        } finally {
+          orderMonitoringDetailLoading.delete(oid);
+          if (orderMonitoringExpandedIds.has(oid) && currentStage === "order_monitoring") {
+            renderOrderMonitoringTable();
+          }
+        }
       }
 
       function toggleOrderMonitoringExpand(orderId) {
@@ -12560,10 +12701,12 @@
         }
         if (orderMonitoringExpandedIds.has(oid)) {
           orderMonitoringExpandedIds.delete(oid);
-        } else {
-          orderMonitoringExpandedIds.add(oid);
+          renderOrderMonitoringTable();
+          return;
         }
+        orderMonitoringExpandedIds.add(oid);
         renderOrderMonitoringTable();
+        void ensureOrderMonitoringDetailLoaded(oid);
       }
 
       function renderOrderMonitoringTable() {
@@ -12623,7 +12766,7 @@
                   <td class="col-actions"><div class="orders-row-actions">${chatBtn}</div></td>
                 </tr>`;
             const detailRow = expanded
-              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringDetail(o)}</td></tr>`
+              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringExpandPanel(oid)}</td></tr>`
               : "";
             return mainRow + detailRow;
           })
@@ -16435,6 +16578,7 @@
             }),
           );
           cachedOrdersListRows = mergeOrderReadinessFromServer(enriched);
+          orderMonitoringDetailCache.clear();
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
           if (currentStage === "orders") {

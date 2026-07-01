@@ -612,6 +612,30 @@
         color: var(--text-muted);
       }
 
+      .om-order-edit-items-head--lab,
+      .om-order-edit-item-row--lab {
+        grid-template-columns:
+          minmax(140px, 1.4fr)
+          minmax(96px, 0.9fr)
+          minmax(120px, 1fr)
+          72px
+          84px;
+      }
+
+      .om-order-edit-items--lab {
+        overflow-x: auto;
+        min-width: 0;
+      }
+
+      .om-order-edit-items-head--lab,
+      .om-order-edit-item-row--lab {
+        min-width: 700px;
+      }
+
+      .om-order-edit-items-head--lab span:nth-child(3) {
+        line-height: 1.25;
+      }
+
       .om-order-edit-item-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 96px 130px;
@@ -621,7 +645,8 @@
       }
 
       .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
+      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption,
+      .om-order-edit-item-row--lab > .om-order-edit-item-cell > .om-order-edit-item-caption {
         display: none;
       }
 
@@ -4830,9 +4855,15 @@
         }
 
         .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
+        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption,
+        .om-order-edit-item-row--lab > .om-order-edit-item-cell > .om-order-edit-item-caption {
           display: block;
           font-size: 12px;
+        }
+
+        .om-order-edit-items-head--lab,
+        .om-order-edit-item-row--lab {
+          min-width: 0;
         }
 
         .new-order-dialog .order-item-qty,
@@ -12559,25 +12590,76 @@
         return `<div class="om-order-edit-readonly-value">${escapeXml(deliveryType || "—")}</div>`;
       }
 
+      function formatOrderMonitoringItemCell(caption, value, extraClass) {
+        const cls = ["om-order-edit-item-cell", extraClass].filter(Boolean).join(" ");
+        return `<div class="${cls}">
+            <span class="om-order-edit-item-caption">${escapeXml(caption)}</span>
+            <div class="om-order-edit-readonly-value">${escapeXml(value)}</div>
+          </div>`;
+      }
+
+      function formatOrderMonitoringLabItemRow(it) {
+        const name = formatOrderItemSearchInput(it.article, it.name) || "—";
+        const buyer = String(it.buyer_order || "").trim() || "—";
+        const totalQty =
+          it.total_order_quantity != null && it.total_order_quantity !== ""
+            ? String(it.total_order_quantity)
+            : "—";
+        const qty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
+        const unit = formatOrderItemUnitLabel(it.unit);
+        return `<div class="om-order-edit-item-row om-order-edit-item-row--lab">
+            ${formatOrderMonitoringItemCell("Наименование", name, "om-order-edit-item-name")}
+            ${formatOrderMonitoringItemCell("Заказ покупателя", buyer)}
+            ${formatOrderMonitoringItemCell(
+              "Общее количество заказа (от менеджера)",
+              totalQty,
+            )}
+            ${formatOrderMonitoringItemCell("Количество", qty)}
+            ${formatOrderMonitoringItemCell("Единица", unit)}
+          </div>`;
+      }
+
+      function formatOrderMonitoringItemsBlock(client, items) {
+        if (!items.length) {
+          return `<p class="muted" style="margin:0;">Позиции не указаны</p>`;
+        }
+        if (isLabIndustriesClient(client)) {
+          return `<div class="om-order-edit-items om-order-edit-items--lab">
+              <div class="om-order-edit-items-head om-order-edit-items-head--lab">
+                <span>Наименование</span>
+                <span>Заказ покупателя</span>
+                <span>Общее количество заказа (от менеджера)</span>
+                <span>Количество</span>
+                <span>Единица</span>
+              </div>
+              ${items.map((it) => formatOrderMonitoringLabItemRow(it)).join("")}
+            </div>`;
+        }
+        return `<div class="om-order-edit-items">
+            <div class="om-order-edit-items-head">
+              <span>Наименование</span>
+              <span>Количество</span>
+              <span>Единица</span>
+            </div>
+            ${items.map((it) => formatOrderMonitoringEditItemRow(it, client)).join("")}
+          </div>`;
+      }
+
       function formatOrderMonitoringEditItemRow(it, client) {
         const name = formatOrderItemSearchInput(it.article, it.name) || "—";
         const qty =
           it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
         const unit = formatOrderItemUnitLabel(it.unit);
-        const showBuyer = clientRequiresLineBuyerOrder(client);
+        const showBuyer = clientRequiresLineBuyerOrder(client) && !isLabIndustriesClient(client);
         const buyerCaption = isDrogeriRetailClient(client) ? "Номер заказа" : "Заказ покупателя";
         const buyerHtml = showBuyer
           ? `<div class="om-order-edit-item-extra"><span class="om-order-edit-item-caption">${escapeXml(buyerCaption)}</span><div class="om-order-edit-readonly-value">${escapeXml(String(it.buyer_order || "").trim() || "—")}</div></div>`
-          : "";
-        const labHtml = isLabIndustriesClient(client)
-          ? `<div class="om-order-edit-item-extra"><span class="om-order-edit-item-caption">Общее количество заказа (от менеджера)</span><div class="om-order-edit-readonly-value">${escapeXml(it.total_order_quantity != null && it.total_order_quantity !== "" ? String(it.total_order_quantity) : "—")}</div></div>`
           : "";
         return `<div class="om-order-edit-item-row">
             <div class="om-order-edit-item-name">
               <span class="om-order-edit-item-caption">Наименование</span>
               <div class="om-order-edit-readonly-value">${escapeXml(name)}</div>
               ${buyerHtml}
-              ${labHtml}
             </div>
             <div class="om-order-edit-item-metric">
               <span class="om-order-edit-item-caption">Количество</span>
@@ -12599,13 +12681,7 @@
             </div>`
           : "";
         const items = getOrderMonitoringEditItems(orderData);
-        const itemsHtml = items.length
-          ? `<div class="om-order-edit-items-head">
-              <span>Наименование</span>
-              <span>Количество</span>
-              <span>Единица</span>
-            </div>${items.map((it) => formatOrderMonitoringEditItemRow(it, client)).join("")}`
-          : `<p class="muted" style="margin:0;">Позиции не указаны</p>`;
+        const itemsHtml = formatOrderMonitoringItemsBlock(client, items);
         return `<div class="om-order-edit-readonly">
             <div class="arnest-grid">
               <div class="arnest-field">

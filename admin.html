@@ -516,6 +516,44 @@
         animation: workspaceReveal 260ms ease;
       }
 
+      .panel.fx-order_monitoring {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        max-height: 100dvh;
+        overflow: hidden;
+        box-sizing: border-box;
+        animation: fxOrders 340ms ease;
+      }
+
+      .panel.fx-order_monitoring > h1,
+      .panel.fx-order_monitoring > .admin-login-note,
+      .panel.fx-order_monitoring > .assemble-presence-hint,
+      .panel.fx-order_monitoring > .stage-order-context,
+      .panel.fx-order_monitoring > .menu-items {
+        flex-shrink: 0;
+      }
+
+      .panel.fx-order_monitoring .order-monitoring-workspace.visible {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .panel.fx-order_monitoring .order-monitoring-workspace.visible .orders-names-toolbar {
+        flex-shrink: 0;
+      }
+
+      .panel.fx-order_monitoring .order-monitoring-workspace.visible .orders-table-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
       .order-monitoring-table .col-expand {
         width: 2.25rem;
         text-align: center;
@@ -4266,6 +4304,10 @@
           max-height: min(62vh, 640px);
           overflow: auto;
           -webkit-overflow-scrolling: touch;
+        }
+
+        .panel.fx-order_monitoring .order-monitoring-workspace.visible .orders-table-wrap {
+          max-height: none;
         }
 
         .orders-table {
@@ -9449,6 +9491,7 @@
           "fx-create",
           "fx-arnest",
           "fx-orders",
+          "fx-order_monitoring",
           "fx-assemble",
           "fx-nomenclature",
           "fx-users",

@@ -632,6 +632,29 @@
         user-select: text;
       }
 
+      .om-assemble-summary-wrap {
+        overflow-x: auto;
+        min-width: 0;
+      }
+
+      .om-assemble-summary-wrap .assemble-summary-toolbar {
+        margin-bottom: 8px;
+      }
+
+      .assemble-summary-pallet-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.65rem;
+        padding: 2px 6px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 200, 160, 0.28);
+        background: rgba(0, 200, 160, 0.08);
+        color: #9ef5e4;
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
       .om-order-edit-readonly .arnest-grid {
         margin-bottom: 4px;
       }
@@ -11295,6 +11318,10 @@
       const orderMonitoringAssemblyExpandedIds = new Set();
       const orderMonitoringDetailCache = new Map();
       const orderMonitoringDetailLoading = new Set();
+      const orderMonitoringAssemblyCache = new Map();
+      const orderMonitoringAssemblyLoading = new Set();
+      /** @type {Map<number, string>} */
+      const orderMonitoringAssemblyUnit = new Map();
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -12867,47 +12894,74 @@
         return formatOrderMonitoringEditDetail(cached);
       }
 
-      function formatOrderMonitoringAssemblyDetail(orderRow) {
-        const pct = formatOrderPct(orderRow.assembled_percent);
-        const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
-        const readiness = getEffectiveOrderReadiness(orderRow);
-        const readinessLabel =
-          ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
-        const assembledBy = String(orderRow.last_assembled_by || "").trim();
-        const updatedAtRaw = String(orderRow.assemble_state_updated_at || "").trim();
-        const updatedAt = updatedAtRaw ? formatFeedbackDateTime(updatedAtRaw) : "";
-        const assembledByHtml = assembledBy
-          ? `<div class="arnest-field"><span class="om-order-edit-label">Собирал</span><div class="om-order-edit-readonly-value">${escapeXml(assembledBy)}</div></div>`
-          : "";
-        const updatedAtHtml = updatedAt
-          ? `<div class="arnest-field"><span class="om-order-edit-label">Обновлено</span><div class="om-order-edit-readonly-value">${escapeXml(updatedAt)}</div></div>`
-          : "";
-        return `<div class="om-order-assembly-readonly">
-            <p class="om-order-edit-items-label">Сборка заказа</p>
-            <div class="arnest-grid">
-              <div class="arnest-field">
-                <span class="om-order-edit-label">Собрано</span>
-                <div class="om-order-edit-readonly-value">${escapeXml(pct)} %</div>
-              </div>
-              <div class="arnest-field">
-                <span class="om-order-edit-label">Паллеты</span>
-                <div class="om-order-edit-readonly-value">${escapeXml(palletsLabel)}</div>
-              </div>
-              <div class="arnest-field">
-                <span class="om-order-edit-label">Готовность</span>
-                <div class="om-order-edit-readonly-value">${escapeXml(readinessLabel)}</div>
-              </div>
-              ${assembledByHtml}
-              ${updatedAtHtml}
-            </div>
-          </div>`;
+      function formatOrderMonitoringAssemblyPanel(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return "";
+        }
+        if (orderMonitoringAssemblyLoading.has(oid)) {
+          return '<div class="om-order-edit-loading muted">Загрузка сводки сборки…</div>';
+        }
+        const cached = orderMonitoringAssemblyCache.get(oid);
+        if (!cached) {
+          return '<div class="om-order-edit-loading muted">Загрузка сводки сборки…</div>';
+        }
+        if (cached.error) {
+          return `<div class="om-order-edit-loading muted">${escapeXml(cached.error)}</div>`;
+        }
+        if (!cached.items.length) {
+          return '<div class="om-order-edit-loading muted">В заказе нет позиций для сводки сборки.</div>';
+        }
+        return formatOrderMonitoringAssemblySummaryHtml(oid, cached);
       }
 
-      function formatOrderMonitoringAssemblyPanel(orderRow) {
-        if (!orderRow) {
-          return '<div class="om-order-edit-loading muted">Заказ не найден.</div>';
+      function getOrderMonitoringAssemblyUnit(orderId) {
+        const oid = Number(orderId);
+        const stored = orderMonitoringAssemblyUnit.get(oid);
+        if (stored === "piece" || stored === "box" || stored === "set") {
+          return stored;
         }
-        return formatOrderMonitoringAssemblyDetail(orderRow);
+        return assembleSummaryDisplayUnit;
+      }
+
+      function formatOrderMonitoringAssemblySummaryHtml(orderId, assemblyData) {
+        const oid = Number(orderId);
+        const unit = getOrderMonitoringAssemblyUnit(oid);
+        const headers = getAssembleSummaryHeaderLabels(unit, isMobileLayout());
+        const bodyHtml = buildAssembleSummaryTableBodyHtml({
+          items: assemblyData.items,
+          pallets: assemblyData.pallets,
+          snapshot: assemblyData.snapshot,
+          unit,
+          palletLinks: false,
+        });
+        const unitButtons = ["piece", "box", "set"]
+          .map((u) => {
+            const label =
+              u === "piece" ? "Штуки" : u === "box" ? "Коробки" : "Наборы";
+            const active = u === unit ? " active" : "";
+            return `<button type="button" class="assemble-summary-unit-btn${active}" data-om-assembly-unit="${oid}" data-om-assembly-summary-unit="${u}">${label}</button>`;
+          })
+          .join("");
+        return `<div class="om-order-assembly-readonly om-assemble-summary-wrap" data-om-assembly-order-id="${oid}">
+            <div class="assemble-summary-toolbar muted">
+              <div class="assemble-summary-unit-toggle" role="group" aria-label="Единицы измерения в сводке">
+                ${unitButtons}
+              </div>
+            </div>
+            <table class="assemble-summary-table">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Товар</th>
+                  <th scope="col">${escapeXml(headers.order)}</th>
+                  <th scope="col">${escapeXml(headers.alloc)}</th>
+                  <th scope="col">${escapeXml(headers.rest)}</th>
+                </tr>
+              </thead>
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>`;
       }
 
       function isTextSelectionInOrderMonitoringDetail() {
@@ -12947,6 +13001,29 @@
             orderMonitoringDetailCache.delete(oid);
           }
         }
+        pruneOrderMonitoringAssemblyCache(enriched);
+      }
+
+      function pruneOrderMonitoringAssemblyCache(enriched) {
+        const activeIds = new Set(enriched.map((o) => Number(o.id)));
+        for (const oid of [...orderMonitoringAssemblyCache.keys()]) {
+          if (!activeIds.has(oid)) {
+            orderMonitoringAssemblyCache.delete(oid);
+            orderMonitoringAssemblyUnit.delete(oid);
+          }
+        }
+        for (const o of enriched) {
+          const oid = Number(o.id);
+          const cached = orderMonitoringAssemblyCache.get(oid);
+          if (!cached || cached.error) {
+            continue;
+          }
+          const listRev = Number(o.assemble_revision) || 0;
+          const cachedRev = Number(cached.assemble_revision) || 0;
+          if (listRev !== cachedRev) {
+            orderMonitoringAssemblyCache.delete(oid);
+          }
+        }
       }
 
       function scheduleOrderMonitoringDetailLoads() {
@@ -12959,6 +13036,19 @@
             continue;
           }
           void ensureOrderMonitoringDetailLoaded(oid);
+        }
+      }
+
+      function scheduleOrderMonitoringAssemblyLoads() {
+        for (const oid of orderMonitoringAssemblyExpandedIds) {
+          const cached = orderMonitoringAssemblyCache.get(oid);
+          if (cached && !cached.error) {
+            continue;
+          }
+          if (orderMonitoringAssemblyLoading.has(oid)) {
+            continue;
+          }
+          void ensureOrderMonitoringAssemblyLoaded(oid);
         }
       }
 
@@ -13007,6 +13097,69 @@
         }
       }
 
+      async function fetchOrderMonitoringOrderData(orderId) {
+        const oid = Number(orderId);
+        const cached = orderMonitoringDetailCache.get(oid);
+        if (cached) {
+          return cached;
+        }
+        let res;
+        try {
+          res = await fetch(`/api/orders/${oid}`);
+        } catch (err) {
+          return { error: "Нет связи с сервером." };
+        }
+        if (res.status === 404) {
+          return { error: "Заказ не найден." };
+        }
+        if (!res.ok) {
+          return { error: "Не удалось загрузить заказ." };
+        }
+        try {
+          const data = await res.json();
+          orderMonitoringDetailCache.set(oid, data);
+          return data;
+        } catch (err) {
+          return { error: "Некорректный ответ сервера." };
+        }
+      }
+
+      async function ensureOrderMonitoringAssemblyLoaded(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        const cached = orderMonitoringAssemblyCache.get(oid);
+        if (cached && !cached.error) {
+          return;
+        }
+        if (orderMonitoringAssemblyLoading.has(oid)) {
+          return;
+        }
+        orderMonitoringAssemblyLoading.add(oid);
+        try {
+          const orderData = await fetchOrderMonitoringOrderData(oid);
+          if (orderData.error) {
+            orderMonitoringAssemblyCache.set(oid, { error: orderData.error });
+            return;
+          }
+          const resolved = resolveAssemblyDisplayState(orderData);
+          orderMonitoringAssemblyCache.set(oid, {
+            ...resolved,
+            assemble_revision: Number(orderData.assemble_revision) || 0,
+          });
+        } finally {
+          orderMonitoringAssemblyLoading.delete(oid);
+          if (
+            orderMonitoringAssemblyExpandedIds.has(oid) &&
+            currentStage === "order_monitoring" &&
+            !isTextSelectionInOrderMonitoringDetail()
+          ) {
+            renderOrderMonitoringTable();
+          }
+        }
+      }
+
       function toggleOrderMonitoringSettingsExpand(orderId) {
         const oid = Number(orderId);
         if (!Number.isFinite(oid)) {
@@ -13029,10 +13182,12 @@
         }
         if (orderMonitoringAssemblyExpandedIds.has(oid)) {
           orderMonitoringAssemblyExpandedIds.delete(oid);
-        } else {
-          orderMonitoringAssemblyExpandedIds.add(oid);
+          renderOrderMonitoringTable();
+          return;
         }
+        orderMonitoringAssemblyExpandedIds.add(oid);
         renderOrderMonitoringTable();
+        void ensureOrderMonitoringAssemblyLoaded(oid);
       }
 
       function renderOrderMonitoringTable() {
@@ -13060,6 +13215,7 @@
         }
         if (isTextSelectionInOrderMonitoringDetail()) {
           scheduleOrderMonitoringDetailLoads();
+          scheduleOrderMonitoringAssemblyLoads();
           return;
         }
         orderMonitoringTableBody.innerHTML = rows
@@ -13104,12 +13260,13 @@
               ? `<tr class="om-order-detail-row om-order-detail-row--settings" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringExpandPanel(oid)}</td></tr>`
               : "";
             const assemblyDetailRow = assemblyExpanded
-              ? `<tr class="om-order-detail-row om-order-detail-row--assembly" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringAssemblyPanel(o)}</td></tr>`
+              ? `<tr class="om-order-detail-row om-order-detail-row--assembly" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringAssemblyPanel(oid)}</td></tr>`
               : "";
             return mainRow + settingsDetailRow + assemblyDetailRow;
           })
           .join("");
         scheduleOrderMonitoringDetailLoads();
+        scheduleOrderMonitoringAssemblyLoads();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -13949,23 +14106,11 @@
         if (!assembleAllocState || !assembleOrderSnapshot) {
           return 0;
         }
-        const it = assembleOrderSnapshot.items[lineIdx];
-        if (!it) {
-          return 0;
-        }
-        let s = 0;
-        assembleAllocState.pallets.forEach((p) => {
-          (p.slots || []).forEach((slot) => {
-            if (slot.lineIndex === "" || !Number.isFinite(Number(slot.lineIndex))) {
-              return;
-            }
-            if (Number(slot.lineIndex) !== lineIdx) {
-              return;
-            }
-            s += allocationToPieces(it, slotToAlloc(slot));
-          });
-        });
-        return s;
+        return lineAllocatedPiecesSumFromDraft(
+          assembleOrderSnapshot.items,
+          assembleAllocState.pallets,
+          lineIdx,
+        );
       }
 
       function linePiecesOnPallet(pal, lineIdx, item) {
@@ -13982,16 +14127,13 @@
         return s;
       }
 
-      function linePalletPlacementRefs(lineIdx) {
-        if (!assembleAllocState || !assembleOrderSnapshot) {
-          return [];
-        }
-        const item = assembleOrderSnapshot.items[lineIdx];
+      function linePalletPlacementRefsFromDraft(items, pallets, lineIdx) {
+        const item = items[lineIdx];
         if (!item) {
           return [];
         }
         const refs = [];
-        assembleAllocState.pallets.forEach((pal, pIdx) => {
+        (pallets || []).forEach((pal, pIdx) => {
           const pieces = linePiecesOnPallet(pal, lineIdx, item);
           if (pieces <= 1e-6) {
             return;
@@ -14018,8 +14160,20 @@
         return refs;
       }
 
-      function formatAssembleSummaryPalletsMeta(lineIdx) {
-        const refs = linePalletPlacementRefs(lineIdx);
+      function linePalletPlacementRefs(lineIdx) {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return [];
+        }
+        return linePalletPlacementRefsFromDraft(
+          assembleOrderSnapshot.items,
+          assembleAllocState.pallets,
+          lineIdx,
+        );
+      }
+
+      function formatAssembleSummaryPalletsMetaFromDraft(items, pallets, lineIdx, options = {}) {
+        const interactive = options.interactive !== false;
+        const refs = linePalletPlacementRefsFromDraft(items, pallets, lineIdx);
         const count = refs.length;
         if (!count) {
           return `<div class="assemble-summary-pallets-meta"><span class="assemble-summary-pallets-count">На паллетах: 0</span></div>`;
@@ -14027,6 +14181,9 @@
         const links = refs
           .map((ref) => {
             const label = escapeXml(ref.label);
+            if (!interactive) {
+              return `<span class="assemble-summary-pallet-label">${label}</span>`;
+            }
             const title = ref.palletNumber
               ? `Перейти к паллету №${label}`
               : `Перейти к паллету (позиция ${label})`;
@@ -14040,6 +14197,18 @@
           <span class="assemble-summary-pallets-count">На паллетах: ${count}</span>
           <span class="assemble-summary-pallets-list">${links}</span>
         </div>`;
+      }
+
+      function formatAssembleSummaryPalletsMeta(lineIdx) {
+        if (!assembleAllocState || !assembleOrderSnapshot) {
+          return `<div class="assemble-summary-pallets-meta"><span class="assemble-summary-pallets-count">На паллетах: 0</span></div>`;
+        }
+        return formatAssembleSummaryPalletsMetaFromDraft(
+          assembleOrderSnapshot.items,
+          assembleAllocState.pallets,
+          lineIdx,
+          { interactive: true },
+        );
       }
 
       function lineAllocatedPiecesSumFromDraft(items, pallets, lineIdx) {
@@ -15058,6 +15227,41 @@
           pushToServer: true,
           serverHadContent,
           source: "merged",
+        };
+      }
+
+      function resolveAssemblyDisplayState(orderData) {
+        const orderId = Number(orderData?.id);
+        const rawItems = Array.isArray(orderData?.items) ? orderData.items : [];
+        let assemblyItems = rawItems;
+        let assemblySourceIndicesByMerged = null;
+        if (clientMergesAssemblyItemsByName(orderData.client)) {
+          const mergedPack = mergeAssemblyItemsForClient(orderData.client, rawItems, {
+            buyer_order_mode: orderData.buyer_order_mode,
+          });
+          assemblyItems = mergedPack.merged;
+          assemblySourceIndicesByMerged = mergedPack.sourceIndicesByMerged;
+        }
+        const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
+        const picked = pickAssemblePalletsOnLoad(orderData, localDraft, assemblyItems);
+        const remapMeta = picked.source === "local" ? localDraft : orderData.assemble_state || null;
+        const pallets = applyDefaultFirstAssemblePalletNumber(
+          normalizeAssemblePalletsForOrderClient(orderData, picked.pallets, remapMeta),
+          assemblyItems,
+        );
+        const snapshot = {
+          id: orderData.id,
+          client: orderData.client,
+          buyer_order_mode: orderData.buyer_order_mode || "",
+          buyer_order: orderData.buyer_order || "",
+          items: assemblyItems,
+          assemblySourceIndicesByMerged,
+          rawOrderItems: rawItems,
+        };
+        return {
+          items: assemblyItems,
+          pallets,
+          snapshot,
         };
       }
 
@@ -17249,30 +17453,82 @@
         });
       }
 
-      function updateAssembleSummaryTableHeaders() {
-        const u = ASSEMBLE_SUMMARY_UNITS[assembleSummaryDisplayUnit];
+      function getAssembleSummaryHeaderLabels(unit, mobile) {
+        const u = ASSEMBLE_SUMMARY_UNITS[unit];
         const lab = u ? u.label : "штуки";
         const shortLab = u ? u.short : "шт";
-        if (isMobileLayout()) {
-          if (assembleSummaryThOrder) {
-            assembleSummaryThOrder.textContent = `Заказ, ${shortLab}`;
-          }
-          if (assembleSummaryThAlloc) {
-            assembleSummaryThAlloc.textContent = `Распр., ${shortLab}`;
-          }
-          if (assembleSummaryThRest) {
-            assembleSummaryThRest.textContent = `Ост., ${shortLab}`;
-          }
-          return;
+        if (mobile) {
+          return {
+            order: `Заказ, ${shortLab}`,
+            alloc: `Распр., ${shortLab}`,
+            rest: `Ост., ${shortLab}`,
+          };
         }
+        return {
+          order: `По заказу, ${lab}`,
+          alloc: `Распределено, ${lab}`,
+          rest: `Остаток, ${lab}`,
+        };
+      }
+
+      function buildAssembleSummaryTableBodyHtml({
+        items,
+        pallets,
+        snapshot,
+        unit,
+        palletLinks = true,
+      }) {
+        return items
+          .map((it, li) => {
+            const maxP = orderLineMaxPieces(it);
+            const allocP = lineAllocatedPiecesSumFromDraft(items, pallets, li);
+            const restP = maxP - allocP;
+            const fine = summaryLineNeedsFinePrecision(it, unit);
+            const qOrd = summaryPiecesToUnit(it, maxP, unit);
+            const qAlloc = summaryPiecesToUnit(it, allocP, unit);
+            const qRest = summaryPiecesToUnit(it, restP, unit);
+            const bad = allocP > maxP + 1e-4;
+            const artRaw = String(it?.article || "").trim();
+            const namRaw = String(it?.name || "").trim();
+            const art = escapeXml(artRaw || "—");
+            const fullTitle = escapeXml(formatAssembleProductLabel(it, snapshot));
+            const popoverName = escapeXml(namRaw || fullTitle);
+            const palletsMeta = formatAssembleSummaryPalletsMetaFromDraft(items, pallets, li, {
+              interactive: palletLinks,
+            });
+            return `<tr class="assemble-summary-line-row">
+              <td>${li + 1}</td>
+              <td class="assemble-summary-article-cell">
+                <span class="assemble-summary-desktop-label">${fullTitle}</span>
+                <span class="assemble-summary-article-mobile-wrap">
+                  <button type="button" class="assemble-summary-article-btn" aria-expanded="false" aria-label="Показать наименование для ${art}">${art}</button>
+                  <span class="assemble-summary-name-popover" hidden role="tooltip">${popoverName}</span>
+                </span>
+              </td>
+              <td>${escapeXml(formatSummaryQty(qOrd, fine))}</td>
+              <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qAlloc, fine))}</td>
+              <td style="color:${restP < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qRest, fine))}</td>
+            </tr>
+            <tr class="assemble-summary-pallets-row">
+              <td colspan="5" class="assemble-summary-pallets-cell">${palletsMeta}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      function updateAssembleSummaryTableHeaders() {
+        const labels = getAssembleSummaryHeaderLabels(
+          assembleSummaryDisplayUnit,
+          isMobileLayout(),
+        );
         if (assembleSummaryThOrder) {
-          assembleSummaryThOrder.textContent = `По заказу, ${lab}`;
+          assembleSummaryThOrder.textContent = labels.order;
         }
         if (assembleSummaryThAlloc) {
-          assembleSummaryThAlloc.textContent = `Распределено, ${lab}`;
+          assembleSummaryThAlloc.textContent = labels.alloc;
         }
         if (assembleSummaryThRest) {
-          assembleSummaryThRest.textContent = `Остаток, ${lab}`;
+          assembleSummaryThRest.textContent = labels.rest;
         }
       }
 
@@ -17371,42 +17627,13 @@
         closeAssembleSummaryNamePopover();
         syncAssembleSummaryUnitButtons();
         updateAssembleSummaryTableHeaders();
-        const items = assembleOrderSnapshot.items;
-        const unit = assembleSummaryDisplayUnit;
-        assembleLinesSummaryBody.innerHTML = items
-          .map((it, li) => {
-            const maxP = orderLineMaxPieces(it);
-            const allocP = lineAllocatedPiecesSum(li);
-            const restP = maxP - allocP;
-            const fine = summaryLineNeedsFinePrecision(it, unit);
-            const qOrd = summaryPiecesToUnit(it, maxP, unit);
-            const qAlloc = summaryPiecesToUnit(it, allocP, unit);
-            const qRest = summaryPiecesToUnit(it, restP, unit);
-            const bad = allocP > maxP + 1e-4;
-            const artRaw = String(it?.article || "").trim();
-            const namRaw = String(it?.name || "").trim();
-            const art = escapeXml(artRaw || "—");
-            const fullTitle = escapeXml(formatAssembleProductLabel(it, assembleOrderSnapshot));
-            const popoverName = escapeXml(namRaw || fullTitle);
-            const palletsMeta = formatAssembleSummaryPalletsMeta(li);
-            return `<tr class="assemble-summary-line-row">
-              <td>${li + 1}</td>
-              <td class="assemble-summary-article-cell">
-                <span class="assemble-summary-desktop-label">${fullTitle}</span>
-                <span class="assemble-summary-article-mobile-wrap">
-                  <button type="button" class="assemble-summary-article-btn" aria-expanded="false" aria-label="Показать наименование для ${art}">${art}</button>
-                  <span class="assemble-summary-name-popover" hidden role="tooltip">${popoverName}</span>
-                </span>
-              </td>
-              <td>${escapeXml(formatSummaryQty(qOrd, fine))}</td>
-              <td style="color:${bad ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qAlloc, fine))}</td>
-              <td style="color:${restP < -1e-4 ? "#ff9b7a" : "inherit"}">${escapeXml(formatSummaryQty(qRest, fine))}</td>
-            </tr>
-            <tr class="assemble-summary-pallets-row">
-              <td colspan="5" class="assemble-summary-pallets-cell">${palletsMeta}</td>
-            </tr>`;
-          })
-          .join("");
+        assembleLinesSummaryBody.innerHTML = buildAssembleSummaryTableBodyHtml({
+          items: assembleOrderSnapshot.items,
+          pallets: assembleAllocState ? assembleAllocState.pallets : [],
+          snapshot: assembleOrderSnapshot,
+          unit: assembleSummaryDisplayUnit,
+          palletLinks: true,
+        });
       }
 
       function renderAssembleAlerts() {
@@ -18847,6 +19074,24 @@
           if (assemblyBtn && orderMonitoringTableBody.contains(assemblyBtn)) {
             ev.preventDefault();
             toggleOrderMonitoringAssemblyExpand(assemblyBtn.dataset.orderMonitoringAssembly);
+            return;
+          }
+          const omAssemblyUnitBtn = ev.target.closest("[data-om-assembly-summary-unit]");
+          if (omAssemblyUnitBtn && orderMonitoringTableBody.contains(omAssemblyUnitBtn)) {
+            const u = omAssemblyUnitBtn.dataset.omAssemblySummaryUnit;
+            const oid = Number(omAssemblyUnitBtn.dataset.omAssemblyUnit);
+            if ((u === "piece" || u === "box" || u === "set") && Number.isFinite(oid)) {
+              ev.preventDefault();
+              orderMonitoringAssemblyUnit.set(oid, u);
+              renderOrderMonitoringTable();
+            }
+            return;
+          }
+          const artBtn = ev.target.closest(".assemble-summary-article-btn");
+          if (artBtn && orderMonitoringTableBody.contains(artBtn)) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            toggleAssembleSummaryNamePopover(artBtn);
             return;
           }
           const chatBtn = ev.target.closest('button[data-order-action="chat"]');

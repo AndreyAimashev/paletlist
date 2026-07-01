@@ -11775,13 +11775,26 @@
         return sum.toLocaleString("ru-RU", { maximumFractionDigits: maxFrac });
       }
 
+      /** Уникальные наименования позиций (как в столбце «Наименование» редактирования заказа). */
+      function countUniqueOrderItemNames(items) {
+        const keys = new Set();
+        (items || []).forEach((it) => {
+          const key = formatOrderItemSearchInput(it.article, it.name).trim().toLowerCase();
+          if (key) {
+            keys.add(key);
+          }
+        });
+        return keys.size;
+      }
+
       /** Число позиций и сумма по заказу в выбранных единицах (штуки / коробки / наборы). */
-      function formatOrderQuantityCell(o, unit) {
+      function formatOrderQuantityCell(o, unit, options) {
         const items = Array.isArray(o.items) ? o.items : [];
         if (!items.length) {
           return escapeXml(String(o.names || "").trim() || "—");
         }
-        const nLines = items.length;
+        const uniqueNames = options && options.uniqueItemNames;
+        const nLines = uniqueNames ? countUniqueOrderItemNames(items) : items.length;
         const countPart = `${nLines} ${ruOrderLineCountLabel(nLines)}`;
         const countShort = `${nLines} наим.`;
 
@@ -12871,8 +12884,8 @@
               pctRounded >= 100 ? "col-pct col-pct--complete" : "col-pct col-pct--incomplete";
             const skippedNote = formatOrderSkippedImportNote(o);
             const qtyCellHtml = skippedNote
-              ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit)}${skippedNote}</div>`
-              : formatOrderQuantityCell(o, ordersNamesDisplayUnit);
+              ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit, { uniqueItemNames: true })}${skippedNote}</div>`
+              : formatOrderQuantityCell(o, ordersNamesDisplayUnit, { uniqueItemNames: true });
             const chatBtn = renderOrderChatButton(o.id, o);
             const expandBtn = `<button type="button" class="om-expand-btn" data-order-monitoring-expand="${oid}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "▼" : "▶"}</button>`;
             const mainRow = `<tr class="om-order-row${expanded ? " is-expanded" : ""}" data-order-id="${oid}">

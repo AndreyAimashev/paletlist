@@ -555,9 +555,17 @@
       }
 
       .order-monitoring-table .col-expand {
-        width: 2.25rem;
-        text-align: center;
+        width: 8.75rem;
+        min-width: 8.75rem;
+        text-align: left;
         vertical-align: middle;
+      }
+
+      .om-expand-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
       }
 
       .order-monitoring-table tbody tr:hover td {
@@ -585,6 +593,18 @@
         transition: background 120ms ease, border-color 120ms ease;
       }
 
+      .om-expand-btn--label {
+        width: auto;
+        min-height: 1.65rem;
+        height: auto;
+        padding: 4px 6px;
+        justify-content: flex-start;
+        text-align: left;
+        font-size: 10px;
+        line-height: 1.25;
+        white-space: normal;
+      }
+
       .om-expand-btn:hover {
         background: rgba(0, 200, 160, 0.16);
         border-color: rgba(0, 200, 160, 0.55);
@@ -605,7 +625,8 @@
         background: rgba(10, 16, 28, 0.55);
       }
 
-      .om-order-edit-readonly {
+      .om-order-edit-readonly,
+      .om-order-assembly-readonly {
         padding: 14px 16px 16px;
         border-top: 1px solid rgba(0, 200, 160, 0.14);
         user-select: text;
@@ -5308,7 +5329,7 @@
               <table class="orders-table order-monitoring-table">
                 <thead>
                   <tr>
-                    <th scope="col" class="col-expand" aria-label="Развернуть"></th>
+                    <th scope="col" class="col-expand" aria-label="Настройки и сборка"></th>
                     <th scope="col" class="col-date">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
@@ -11262,6 +11283,7 @@
       let ordersExtraFilterActiveToggleId = "orders-filter-extra-toggle";
       /** @type {Set<number>} */
       const orderMonitoringExpandedIds = new Set();
+      const orderMonitoringAssemblyExpandedIds = new Set();
       const orderMonitoringDetailCache = new Map();
       const orderMonitoringDetailLoading = new Set();
       /** @type {Set<string> | null} */
@@ -12808,6 +12830,49 @@
         return formatOrderMonitoringEditDetail(cached);
       }
 
+      function formatOrderMonitoringAssemblyDetail(orderRow) {
+        const pct = formatOrderPct(orderRow.assembled_percent);
+        const palletsLabel = formatOrderPalletCount(orderAssemblePalletCount(orderRow));
+        const readiness = getEffectiveOrderReadiness(orderRow);
+        const readinessLabel =
+          ORDER_READINESS_LABELS[readiness] || ORDER_READINESS_LABELS.assembling;
+        const assembledBy = String(orderRow.last_assembled_by || "").trim();
+        const updatedAtRaw = String(orderRow.assemble_state_updated_at || "").trim();
+        const updatedAt = updatedAtRaw ? formatFeedbackDateTime(updatedAtRaw) : "";
+        const assembledByHtml = assembledBy
+          ? `<div class="arnest-field"><span class="om-order-edit-label">Собирал</span><div class="om-order-edit-readonly-value">${escapeXml(assembledBy)}</div></div>`
+          : "";
+        const updatedAtHtml = updatedAt
+          ? `<div class="arnest-field"><span class="om-order-edit-label">Обновлено</span><div class="om-order-edit-readonly-value">${escapeXml(updatedAt)}</div></div>`
+          : "";
+        return `<div class="om-order-assembly-readonly">
+            <p class="om-order-edit-items-label">Сборка заказа</p>
+            <div class="arnest-grid">
+              <div class="arnest-field">
+                <span class="om-order-edit-label">Собрано</span>
+                <div class="om-order-edit-readonly-value">${escapeXml(pct)} %</div>
+              </div>
+              <div class="arnest-field">
+                <span class="om-order-edit-label">Паллеты</span>
+                <div class="om-order-edit-readonly-value">${escapeXml(palletsLabel)}</div>
+              </div>
+              <div class="arnest-field">
+                <span class="om-order-edit-label">Готовность</span>
+                <div class="om-order-edit-readonly-value">${escapeXml(readinessLabel)}</div>
+              </div>
+              ${assembledByHtml}
+              ${updatedAtHtml}
+            </div>
+          </div>`;
+      }
+
+      function formatOrderMonitoringAssemblyPanel(orderRow) {
+        if (!orderRow) {
+          return '<div class="om-order-edit-loading muted">Заказ не найден.</div>';
+        }
+        return formatOrderMonitoringAssemblyDetail(orderRow);
+      }
+
       function isTextSelectionInOrderMonitoringDetail() {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed || !sel.rangeCount) {
@@ -12905,7 +12970,7 @@
         }
       }
 
-      function toggleOrderMonitoringExpand(orderId) {
+      function toggleOrderMonitoringSettingsExpand(orderId) {
         const oid = Number(orderId);
         if (!Number.isFinite(oid)) {
           return;
@@ -12918,6 +12983,19 @@
         orderMonitoringExpandedIds.add(oid);
         renderOrderMonitoringTable();
         void ensureOrderMonitoringDetailLoaded(oid);
+      }
+
+      function toggleOrderMonitoringAssemblyExpand(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        if (orderMonitoringAssemblyExpandedIds.has(oid)) {
+          orderMonitoringAssemblyExpandedIds.delete(oid);
+        } else {
+          orderMonitoringAssemblyExpandedIds.add(oid);
+        }
+        renderOrderMonitoringTable();
       }
 
       function renderOrderMonitoringTable() {
@@ -12949,7 +13027,9 @@
         orderMonitoringTableBody.innerHTML = rows
           .map((o) => {
             const oid = Number(o.id);
-            const expanded = orderMonitoringExpandedIds.has(oid);
+            const settingsExpanded = orderMonitoringExpandedIds.has(oid);
+            const assemblyExpanded = orderMonitoringAssemblyExpandedIds.has(oid);
+            const rowExpanded = settingsExpanded || assemblyExpanded;
             const pctRounded = Math.max(
               0,
               Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
@@ -12961,9 +13041,11 @@
               ? `<div class="orders-qty-cell">${formatOrderQuantityCell(o, ordersNamesDisplayUnit, { uniqueItemNames: true })}${skippedNote}</div>`
               : formatOrderQuantityCell(o, ordersNamesDisplayUnit, { uniqueItemNames: true });
             const chatBtn = renderOrderChatButton(o.id, o);
-            const expandBtn = `<button type="button" class="om-expand-btn" data-order-monitoring-expand="${oid}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "▼" : "▶"}</button>`;
-            const mainRow = `<tr class="om-order-row${expanded ? " is-expanded" : ""}" data-order-id="${oid}">
-                  <td class="col-expand">${expandBtn}</td>
+            const settingsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-settings="${oid}" aria-expanded="${settingsExpanded ? "true" : "false"}" title="${settingsExpanded ? "Свернуть настройки заказа" : "Настройки заказа"}">Настройки заказа</button>`;
+            const assemblyBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-assembly="${oid}" aria-expanded="${assemblyExpanded ? "true" : "false"}" title="${assemblyExpanded ? "Свернуть информацию о сборке" : "Сборка заказа"}">Сборка заказа</button>`;
+            const expandActions = `<div class="om-expand-actions">${settingsBtn}${assemblyBtn}</div>`;
+            const mainRow = `<tr class="om-order-row${rowExpanded ? " is-expanded" : ""}" data-order-id="${oid}">
+                  <td class="col-expand">${expandActions}</td>
                   <td class="col-date">
                     <div class="orders-date-cell">
                       <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
@@ -12980,10 +13062,13 @@
                   <td class="col-extra-info">${formatOrderExtraInfoCell(o)}</td>
                   <td class="col-actions"><div class="orders-row-actions">${chatBtn}</div></td>
                 </tr>`;
-            const detailRow = expanded
-              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringExpandPanel(oid)}</td></tr>`
+            const settingsDetailRow = settingsExpanded
+              ? `<tr class="om-order-detail-row om-order-detail-row--settings" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringExpandPanel(oid)}</td></tr>`
               : "";
-            return mainRow + detailRow;
+            const assemblyDetailRow = assemblyExpanded
+              ? `<tr class="om-order-detail-row om-order-detail-row--assembly" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringAssemblyPanel(o)}</td></tr>`
+              : "";
+            return mainRow + settingsDetailRow + assemblyDetailRow;
           })
           .join("");
         scheduleOrderMonitoringDetailLoads();
@@ -18713,10 +18798,16 @@
 
       if (orderMonitoringTableBody) {
         orderMonitoringTableBody.addEventListener("click", (ev) => {
-          const expandBtn = ev.target.closest("[data-order-monitoring-expand]");
-          if (expandBtn && orderMonitoringTableBody.contains(expandBtn)) {
+          const settingsBtn = ev.target.closest("[data-order-monitoring-settings]");
+          if (settingsBtn && orderMonitoringTableBody.contains(settingsBtn)) {
             ev.preventDefault();
-            toggleOrderMonitoringExpand(expandBtn.dataset.orderMonitoringExpand);
+            toggleOrderMonitoringSettingsExpand(settingsBtn.dataset.orderMonitoringSettings);
+            return;
+          }
+          const assemblyBtn = ev.target.closest("[data-order-monitoring-assembly]");
+          if (assemblyBtn && orderMonitoringTableBody.contains(assemblyBtn)) {
+            ev.preventDefault();
+            toggleOrderMonitoringAssemblyExpand(assemblyBtn.dataset.orderMonitoringAssembly);
             return;
           }
           const chatBtn = ev.target.closest('button[data-order-action="chat"]');

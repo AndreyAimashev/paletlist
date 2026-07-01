@@ -562,6 +562,7 @@
       .om-order-edit-readonly {
         padding: 14px 16px 16px;
         border-top: 1px solid rgba(0, 200, 160, 0.14);
+        user-select: text;
       }
 
       .om-order-edit-readonly .arnest-grid {
@@ -651,7 +652,12 @@
         margin-bottom: 8px;
       }
 
-      .om-order-edit-item-caption {
+      .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
+      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
+        display: none;
+      }
+
+      .om-order-edit-item-extra .om-order-edit-item-caption {
         display: block;
         margin-bottom: 6px;
         font-size: 11px;
@@ -4834,6 +4840,31 @@
         .new-order-dialog .order-item-buyer-order-wrap,
         .new-order-dialog .order-item-lab-manager-qty-wrap {
           margin-top: 10px;
+        }
+
+        .om-order-edit-items-head {
+          display: none;
+        }
+
+        .om-order-edit-item-row {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-bottom: 16px;
+          padding-bottom: 14px;
+          border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+        }
+
+        .om-order-edit-item-row:last-child {
+          border-bottom: none;
+          margin-bottom: 8px;
+          padding-bottom: 0;
+        }
+
+        .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
+        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
+          display: block;
+          font-size: 12px;
         }
 
         .new-order-dialog .order-item-qty,
@@ -12653,6 +12684,24 @@
         return formatOrderMonitoringEditDetail(cached);
       }
 
+      function isTextSelectionInOrderMonitoringDetail() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) {
+          return false;
+        }
+        let node = sel.anchorNode;
+        if (!node) {
+          return false;
+        }
+        if (node.nodeType === Node.TEXT_NODE) {
+          node = node.parentNode;
+        }
+        if (!(node instanceof Element)) {
+          return false;
+        }
+        return !!node.closest(".om-order-detail-row");
+      }
+
       function pruneOrderMonitoringDetailCache(enriched) {
         const activeIds = new Set(enriched.map((o) => Number(o.id)));
         for (const oid of [...orderMonitoringDetailCache.keys()]) {
@@ -12722,7 +12771,11 @@
           }
         } finally {
           orderMonitoringDetailLoading.delete(oid);
-          if (orderMonitoringExpandedIds.has(oid) && currentStage === "order_monitoring") {
+          if (
+            orderMonitoringExpandedIds.has(oid) &&
+            currentStage === "order_monitoring" &&
+            !isTextSelectionInOrderMonitoringDetail()
+          ) {
             renderOrderMonitoringTable();
           }
         }
@@ -12763,6 +12816,10 @@
         if (!rows.length) {
           orderMonitoringTableBody.innerHTML =
             '<tr><td colspan="7" class="muted">Нет заказов по текущим фильтрам.</td></tr>';
+          return;
+        }
+        if (isTextSelectionInOrderMonitoringDetail()) {
+          scheduleOrderMonitoringDetailLoads();
           return;
         }
         orderMonitoringTableBody.innerHTML = rows

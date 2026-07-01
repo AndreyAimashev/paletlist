@@ -12596,11 +12596,6 @@
         });
       }
 
-      function formatOrderMonitoringDeliveryTypeView(client, extraInfo) {
-        const deliveryType = getDeliveryTypeForClient(client, extraInfo || "Обычный");
-        return `<div class="om-order-edit-readonly-value">${escapeXml(deliveryType || "—")}</div>`;
-      }
-
       function formatOrderMonitoringLabItemRow(it) {
         const name = formatOrderItemSearchInput(it.article, it.name) || "—";
         const buyer = String(it.buyer_order || "").trim() || "—";
@@ -12680,30 +12675,9 @@
 
       function formatOrderMonitoringEditDetail(orderData) {
         const client = String(orderData?.client || "");
-        const cityBlock = isDrogeriRetailClient(client)
-          ? `<div class="om-order-edit-city-wrap">
-              <span class="om-order-edit-label">Город</span>
-              <div class="om-order-edit-readonly-value">${escapeXml(String(orderData.client_city || "").trim() || "—")}</div>
-            </div>`
-          : "";
         const items = getOrderMonitoringEditItems(orderData);
         const itemsHtml = formatOrderMonitoringItemsBlock(client, items);
         return `<div class="om-order-edit-readonly">
-            <div class="arnest-grid">
-              <div class="arnest-field">
-                <span class="om-order-edit-label">Дата отгрузки</span>
-                <div class="om-order-edit-readonly-value">${escapeXml(String(orderData.ship_date || "").trim() || "—")}</div>
-              </div>
-              <div class="arnest-field">
-                <span class="om-order-edit-label">Клиент</span>
-                <div class="om-order-edit-readonly-value">${escapeXml(client || "—")}</div>
-                ${cityBlock}
-              </div>
-              <div class="arnest-field om-order-edit-delivery-field">
-                <span class="om-order-edit-label">Тип отгрузки</span>
-                ${formatOrderMonitoringDeliveryTypeView(client, orderData.extra_info)}
-              </div>
-            </div>
             <p class="om-order-edit-items-label">Позиции заказа</p>
             ${itemsHtml}
           </div>`;

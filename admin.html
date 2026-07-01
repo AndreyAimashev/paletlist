@@ -3970,6 +3970,27 @@
         animation: navPing 240ms ease;
       }
 
+      .quick-nav button.nav-feedback-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+
+      .quick-nav button.nav-feedback-btn.has-unread-mail .feedback-menu-btn__unread-icon {
+        display: inline-flex;
+      }
+
+      .quick-nav button.nav-feedback-btn .feedback-menu-btn__unread-icon {
+        width: 20px;
+        height: 20px;
+      }
+
+      .quick-nav button.nav-feedback-btn .feedback-menu-btn__unread-icon svg {
+        width: 12px;
+        height: 12px;
+      }
+
       .assemble-sidebar-nav {
         margin-top: 14px;
         padding-top: 12px;
@@ -6064,6 +6085,15 @@
           <button id="nav-nomenclature" type="button">Номенклатура</button>
           <button id="nav-main" type="button">Главное меню</button>
           <button id="nav-users" type="button">Пользователи</button>
+          <button id="nav-feedback" type="button" class="nav-feedback-btn" hidden>
+            <span class="feedback-menu-btn__label">Жалоба/предложение</span>
+            <span class="feedback-menu-btn__unread-icon" hidden aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="20" height="16" x="2" y="4" rx="2"/>
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+              </svg>
+            </span>
+          </button>
         </nav>
         <div
           id="assemble-sidebar-nav"
@@ -6597,6 +6627,7 @@
       const navOrderMonitoring = document.getElementById("nav-order-monitoring");
       const navNomenclature = document.getElementById("nav-nomenclature");
       const navUsers = document.getElementById("nav-users");
+      const navFeedback = document.getElementById("nav-feedback");
       const arnestWorkspace = document.getElementById("arnest-workspace");
       const ordersWorkspace = document.getElementById("orders-workspace");
       const orderMonitoringWorkspace = document.getElementById("order-monitoring-workspace");
@@ -6829,6 +6860,15 @@
         if (navUsers) {
           navUsers.hidden = false;
           navUsers.textContent = mgr ? "Пользователи" : "Аккаунт";
+        }
+        if (navFeedback) {
+          navFeedback.hidden = !canAccessFeedback();
+          const navFeedbackLabel = navFeedback.querySelector(".feedback-menu-btn__label");
+          if (navFeedbackLabel) {
+            navFeedbackLabel.textContent = isAdminUser()
+              ? "Жалобы/предложения"
+              : "Жалоба/предложение";
+          }
         }
         if (mainMenuTools) {
           mainMenuTools.style.display = st === "main" ? "" : "none";
@@ -7185,14 +7225,14 @@
 
       function syncFeedbackMenuUnreadIndicator() {
         const hasUnread = feedbackThreadsHaveUnread(feedbackThreadsCache);
-        const btn = isAdminUser() ? feedbackAdminButton : feedbackUserButton;
-        if (btn) {
+        const mainBtn = isAdminUser() ? feedbackAdminButton : feedbackUserButton;
+        [mainBtn, navFeedback].filter(Boolean).forEach((btn) => {
           btn.classList.toggle("has-unread-mail", hasUnread);
           const icon = btn.querySelector(".feedback-menu-btn__unread-icon");
           if (icon) {
             icon.hidden = !hasUnread;
           }
-        }
+        });
       }
 
       function feedbackThreadStatusIconsHtml(thread) {
@@ -7912,8 +7952,16 @@
         nomenclature: navNomenclature,
         main: navMain,
         users: navUsers,
+        feedback: navFeedback,
       };
-      const defaultNavOrder = ["orders", "order_monitoring", "nomenclature", "main", "users"];
+      const defaultNavOrder = [
+        "orders",
+        "order_monitoring",
+        "nomenclature",
+        "main",
+        "users",
+        "feedback",
+      ];
       const quickNavStages = new Set(defaultNavOrder);
       const navOrderStorageKey = "paletlist-last-nav-order";
       let navOrder = [...defaultNavOrder];
@@ -9979,6 +10027,9 @@
         if (navUsers) {
           navUsers.classList.toggle("active", stage === "users");
         }
+        if (navFeedback) {
+          navFeedback.classList.toggle("active", stage === "feedback");
+        }
 
         if (recordVisit) {
           updateVisitedOrder(stage);
@@ -10278,6 +10329,9 @@
       }
       if (navUsers) {
         navUsers.addEventListener("click", () => setStage("users"));
+      }
+      if (navFeedback) {
+        navFeedback.addEventListener("click", () => setStage("feedback"));
       }
 
       function syncUsersWorkspaceView() {

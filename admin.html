@@ -612,28 +612,38 @@
         color: var(--text-muted);
       }
 
-      .om-order-edit-items-head--lab,
-      .om-order-edit-item-row--lab {
-        grid-template-columns:
-          minmax(140px, 1.4fr)
-          minmax(96px, 0.9fr)
-          minmax(120px, 1fr)
-          72px
-          84px;
-      }
-
       .om-order-edit-items--lab {
         overflow-x: auto;
         min-width: 0;
       }
 
-      .om-order-edit-items-head--lab,
-      .om-order-edit-item-row--lab {
+      .om-order-lab-items-table {
+        width: 100%;
         min-width: 700px;
+        border-collapse: collapse;
+        font-size: 12px;
       }
 
-      .om-order-edit-items-head--lab span:nth-child(3) {
-        line-height: 1.25;
+      .om-order-lab-items-table th,
+      .om-order-lab-items-table td {
+        padding: 6px 8px;
+        border: 1px solid rgba(0, 200, 160, 0.12);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .om-order-lab-items-table th {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: rgba(0, 200, 160, 0.06);
+      }
+
+      .om-order-lab-items-table .om-order-edit-readonly-value {
+        border: none;
+        padding: 0;
+        background: transparent;
+        font-size: 13px;
       }
 
       .om-order-edit-item-row {
@@ -645,8 +655,7 @@
       }
 
       .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption,
-      .om-order-edit-item-row--lab > .om-order-edit-item-cell > .om-order-edit-item-caption {
+      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
         display: none;
       }
 
@@ -4839,6 +4848,10 @@
           display: none;
         }
 
+        .om-order-edit-items--lab {
+          overflow-x: auto;
+        }
+
         .om-order-edit-item-row {
           display: flex;
           flex-direction: column;
@@ -4855,15 +4868,13 @@
         }
 
         .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption,
-        .om-order-edit-item-row--lab > .om-order-edit-item-cell > .om-order-edit-item-caption {
+        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
           display: block;
           font-size: 12px;
         }
 
-        .om-order-edit-items-head--lab,
-        .om-order-edit-item-row--lab {
-          min-width: 0;
+        .om-order-lab-items-table {
+          min-width: 640px;
         }
 
         .new-order-dialog .order-item-qty,
@@ -12590,14 +12601,6 @@
         return `<div class="om-order-edit-readonly-value">${escapeXml(deliveryType || "—")}</div>`;
       }
 
-      function formatOrderMonitoringItemCell(caption, value, extraClass) {
-        const cls = ["om-order-edit-item-cell", extraClass].filter(Boolean).join(" ");
-        return `<div class="${cls}">
-            <span class="om-order-edit-item-caption">${escapeXml(caption)}</span>
-            <div class="om-order-edit-readonly-value">${escapeXml(value)}</div>
-          </div>`;
-      }
-
       function formatOrderMonitoringLabItemRow(it) {
         const name = formatOrderItemSearchInput(it.article, it.name) || "—";
         const buyer = String(it.buyer_order || "").trim() || "—";
@@ -12607,16 +12610,13 @@
             : "—";
         const qty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
         const unit = formatOrderItemUnitLabel(it.unit);
-        return `<div class="om-order-edit-item-row om-order-edit-item-row--lab">
-            ${formatOrderMonitoringItemCell("Наименование", name, "om-order-edit-item-name")}
-            ${formatOrderMonitoringItemCell("Заказ покупателя", buyer)}
-            ${formatOrderMonitoringItemCell(
-              "Общее количество заказа (от менеджера)",
-              totalQty,
-            )}
-            ${formatOrderMonitoringItemCell("Количество", qty)}
-            ${formatOrderMonitoringItemCell("Единица", unit)}
-          </div>`;
+        return `<tr>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(name)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(buyer)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(totalQty)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(qty)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(unit)}</div></td>
+          </tr>`;
       }
 
       function formatOrderMonitoringItemsBlock(client, items) {
@@ -12625,14 +12625,20 @@
         }
         if (isLabIndustriesClient(client)) {
           return `<div class="om-order-edit-items om-order-edit-items--lab">
-              <div class="om-order-edit-items-head om-order-edit-items-head--lab">
-                <span>Наименование</span>
-                <span>Заказ покупателя</span>
-                <span>Общее количество заказа (от менеджера)</span>
-                <span>Количество</span>
-                <span>Единица</span>
-              </div>
-              ${items.map((it) => formatOrderMonitoringLabItemRow(it)).join("")}
+              <table class="om-order-lab-items-table">
+                <thead>
+                  <tr>
+                    <th>Наименование</th>
+                    <th>Заказ покупателя</th>
+                    <th>Общее количество заказа (от менеджера)</th>
+                    <th>Количество</th>
+                    <th>Единица</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map((it) => formatOrderMonitoringLabItemRow(it)).join("")}
+                </tbody>
+              </table>
             </div>`;
         }
         return `<div class="om-order-edit-items">

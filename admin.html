@@ -2023,6 +2023,13 @@
         width: auto;
         min-width: calc(3 * 28px + 2 * 6px);
         white-space: normal;
+      }
+
+      .orders-table thead th.col-actions {
+        vertical-align: top;
+      }
+
+      .orders-table tbody td.col-actions {
         vertical-align: middle;
       }
 
@@ -5323,7 +5330,14 @@
                         </div>
                       </div>
                     </th>
-                    <th scope="col" class="col-actions">Действия</th>
+                    <th scope="col" class="col-actions">
+                      <div class="orders-th-stack">
+                        <div class="orders-th-inner">
+                          <span class="orders-th-title">Действия</span>
+                        </div>
+                        <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="orders-table-body"></tbody>

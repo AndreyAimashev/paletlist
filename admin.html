@@ -522,11 +522,6 @@
         vertical-align: middle;
       }
 
-      .order-monitoring-table .col-id {
-        width: 3.25rem;
-        white-space: nowrap;
-      }
-
       .om-expand-btn {
         display: inline-flex;
         align-items: center;
@@ -5184,7 +5179,6 @@
                 <thead>
                   <tr>
                     <th scope="col" class="col-expand" aria-label="Развернуть"></th>
-                    <th scope="col" class="col-id">№</th>
                     <th scope="col" class="col-date">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
@@ -12585,13 +12579,13 @@
         }
         if (!cachedOrdersListRows.length) {
           orderMonitoringTableBody.innerHTML =
-            '<tr><td colspan="8" class="muted">Заказов пока нет.</td></tr>';
+            '<tr><td colspan="7" class="muted">Заказов пока нет.</td></tr>';
           return;
         }
         const rows = getOrdersRowsForDisplay();
         if (!rows.length) {
           orderMonitoringTableBody.innerHTML =
-            '<tr><td colspan="8" class="muted">Нет заказов по текущим фильтрам.</td></tr>';
+            '<tr><td colspan="7" class="muted">Нет заказов по текущим фильтрам.</td></tr>';
           return;
         }
         orderMonitoringTableBody.innerHTML = rows
@@ -12612,7 +12606,6 @@
             const expandBtn = `<button type="button" class="om-expand-btn" data-order-monitoring-expand="${oid}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "▼" : "▶"}</button>`;
             const mainRow = `<tr class="om-order-row${expanded ? " is-expanded" : ""}" data-order-id="${oid}">
                   <td class="col-expand">${expandBtn}</td>
-                  <td class="col-id">${escapeXml(String(o.id))}</td>
                   <td class="col-date">
                     <div class="orders-date-cell">
                       <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
@@ -12630,7 +12623,7 @@
                   <td class="col-actions"><div class="orders-row-actions">${chatBtn}</div></td>
                 </tr>`;
             const detailRow = expanded
-              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="8">${formatOrderMonitoringDetail(o)}</td></tr>`
+              ? `<tr class="om-order-detail-row" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringDetail(o)}</td></tr>`
               : "";
             return mainRow + detailRow;
           })
@@ -16484,7 +16477,7 @@
             }
             if (orderMonitoringTableBody) {
               orderMonitoringTableBody.innerHTML =
-                '<tr><td colspan="8" class="muted">Не удалось загрузить заказы.</td></tr>';
+                '<tr><td colspan="7" class="muted">Не удалось загрузить заказы.</td></tr>';
             }
             syncOrdersSortIndicators();
           }

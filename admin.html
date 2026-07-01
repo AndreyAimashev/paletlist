@@ -555,8 +555,8 @@
       }
 
       .order-monitoring-table .col-expand {
-        width: 8.75rem;
-        min-width: 8.75rem;
+        width: 9.25rem;
+        min-width: 9.25rem;
         text-align: left;
         vertical-align: middle;
       }
@@ -653,6 +653,78 @@
         color: #9ef5e4;
         font-size: 11px;
         line-height: 1.2;
+      }
+
+      .om-pallets-assembly-wrap {
+        overflow-x: auto;
+        min-width: 0;
+      }
+
+      .om-pallets-assembly-wrap .assemble-summary-toolbar {
+        margin-bottom: 8px;
+      }
+
+      .om-pallets-assembly-table {
+        width: 100%;
+        min-width: 520px;
+        border-collapse: collapse;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      .om-pallets-assembly-table th,
+      .om-pallets-assembly-table td {
+        padding: 4px 6px;
+        border: 1px solid rgba(0, 200, 160, 0.14);
+        vertical-align: top;
+        text-align: left;
+      }
+
+      .om-pallets-assembly-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(12, 18, 30, 0.98);
+        color: var(--text-muted);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .om-pallets-assembly-table .om-pallets-assembly-pallet {
+        width: 3.25rem;
+        min-width: 3.25rem;
+        text-align: center;
+        font-weight: 600;
+        color: #9ef5e4;
+        background: rgba(0, 200, 160, 0.06);
+        white-space: nowrap;
+      }
+
+      .om-pallets-assembly-table .om-pallets-assembly-qty {
+        width: 5.5rem;
+        min-width: 5.5rem;
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .om-pallets-assembly-table .om-pallets-assembly-batch {
+        width: 7rem;
+        min-width: 7rem;
+        word-break: break-word;
+      }
+
+      .om-pallets-assembly-table .om-pallets-assembly-product {
+        max-width: 0;
+        word-break: break-word;
+      }
+
+      .om-pallets-assembly-table tbody tr:nth-child(even) td:not(.om-pallets-assembly-pallet) {
+        background: rgba(10, 14, 23, 0.35);
+      }
+
+      .om-pallets-assembly-table tbody tr:hover td:not(.om-pallets-assembly-pallet) {
+        background: rgba(0, 200, 160, 0.08);
       }
 
       .om-order-edit-readonly .arnest-grid {
@@ -11316,12 +11388,15 @@
       /** @type {Set<number>} */
       const orderMonitoringExpandedIds = new Set();
       const orderMonitoringAssemblyExpandedIds = new Set();
+      const orderMonitoringPalletsExpandedIds = new Set();
       const orderMonitoringDetailCache = new Map();
       const orderMonitoringDetailLoading = new Set();
       const orderMonitoringAssemblyCache = new Map();
       const orderMonitoringAssemblyLoading = new Set();
       /** @type {Map<number, string>} */
       const orderMonitoringAssemblyUnit = new Map();
+      /** @type {Map<number, string>} */
+      const orderMonitoringPalletsUnit = new Map();
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -12964,6 +13039,202 @@
           </div>`;
       }
 
+      function getOrderMonitoringPalletsUnit(orderId) {
+        const oid = Number(orderId);
+        const stored = orderMonitoringPalletsUnit.get(oid);
+        if (stored === "piece" || stored === "box" || stored === "set") {
+          return stored;
+        }
+        return assembleSummaryDisplayUnit;
+      }
+
+      function optionalBatchEnabledForMonitoringOrder(orderData) {
+        const ob = optionalBatchFromAssembleState(orderData?.assemble_state);
+        if (ob === true) {
+          return true;
+        }
+        const orderId = Number(orderData?.id);
+        if (!Number.isFinite(orderId)) {
+          return false;
+        }
+        const draft = loadAssembleDraft(orderId);
+        return !!(draft && draft.optional_batch_enabled);
+      }
+
+      function palletsHaveAnyBatchNumbers(pallets) {
+        return (pallets || []).some((pal) =>
+          (pal.slots || []).some((s) => {
+            const ns = normalizeSlot(s);
+            return String(ns.batchNumber || "").trim() !== "";
+          }),
+        );
+      }
+
+      function orderMonitoringAssemblyShowBatch(assemblyData) {
+        if (typeof assemblyData?.showBatch === "boolean") {
+          return assemblyData.showBatch;
+        }
+        const client = String(assemblyData?.snapshot?.client || "");
+        if (isArnestUnirusClient(client) || isLabIndustriesClient(client)) {
+          return true;
+        }
+        return palletsHaveAnyBatchNumbers(assemblyData?.pallets);
+      }
+
+      function computeOrderMonitoringBatchColumnVisible(orderData, resolved) {
+        const client = String(orderData?.client || "");
+        if (isArnestUnirusClient(client) || isLabIndustriesClient(client)) {
+          return true;
+        }
+        if (optionalBatchEnabledForMonitoringOrder(orderData)) {
+          return true;
+        }
+        return palletsHaveAnyBatchNumbers(resolved.pallets);
+      }
+
+      function formatMonitoringPalletProductCompact(it) {
+        const art = String(it?.article || "").trim();
+        const nam = String(it?.name || "").trim();
+        const full = formatOrderItemSearchInput(art, nam) || "—";
+        const escaped = escapeXml(full);
+        if (full.length > 72) {
+          return `<span title="${escaped}">${escapeXml(full.slice(0, 69) + "…")}</span>`;
+        }
+        return `<span title="${escaped}">${escaped}</span>`;
+      }
+
+      function formatMonitoringSlotBatchDisplay(slot, client) {
+        const ns = normalizeSlot(slot);
+        if (isLabIndustriesClient(client)) {
+          const batch = normalizeLabBatchNumberField(ns.batchNumber);
+          const expiry = String(ns.labExpiryDate || "").trim();
+          if (batch && expiry) {
+            return `${batch} / ${expiry}`;
+          }
+          return batch || expiry || "—";
+        }
+        const batch = normalizeBatchNumberField(ns.batchNumber);
+        return batch || "—";
+      }
+
+      function getOrderMonitoringPalletsQtyHeader(unit) {
+        const u = ASSEMBLE_SUMMARY_UNITS[unit];
+        const lab = u ? u.label : "штуки";
+        return `Кол-во, ${lab}`;
+      }
+
+      function buildOrderMonitoringPalletsTableBodyHtml(assemblyData, unit) {
+        const items = assemblyData.items || [];
+        const client = String(assemblyData.snapshot?.client || "");
+        const showBatch = orderMonitoringAssemblyShowBatch(assemblyData);
+        const pallets = sortAssemblePalletsByNumber(assemblyData.pallets || []);
+        if (!pallets.length) {
+          const colspan = showBatch ? 4 : 3;
+          return `<tr><td colspan="${colspan}" class="muted">Нет паллет в сборке.</td></tr>`;
+        }
+        const rows = [];
+        pallets.forEach((pal, pIdx) => {
+          const palletLabel = escapeXml(String(pal.palletNumber ?? "").trim() || String(pIdx + 1));
+          const filledSlots = (Array.isArray(pal.slots) ? pal.slots : [])
+            .map((s) => normalizeSlot(s))
+            .filter((s) => s.lineIndex !== "" && Number.isFinite(Number(s.lineIndex)));
+          if (!filledSlots.length) {
+            const emptyColspan = showBatch ? 3 : 2;
+            rows.push(`<tr class="om-pallets-assembly-slot-row om-pallets-assembly-slot-row--empty">
+                <td class="om-pallets-assembly-pallet">${palletLabel}</td>
+                <td class="muted" colspan="${emptyColspan}">Нет товаров</td>
+              </tr>`);
+            return;
+          }
+          filledSlots.forEach((ns, sIdx) => {
+            const li = Number(ns.lineIndex);
+            const it = items[li];
+            const pieces = it ? allocationToPieces(it, slotToAlloc(ns)) : 0;
+            const fine = it ? summaryLineNeedsFinePrecision(it, unit) : false;
+            const qty = it ? summaryPiecesToUnit(it, pieces, unit) : null;
+            const qtyStr = escapeXml(formatSummaryQty(qty, fine));
+            const product = it
+              ? formatMonitoringPalletProductCompact(it)
+              : '<span class="muted">—</span>';
+            const batchCell = showBatch
+              ? `<td class="om-pallets-assembly-batch">${escapeXml(formatMonitoringSlotBatchDisplay(ns, client))}</td>`
+              : "";
+            if (sIdx === 0) {
+              rows.push(`<tr class="om-pallets-assembly-slot-row">
+                  <td class="om-pallets-assembly-pallet" rowspan="${filledSlots.length}">${palletLabel}</td>
+                  <td class="om-pallets-assembly-product">${product}</td>
+                  <td class="om-pallets-assembly-qty">${qtyStr}</td>
+                  ${batchCell}
+                </tr>`);
+            } else {
+              rows.push(`<tr class="om-pallets-assembly-slot-row">
+                  <td class="om-pallets-assembly-product">${product}</td>
+                  <td class="om-pallets-assembly-qty">${qtyStr}</td>
+                  ${batchCell}
+                </tr>`);
+            }
+          });
+        });
+        return rows.join("");
+      }
+
+      function formatOrderMonitoringPalletsPanel(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return "";
+        }
+        if (orderMonitoringAssemblyLoading.has(oid)) {
+          return '<div class="om-order-edit-loading muted">Загрузка сборки паллет…</div>';
+        }
+        const cached = orderMonitoringAssemblyCache.get(oid);
+        if (!cached) {
+          return '<div class="om-order-edit-loading muted">Загрузка сборки паллет…</div>';
+        }
+        if (cached.error) {
+          return `<div class="om-order-edit-loading muted">${escapeXml(cached.error)}</div>`;
+        }
+        if (!cached.items.length) {
+          return '<div class="om-order-edit-loading muted">В заказе нет позиций для сборки паллет.</div>';
+        }
+        return formatOrderMonitoringPalletsSummaryHtml(oid, cached);
+      }
+
+      function formatOrderMonitoringPalletsSummaryHtml(orderId, assemblyData) {
+        const oid = Number(orderId);
+        const unit = getOrderMonitoringPalletsUnit(oid);
+        const showBatch = orderMonitoringAssemblyShowBatch(assemblyData);
+        const bodyHtml = buildOrderMonitoringPalletsTableBodyHtml(assemblyData, unit);
+        const unitButtons = ["piece", "box", "set"]
+          .map((u) => {
+            const label =
+              u === "piece" ? "Штуки" : u === "box" ? "Коробки" : "Наборы";
+            const active = u === unit ? " active" : "";
+            return `<button type="button" class="assemble-summary-unit-btn${active}" data-om-pallets-unit="${oid}" data-om-pallets-summary-unit="${u}">${label}</button>`;
+          })
+          .join("");
+        const batchHeader = showBatch
+          ? `<th scope="col">Партия</th>`
+          : "";
+        return `<div class="om-order-assembly-readonly om-pallets-assembly-wrap" data-om-pallets-order-id="${oid}">
+            <div class="assemble-summary-toolbar muted">
+              <div class="assemble-summary-unit-toggle" role="group" aria-label="Единицы измерения в таблице паллет">
+                ${unitButtons}
+              </div>
+            </div>
+            <table class="om-pallets-assembly-table">
+              <thead>
+                <tr>
+                  <th scope="col">Паллет</th>
+                  <th scope="col">Товар</th>
+                  <th scope="col">${escapeXml(getOrderMonitoringPalletsQtyHeader(unit))}</th>
+                  ${batchHeader}
+                </tr>
+              </thead>
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>`;
+      }
+
       function isTextSelectionInOrderMonitoringDetail() {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed || !sel.rangeCount) {
@@ -13010,6 +13281,7 @@
           if (!activeIds.has(oid)) {
             orderMonitoringAssemblyCache.delete(oid);
             orderMonitoringAssemblyUnit.delete(oid);
+            orderMonitoringPalletsUnit.delete(oid);
           }
         }
         for (const o of enriched) {
@@ -13040,7 +13312,11 @@
       }
 
       function scheduleOrderMonitoringAssemblyLoads() {
-        for (const oid of orderMonitoringAssemblyExpandedIds) {
+        const ids = new Set([
+          ...orderMonitoringAssemblyExpandedIds,
+          ...orderMonitoringPalletsExpandedIds,
+        ]);
+        for (const oid of ids) {
           const cached = orderMonitoringAssemblyCache.get(oid);
           if (cached && !cached.error) {
             continue;
@@ -13147,11 +13423,13 @@
           orderMonitoringAssemblyCache.set(oid, {
             ...resolved,
             assemble_revision: Number(orderData.assemble_revision) || 0,
+            showBatch: computeOrderMonitoringBatchColumnVisible(orderData, resolved),
           });
         } finally {
           orderMonitoringAssemblyLoading.delete(oid);
           if (
-            orderMonitoringAssemblyExpandedIds.has(oid) &&
+            (orderMonitoringAssemblyExpandedIds.has(oid) ||
+              orderMonitoringPalletsExpandedIds.has(oid)) &&
             currentStage === "order_monitoring" &&
             !isTextSelectionInOrderMonitoringDetail()
           ) {
@@ -13190,6 +13468,21 @@
         void ensureOrderMonitoringAssemblyLoaded(oid);
       }
 
+      function toggleOrderMonitoringPalletsExpand(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        if (orderMonitoringPalletsExpandedIds.has(oid)) {
+          orderMonitoringPalletsExpandedIds.delete(oid);
+          renderOrderMonitoringTable();
+          return;
+        }
+        orderMonitoringPalletsExpandedIds.add(oid);
+        renderOrderMonitoringTable();
+        void ensureOrderMonitoringAssemblyLoaded(oid);
+      }
+
       function renderOrderMonitoringTable() {
         syncOrdersNamesUnitButtons();
         syncOrdersFilteredCount();
@@ -13223,7 +13516,8 @@
             const oid = Number(o.id);
             const settingsExpanded = orderMonitoringExpandedIds.has(oid);
             const assemblyExpanded = orderMonitoringAssemblyExpandedIds.has(oid);
-            const rowExpanded = settingsExpanded || assemblyExpanded;
+            const palletsExpanded = orderMonitoringPalletsExpandedIds.has(oid);
+            const rowExpanded = settingsExpanded || assemblyExpanded || palletsExpanded;
             const pctRounded = Math.max(
               0,
               Math.min(100, Math.round(Number(o.assembled_percent) || 0)),
@@ -13237,7 +13531,8 @@
             const chatBtn = renderOrderChatButton(o.id, o);
             const settingsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-settings="${oid}" aria-expanded="${settingsExpanded ? "true" : "false"}" title="${settingsExpanded ? "Свернуть настройки заказа" : "Настройки заказа"}">Настройки заказа</button>`;
             const assemblyBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-assembly="${oid}" aria-expanded="${assemblyExpanded ? "true" : "false"}" title="${assemblyExpanded ? "Свернуть информацию о сборке" : "Сборка заказа"}">Сборка заказа</button>`;
-            const expandActions = `<div class="om-expand-actions">${settingsBtn}${assemblyBtn}</div>`;
+            const palletsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-pallets="${oid}" aria-expanded="${palletsExpanded ? "true" : "false"}" title="${palletsExpanded ? "Свернуть сборку паллет" : "Сборка паллет"}">Сборка паллет</button>`;
+            const expandActions = `<div class="om-expand-actions">${settingsBtn}${assemblyBtn}${palletsBtn}</div>`;
             const mainRow = `<tr class="om-order-row${rowExpanded ? " is-expanded" : ""}" data-order-id="${oid}">
                   <td class="col-expand">${expandActions}</td>
                   <td class="col-date">
@@ -13262,7 +13557,10 @@
             const assemblyDetailRow = assemblyExpanded
               ? `<tr class="om-order-detail-row om-order-detail-row--assembly" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringAssemblyPanel(oid)}</td></tr>`
               : "";
-            return mainRow + settingsDetailRow + assemblyDetailRow;
+            const palletsDetailRow = palletsExpanded
+              ? `<tr class="om-order-detail-row om-order-detail-row--pallets" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringPalletsPanel(oid)}</td></tr>`
+              : "";
+            return mainRow + settingsDetailRow + assemblyDetailRow + palletsDetailRow;
           })
           .join("");
         scheduleOrderMonitoringDetailLoads();
@@ -19076,6 +19374,12 @@
             toggleOrderMonitoringAssemblyExpand(assemblyBtn.dataset.orderMonitoringAssembly);
             return;
           }
+          const palletsBtn = ev.target.closest("[data-order-monitoring-pallets]");
+          if (palletsBtn && orderMonitoringTableBody.contains(palletsBtn)) {
+            ev.preventDefault();
+            toggleOrderMonitoringPalletsExpand(palletsBtn.dataset.orderMonitoringPallets);
+            return;
+          }
           const omAssemblyUnitBtn = ev.target.closest("[data-om-assembly-summary-unit]");
           if (omAssemblyUnitBtn && orderMonitoringTableBody.contains(omAssemblyUnitBtn)) {
             const u = omAssemblyUnitBtn.dataset.omAssemblySummaryUnit;
@@ -19083,6 +19387,17 @@
             if ((u === "piece" || u === "box" || u === "set") && Number.isFinite(oid)) {
               ev.preventDefault();
               orderMonitoringAssemblyUnit.set(oid, u);
+              renderOrderMonitoringTable();
+            }
+            return;
+          }
+          const omPalletsUnitBtn = ev.target.closest("[data-om-pallets-summary-unit]");
+          if (omPalletsUnitBtn && orderMonitoringTableBody.contains(omPalletsUnitBtn)) {
+            const u = omPalletsUnitBtn.dataset.omPalletsSummaryUnit;
+            const oid = Number(omPalletsUnitBtn.dataset.omPalletsUnit);
+            if ((u === "piece" || u === "box" || u === "set") && Number.isFinite(oid)) {
+              ev.preventDefault();
+              orderMonitoringPalletsUnit.set(oid, u);
               renderOrderMonitoringTable();
             }
             return;

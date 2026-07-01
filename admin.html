@@ -728,8 +728,16 @@
         cursor: default;
       }
 
+      .order-monitoring-table th.col-actions,
+      .order-monitoring-table td.col-actions {
+        width: 1%;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
       .order-monitoring-table .col-actions .orders-row-actions {
-        justify-content: flex-end;
+        justify-content: start;
+        grid-template-columns: minmax(0, auto);
       }
 
       .pallet-sheets-workspace {

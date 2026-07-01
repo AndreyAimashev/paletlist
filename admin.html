@@ -1608,10 +1608,17 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: space-between;
         gap: 10px 14px;
         margin-bottom: 8px;
         font-size: 12px;
+      }
+
+      .orders-filtered-count {
+        margin: 0;
+        flex: 0 0 auto;
+        font-size: 12px;
+        color: var(--text-muted);
       }
 
       .orders-names-unit-toggle {
@@ -5104,6 +5111,7 @@
               />
             </div>
             <div class="orders-names-toolbar muted">
+              <p class="orders-filtered-count" id="orders-filtered-count" aria-live="polite">0 заказов</p>
               <div class="orders-names-unit-toggle" role="group" aria-label="Единицы для суммы по заказу">
                 <button type="button" class="orders-names-unit-btn" data-orders-names-unit="piece">
                   Штуки
@@ -5313,6 +5321,7 @@
             aria-label="Мониторинг заказов"
           >
             <div class="orders-names-toolbar muted">
+              <p class="orders-filtered-count" id="om-filtered-count" aria-live="polite">0 заказов</p>
               <div class="orders-names-unit-toggle" role="group" aria-label="Единицы для суммы по заказу">
                 <button type="button" class="orders-names-unit-btn" data-orders-names-unit="piece">
                   Штуки
@@ -11762,6 +11771,33 @@
         return "строк";
       }
 
+      function ruOrdersCountLabel(n) {
+        const k = Math.abs(n) % 100;
+        const k1 = k % 10;
+        if (k >= 11 && k <= 19) {
+          return "заказов";
+        }
+        if (k1 === 1) {
+          return "заказ";
+        }
+        if (k1 >= 2 && k1 <= 4) {
+          return "заказа";
+        }
+        return "заказов";
+      }
+
+      function formatOrdersFilteredCountText(count) {
+        const n = Math.max(0, Math.floor(Number(count) || 0));
+        return `${n} ${ruOrdersCountLabel(n)}`;
+      }
+
+      function syncOrdersFilteredCount() {
+        const text = formatOrdersFilteredCountText(getOrdersRowsForDisplay().length);
+        document.querySelectorAll(".orders-filtered-count").forEach((el) => {
+          el.textContent = text;
+        });
+      }
+
       function formatOrderSkippedImportNote(o) {
         const n = Number(o.import_skipped_lines) || 0;
         if (n <= 0) {
@@ -12614,6 +12650,7 @@
       function renderOrdersTable() {
         hideOrdersImportSkippedFloatingTip();
         syncOrdersNamesUnitButtons();
+        syncOrdersFilteredCount();
         syncOrdersClientFilterSelect();
         syncOrdersExtraInfoFilterUi();
         updateOrdersExtraInfoFilterToggle();
@@ -13000,6 +13037,7 @@
 
       function renderOrderMonitoringTable() {
         syncOrdersNamesUnitButtons();
+        syncOrdersFilteredCount();
         syncOrdersClientFilterSelect();
         syncOrdersExtraInfoFilterUi();
         updateOrdersExtraInfoFilterToggle();
@@ -16882,6 +16920,7 @@
           pruneOrderMonitoringDetailCache(enriched);
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
+          syncOrdersFilteredCount();
           if (currentStage === "orders") {
             if (!isOrderChatModalOpen()) {
               renderOrdersTable();

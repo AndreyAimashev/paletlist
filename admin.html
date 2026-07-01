@@ -12653,6 +12653,40 @@
         return formatOrderMonitoringEditDetail(cached);
       }
 
+      function pruneOrderMonitoringDetailCache(enriched) {
+        const activeIds = new Set(enriched.map((o) => Number(o.id)));
+        for (const oid of [...orderMonitoringDetailCache.keys()]) {
+          if (!activeIds.has(oid)) {
+            orderMonitoringDetailCache.delete(oid);
+          }
+        }
+        for (const o of enriched) {
+          const oid = Number(o.id);
+          const cached = orderMonitoringDetailCache.get(oid);
+          if (!cached || cached.error) {
+            continue;
+          }
+          const listRev = Number(o.assemble_revision) || 0;
+          const cachedRev = Number(cached.assemble_revision) || 0;
+          if (listRev !== cachedRev) {
+            orderMonitoringDetailCache.delete(oid);
+          }
+        }
+      }
+
+      function scheduleOrderMonitoringDetailLoads() {
+        for (const oid of orderMonitoringExpandedIds) {
+          const cached = orderMonitoringDetailCache.get(oid);
+          if (cached && !cached.error) {
+            continue;
+          }
+          if (orderMonitoringDetailLoading.has(oid)) {
+            continue;
+          }
+          void ensureOrderMonitoringDetailLoaded(oid);
+        }
+      }
+
       async function ensureOrderMonitoringDetailLoaded(orderId) {
         const oid = Number(orderId);
         if (!Number.isFinite(oid)) {
@@ -12771,6 +12805,7 @@
             return mainRow + detailRow;
           })
           .join("");
+        scheduleOrderMonitoringDetailLoads();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -16578,7 +16613,7 @@
             }),
           );
           cachedOrdersListRows = mergeOrderReadinessFromServer(enriched);
-          orderMonitoringDetailCache.clear();
+          pruneOrderMonitoringDetailCache(enriched);
           mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
           mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
           if (currentStage === "orders") {

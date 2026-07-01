@@ -648,72 +648,42 @@
         color: var(--text-muted);
       }
 
-      .om-order-edit-items-head {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px 130px;
-        gap: 8px;
-        align-items: end;
-        margin-bottom: 6px;
-        font-size: 11px;
-        color: var(--text-muted);
-      }
-
-      .om-order-edit-items--lab {
+      .om-order-edit-items--table {
         overflow-x: auto;
         min-width: 0;
       }
 
-      .om-order-lab-items-table {
+      .om-order-items-table {
         width: 100%;
-        min-width: 700px;
+        min-width: 420px;
         border-collapse: collapse;
         font-size: 12px;
       }
 
-      .om-order-lab-items-table th,
-      .om-order-lab-items-table td {
+      .om-order-items-table--wide {
+        min-width: 700px;
+      }
+
+      .om-order-items-table th,
+      .om-order-items-table td {
         padding: 6px 8px;
         border: 1px solid rgba(0, 200, 160, 0.12);
         text-align: left;
         vertical-align: top;
       }
 
-      .om-order-lab-items-table th {
+      .om-order-items-table th {
         font-size: 11px;
         font-weight: 500;
         color: var(--text-muted);
         background: rgba(0, 200, 160, 0.06);
       }
 
-      .om-order-lab-items-table .om-order-edit-readonly-value {
+      .om-order-items-table .om-order-edit-readonly-value {
         border: none;
         padding: 0;
         background: transparent;
         font-size: 13px;
-      }
-
-      .om-order-edit-item-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px 130px;
-        gap: 8px;
-        align-items: start;
-        margin-bottom: 8px;
-      }
-
-      .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-      .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
-        display: none;
-      }
-
-      .om-order-edit-item-extra .om-order-edit-item-caption {
-        display: block;
-        margin-bottom: 6px;
-        font-size: 11px;
-        color: var(--text-muted);
-      }
-
-      .om-order-edit-item-extra {
-        margin-top: 8px;
       }
 
       .om-order-edit-loading {
@@ -4902,36 +4872,11 @@
           margin-top: 10px;
         }
 
-        .om-order-edit-items-head {
-          display: none;
-        }
-
-        .om-order-edit-items--lab {
+        .om-order-edit-items--table {
           overflow-x: auto;
         }
 
-        .om-order-edit-item-row {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin-bottom: 16px;
-          padding-bottom: 14px;
-          border-bottom: 1px solid rgba(0, 200, 160, 0.12);
-        }
-
-        .om-order-edit-item-row:last-child {
-          border-bottom: none;
-          margin-bottom: 8px;
-          padding-bottom: 0;
-        }
-
-        .om-order-edit-item-row > .om-order-edit-item-name > .om-order-edit-item-caption,
-        .om-order-edit-item-row > .om-order-edit-item-metric > .om-order-edit-item-caption {
-          display: block;
-          font-size: 12px;
-        }
-
-        .om-order-lab-items-table {
+        .om-order-items-table--wide {
           min-width: 640px;
         }
 
@@ -12681,63 +12626,71 @@
           </tr>`;
       }
 
+      function formatOrderMonitoringDrogeriItemRow(it) {
+        const name = formatOrderItemSearchInput(it.article, it.name) || "—";
+        const buyer = String(it.buyer_order || "").trim() || "—";
+        const qty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
+        const unit = formatOrderItemUnitLabel(it.unit);
+        return `<tr>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(name)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(buyer)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(qty)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(unit)}</div></td>
+          </tr>`;
+      }
+
+      function formatOrderMonitoringDefaultItemRow(it) {
+        const name = formatOrderItemSearchInput(it.article, it.name) || "—";
+        const qty = it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
+        const unit = formatOrderItemUnitLabel(it.unit);
+        return `<tr>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(name)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(qty)}</div></td>
+            <td><div class="om-order-edit-readonly-value">${escapeXml(unit)}</div></td>
+          </tr>`;
+      }
+
+      function formatOrderMonitoringItemsTable(client, items) {
+        let headers;
+        let rowFn;
+        let wide = false;
+        if (isLabIndustriesClient(client)) {
+          wide = true;
+          headers = [
+            "Наименование",
+            "Заказ покупателя",
+            "Общее количество заказа (от менеджера)",
+            "Количество",
+            "Единица",
+          ];
+          rowFn = formatOrderMonitoringLabItemRow;
+        } else if (isDrogeriRetailClient(client)) {
+          headers = ["Наименование", "Номер заказа", "Количество", "Единица"];
+          rowFn = formatOrderMonitoringDrogeriItemRow;
+        } else {
+          headers = ["Наименование", "Количество", "Единица"];
+          rowFn = formatOrderMonitoringDefaultItemRow;
+        }
+        const tableClass = wide
+          ? "om-order-items-table om-order-items-table--wide"
+          : "om-order-items-table";
+        return `<div class="om-order-edit-items om-order-edit-items--table">
+              <table class="${tableClass}">
+                <thead>
+                  <tr>${headers.map((h) => `<th>${escapeXml(h)}</th>`).join("")}</tr>
+                </thead>
+                <tbody>
+                  ${items.map((it) => rowFn(it)).join("")}
+                </tbody>
+              </table>
+            </div>`;
+      }
+
       function formatOrderMonitoringItemsBlock(client, items) {
         if (!items.length) {
           return `<p class="muted" style="margin:0;">Позиции не указаны</p>`;
         }
-        if (isLabIndustriesClient(client)) {
-          return `<div class="om-order-edit-items om-order-edit-items--lab">
-              <table class="om-order-lab-items-table">
-                <thead>
-                  <tr>
-                    <th>Наименование</th>
-                    <th>Заказ покупателя</th>
-                    <th>Общее количество заказа (от менеджера)</th>
-                    <th>Количество</th>
-                    <th>Единица</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${items.map((it) => formatOrderMonitoringLabItemRow(it)).join("")}
-                </tbody>
-              </table>
-            </div>`;
-        }
-        return `<div class="om-order-edit-items">
-            <div class="om-order-edit-items-head">
-              <span>Наименование</span>
-              <span>Количество</span>
-              <span>Единица</span>
-            </div>
-            ${items.map((it) => formatOrderMonitoringEditItemRow(it, client)).join("")}
-          </div>`;
-      }
-
-      function formatOrderMonitoringEditItemRow(it, client) {
-        const name = formatOrderItemSearchInput(it.article, it.name) || "—";
-        const qty =
-          it.quantity != null && it.quantity !== "" ? String(it.quantity) : "—";
-        const unit = formatOrderItemUnitLabel(it.unit);
-        const showBuyer = clientRequiresLineBuyerOrder(client) && !isLabIndustriesClient(client);
-        const buyerCaption = isDrogeriRetailClient(client) ? "Номер заказа" : "Заказ покупателя";
-        const buyerHtml = showBuyer
-          ? `<div class="om-order-edit-item-extra"><span class="om-order-edit-item-caption">${escapeXml(buyerCaption)}</span><div class="om-order-edit-readonly-value">${escapeXml(String(it.buyer_order || "").trim() || "—")}</div></div>`
-          : "";
-        return `<div class="om-order-edit-item-row">
-            <div class="om-order-edit-item-name">
-              <span class="om-order-edit-item-caption">Наименование</span>
-              <div class="om-order-edit-readonly-value">${escapeXml(name)}</div>
-              ${buyerHtml}
-            </div>
-            <div class="om-order-edit-item-metric">
-              <span class="om-order-edit-item-caption">Количество</span>
-              <div class="om-order-edit-readonly-value">${escapeXml(qty)}</div>
-            </div>
-            <div class="om-order-edit-item-metric">
-              <span class="om-order-edit-item-caption">Единица</span>
-              <div class="om-order-edit-readonly-value">${escapeXml(unit)}</div>
-            </div>
-          </div>`;
+        return formatOrderMonitoringItemsTable(client, items);
       }
 
       function formatOrderMonitoringEditDetail(orderData) {

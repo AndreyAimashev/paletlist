@@ -610,6 +610,81 @@
         white-space: nowrap;
       }
 
+      .order-monitoring-table thead th[data-om-col-key]:not([data-om-col-key="expand"]) {
+        position: relative;
+      }
+
+      .om-col-resize-handle {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 7px;
+        height: 100%;
+        cursor: col-resize;
+        z-index: 3;
+        touch-action: none;
+      }
+
+      .om-col-resize-handle::after {
+        content: "";
+        position: absolute;
+        top: 18%;
+        bottom: 18%;
+        right: 2px;
+        width: 2px;
+        border-radius: 1px;
+        background: rgba(0, 200, 160, 0.35);
+        transition: background 120ms ease;
+      }
+
+      .om-col-resize-handle:hover::after,
+      .order-monitoring-table.is-col-resizing .om-col-resize-handle::after {
+        background: rgba(0, 200, 160, 0.85);
+      }
+
+      .om-col-drag-handle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 14px;
+        margin-right: 2px;
+        color: rgba(0, 200, 160, 0.45);
+        font-size: 12px;
+        line-height: 1;
+        cursor: grab;
+        user-select: none;
+        touch-action: none;
+      }
+
+      .om-col-drag-handle:hover {
+        color: rgba(0, 200, 160, 0.9);
+      }
+
+      .om-col-drag-handle:active {
+        cursor: grabbing;
+      }
+
+      .order-monitoring-table thead th.om-col-dragging {
+        opacity: 0.55;
+      }
+
+      .order-monitoring-table thead th.om-col-drop-target {
+        box-shadow: inset 0 -2px 0 #00c8a0;
+      }
+
+      .order-monitoring-table.is-col-resizing {
+        cursor: col-resize;
+        user-select: none;
+      }
+
+      .order-monitoring-table .orders-th-inner {
+        display: flex;
+        align-items: flex-start;
+        gap: 2px;
+        min-width: 0;
+      }
+
       .om-expand-actions {
         display: flex;
         flex-direction: column;
@@ -5490,8 +5565,8 @@
               <table class="orders-table order-monitoring-table">
                 <thead>
                   <tr>
-                    <th scope="col" class="col-expand" aria-label="Настройки и сборка"></th>
-                    <th scope="col" class="col-date">
+                    <th scope="col" class="col-expand" data-om-col-key="expand" aria-label="Настройки и сборка"></th>
+                    <th scope="col" class="col-date" data-om-col-key="date">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title">
@@ -5507,7 +5582,7 @@
                         </div>
                       </div>
                     </th>
-                    <th scope="col" class="col-client">
+                    <th scope="col" class="col-client" data-om-col-key="client">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title">Клиент</span>
@@ -5530,7 +5605,7 @@
                         </div>
                       </div>
                     </th>
-                    <th scope="col" class="col-pct">
+                    <th scope="col" class="col-pct" data-om-col-key="pct">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title">
@@ -5556,7 +5631,7 @@
                         </div>
                       </div>
                     </th>
-                    <th scope="col" class="col-qty">
+                    <th scope="col" class="col-qty" data-om-col-key="qty">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title">
@@ -5567,7 +5642,7 @@
                         <div class="orders-th-controls orders-th-controls--empty" aria-hidden="true"></div>
                       </div>
                     </th>
-                    <th scope="col" class="col-extra-info">
+                    <th scope="col" class="col-extra-info" data-om-col-key="extra">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title orders-th-title--block">
@@ -5590,7 +5665,7 @@
                         </div>
                       </div>
                     </th>
-                    <th scope="col" class="col-actions">
+                    <th scope="col" class="col-actions" data-om-col-key="actions">
                       <div class="orders-th-stack">
                         <div class="orders-th-inner">
                           <span class="orders-th-title">Чат</span>
@@ -13540,6 +13615,356 @@
         void ensureOrderMonitoringAssemblyLoaded(oid);
       }
 
+      const OM_MONITORING_COL_LAYOUT_STORAGE = "paletlist_om_col_layout_v1";
+      const OM_MONITORING_COL_EXPAND = "expand";
+      const OM_MONITORING_MOVABLE_COLS = ["date", "client", "pct", "qty", "extra", "actions"];
+      const OM_MONITORING_COL_CSS_VAR = {
+        expand: "--om-col-expand",
+        date: "--om-col-date",
+        client: "--om-col-client",
+        pct: "--om-col-pct",
+        qty: "--om-col-qty",
+        extra: "--om-col-extra",
+        actions: "--om-col-actions",
+      };
+      const OM_MONITORING_DEFAULT_WIDTHS = {
+        expand: "6rem",
+        date: "6.65rem",
+        client: "51%",
+        pct: "5.5rem",
+        qty: "6.4rem",
+        extra: "8rem",
+        actions: "2rem",
+      };
+      let orderMonitoringMovableColOrder = OM_MONITORING_MOVABLE_COLS.slice();
+      let orderMonitoringColWidths = { ...OM_MONITORING_DEFAULT_WIDTHS };
+      let orderMonitoringColLayoutLoaded = false;
+      let orderMonitoringColChromeReady = false;
+      let orderMonitoringColDragKey = null;
+
+      function loadOrderMonitoringColLayout() {
+        if (orderMonitoringColLayoutLoaded) {
+          return;
+        }
+        orderMonitoringColLayoutLoaded = true;
+        try {
+          const raw = sessionStorage.getItem(OM_MONITORING_COL_LAYOUT_STORAGE);
+          if (!raw) {
+            return;
+          }
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.order)) {
+            const valid = data.order.filter((k) => OM_MONITORING_MOVABLE_COLS.includes(k));
+            if (valid.length === OM_MONITORING_MOVABLE_COLS.length) {
+              orderMonitoringMovableColOrder = valid;
+            }
+          }
+          if (data.widths && typeof data.widths === "object") {
+            for (const key of Object.keys(OM_MONITORING_COL_CSS_VAR)) {
+              const v = data.widths[key];
+              if (typeof v === "string" && v.trim()) {
+                orderMonitoringColWidths[key] = v.trim();
+              }
+            }
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function saveOrderMonitoringColLayout() {
+        try {
+          sessionStorage.setItem(
+            OM_MONITORING_COL_LAYOUT_STORAGE,
+            JSON.stringify({
+              order: orderMonitoringMovableColOrder.slice(),
+              widths: { ...orderMonitoringColWidths },
+            }),
+          );
+        } catch (e) {
+          /* ignore */
+        }
+      }
+
+      function getOrderMonitoringFullColOrder() {
+        return [OM_MONITORING_COL_EXPAND, ...orderMonitoringMovableColOrder];
+      }
+
+      function getOrderMonitoringTableEl() {
+        return document.querySelector(".order-monitoring-table");
+      }
+
+      function applyOrderMonitoringColWidths(table) {
+        const el = table || getOrderMonitoringTableEl();
+        if (!el) {
+          return;
+        }
+        for (const [key, cssVar] of Object.entries(OM_MONITORING_COL_CSS_VAR)) {
+          const val = orderMonitoringColWidths[key] || OM_MONITORING_DEFAULT_WIDTHS[key];
+          if (val) {
+            el.style.setProperty(cssVar, val);
+          }
+        }
+      }
+
+      function reorderOrderMonitoringTableHead() {
+        const tr = document.querySelector(".order-monitoring-table thead tr");
+        if (!tr) {
+          return;
+        }
+        const expandTh = tr.querySelector('th[data-om-col-key="expand"]');
+        const byKey = new Map();
+        tr.querySelectorAll("th[data-om-col-key]").forEach((th) => {
+          const key = th.dataset.omColKey;
+          if (key && key !== OM_MONITORING_COL_EXPAND) {
+            byKey.set(key, th);
+          }
+        });
+        if (expandTh) {
+          tr.appendChild(expandTh);
+        }
+        orderMonitoringMovableColOrder.forEach((key) => {
+          const th = byKey.get(key);
+          if (th) {
+            tr.appendChild(th);
+          }
+        });
+      }
+
+      function reorderOrderMonitoringBodyRows() {
+        if (!orderMonitoringTableBody) {
+          return;
+        }
+        const order = getOrderMonitoringFullColOrder();
+        orderMonitoringTableBody.querySelectorAll("tr.om-order-row").forEach((tr) => {
+          const byKey = new Map();
+          tr.querySelectorAll("td[data-om-col-key]").forEach((td) => {
+            const key = td.dataset.omColKey;
+            if (key) {
+              byKey.set(key, td);
+            }
+          });
+          order.forEach((key) => {
+            const td = byKey.get(key);
+            if (td) {
+              tr.appendChild(td);
+            }
+          });
+        });
+      }
+
+      function buildOrderMonitoringMainRowCells(o, ctx) {
+        const oid = ctx.oid;
+        const cells = {
+          expand: `<td class="col-expand" data-om-col-key="expand">${ctx.expandActions}</td>`,
+          date: `<td class="col-date" data-om-col-key="date">
+                    <div class="orders-date-cell">
+                      <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
+                      <span class="orders-date-text orders-date-text--short">${escapeXml(formatOrderShipDateDayMonth(o.ship_date))}</span>
+                    </div>
+                  </td>`,
+          client: `<td class="col-client" data-om-col-key="client">
+                    <div class="orders-client-cell">
+                      <span class="orders-client-text">${escapeXml(o.client || "—")}${formatOrderClientCityLine(o)}</span>
+                    </div>
+                  </td>`,
+          pct: `<td class="${ctx.pctCellClass}" data-om-col-key="pct">${formatOrderMonitoringPctCell(o)}</td>`,
+          qty: `<td class="col-qty" data-om-col-key="qty">${ctx.qtyCellHtml}</td>`,
+          extra: `<td class="col-extra-info" data-om-col-key="extra">${formatOrderExtraInfoCell(o)}</td>`,
+          actions: `<td class="col-actions" data-om-col-key="actions"><div class="orders-row-actions">${ctx.chatBtn}</div></td>`,
+        };
+        return getOrderMonitoringFullColOrder()
+          .map((key) => cells[key] || "")
+          .join("");
+      }
+
+      function moveOrderMonitoringColumn(fromKey, toKey) {
+        if (
+          !fromKey ||
+          !toKey ||
+          fromKey === toKey ||
+          fromKey === OM_MONITORING_COL_EXPAND ||
+          toKey === OM_MONITORING_COL_EXPAND
+        ) {
+          return;
+        }
+        const order = orderMonitoringMovableColOrder.slice();
+        const fromIdx = order.indexOf(fromKey);
+        const toIdx = order.indexOf(toKey);
+        if (fromIdx < 0 || toIdx < 0) {
+          return;
+        }
+        order.splice(fromIdx, 1);
+        order.splice(toIdx, 0, fromKey);
+        orderMonitoringMovableColOrder = order;
+        saveOrderMonitoringColLayout();
+        reorderOrderMonitoringTableHead();
+        reorderOrderMonitoringBodyRows();
+      }
+
+      function startOrderMonitoringColResize(colKey, startX, th) {
+        const table = th.closest(".order-monitoring-table");
+        if (!table || !colKey || colKey === OM_MONITORING_COL_EXPAND) {
+          return;
+        }
+        const startWidth = th.getBoundingClientRect().width;
+        table.classList.add("is-col-resizing");
+        const minWidth = 40;
+
+        function onMove(ev) {
+          const width = Math.max(minWidth, Math.round(startWidth + (ev.clientX - startX)));
+          orderMonitoringColWidths[colKey] = `${width}px`;
+          applyOrderMonitoringColWidths(table);
+        }
+
+        function onUp() {
+          table.classList.remove("is-col-resizing");
+          document.removeEventListener("pointermove", onMove);
+          document.removeEventListener("pointerup", onUp);
+          saveOrderMonitoringColLayout();
+        }
+
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+      }
+
+      function ensureOrderMonitoringColumnChrome() {
+        if (orderMonitoringColChromeReady) {
+          return;
+        }
+        const table = getOrderMonitoringTableEl();
+        const thead = table?.querySelector("thead");
+        if (!table || !thead) {
+          return;
+        }
+        orderMonitoringColChromeReady = true;
+
+        table.querySelectorAll('thead th[data-om-col-key]:not([data-om-col-key="expand"])').forEach((th) => {
+          const key = th.dataset.omColKey;
+          if (!th.querySelector(".om-col-resize-handle")) {
+            const handle = document.createElement("span");
+            handle.className = "om-col-resize-handle";
+            handle.title = "Изменить ширину столбца";
+            handle.setAttribute("aria-hidden", "true");
+            handle.dataset.omColResize = key;
+            th.appendChild(handle);
+          }
+          const inner = th.querySelector(".orders-th-inner");
+          if (inner && !inner.querySelector(".om-col-drag-handle")) {
+            const grip = document.createElement("span");
+            grip.className = "om-col-drag-handle";
+            grip.draggable = true;
+            grip.title = "Перетащите для смены порядка столбцов";
+            grip.setAttribute("aria-label", "Перетащите для смены порядка столбцов");
+            grip.textContent = "⠿";
+            grip.dataset.omColDrag = key;
+            inner.insertBefore(grip, inner.firstChild);
+          }
+        });
+
+        thead.addEventListener("pointerdown", (ev) => {
+          const handle = ev.target.closest(".om-col-resize-handle");
+          if (!handle || !thead.contains(handle)) {
+            return;
+          }
+          const th = handle.closest("th[data-om-col-key]");
+          const key = th?.dataset.omColKey;
+          if (!key || key === OM_MONITORING_COL_EXPAND) {
+            return;
+          }
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (handle.setPointerCapture && ev.pointerId != null) {
+            try {
+              handle.setPointerCapture(ev.pointerId);
+            } catch (e) {
+              /* ignore */
+            }
+          }
+          startOrderMonitoringColResize(key, ev.clientX, th);
+        });
+
+        thead.addEventListener("dragstart", (ev) => {
+          const grip = ev.target.closest(".om-col-drag-handle");
+          if (!grip || !thead.contains(grip)) {
+            return;
+          }
+          const th = grip.closest("th[data-om-col-key]");
+          const key = th?.dataset.omColKey;
+          if (!key || key === OM_MONITORING_COL_EXPAND) {
+            ev.preventDefault();
+            return;
+          }
+          orderMonitoringColDragKey = key;
+          th.classList.add("om-col-dragging");
+          if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", key);
+          }
+        });
+
+        thead.addEventListener("dragend", () => {
+          orderMonitoringColDragKey = null;
+          thead.querySelectorAll("th.om-col-dragging, th.om-col-drop-target").forEach((el) => {
+            el.classList.remove("om-col-dragging", "om-col-drop-target");
+          });
+        });
+
+        thead.addEventListener("dragover", (ev) => {
+          const th = ev.target.closest('th[data-om-col-key]:not([data-om-col-key="expand"])');
+          if (!th || !thead.contains(th)) {
+            return;
+          }
+          ev.preventDefault();
+          if (ev.dataTransfer) {
+            ev.dataTransfer.dropEffect = "move";
+          }
+          thead.querySelectorAll("th.om-col-drop-target").forEach((el) => {
+            if (el !== th) {
+              el.classList.remove("om-col-drop-target");
+            }
+          });
+          th.classList.add("om-col-drop-target");
+        });
+
+        thead.addEventListener("dragleave", (ev) => {
+          const th = ev.target.closest("th[data-om-col-key]");
+          if (!th || !thead.contains(th)) {
+            return;
+          }
+          const to = ev.relatedTarget;
+          if (to && th.contains(to)) {
+            return;
+          }
+          th.classList.remove("om-col-drop-target");
+        });
+
+        thead.addEventListener("drop", (ev) => {
+          const th = ev.target.closest('th[data-om-col-key]:not([data-om-col-key="expand"])');
+          if (!th || !thead.contains(th)) {
+            return;
+          }
+          ev.preventDefault();
+          th.classList.remove("om-col-drop-target");
+          const fromKey =
+            orderMonitoringColDragKey ||
+            (ev.dataTransfer ? ev.dataTransfer.getData("text/plain") : "");
+          const toKey = th.dataset.omColKey;
+          moveOrderMonitoringColumn(fromKey, toKey);
+          orderMonitoringColDragKey = null;
+          thead.querySelectorAll("th.om-col-dragging").forEach((el) => {
+            el.classList.remove("om-col-dragging");
+          });
+        });
+      }
+
+      function syncOrderMonitoringColumnLayout() {
+        loadOrderMonitoringColLayout();
+        applyOrderMonitoringColWidths();
+        reorderOrderMonitoringTableHead();
+        ensureOrderMonitoringColumnChrome();
+      }
+
       function renderOrderMonitoringTable() {
         syncOrdersNamesUnitButtons();
         syncOrdersFilteredCount();
@@ -13590,23 +14015,15 @@
             const assemblyBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-assembly="${oid}" aria-expanded="${assemblyExpanded ? "true" : "false"}" title="${assemblyExpanded ? "Свернуть информацию о сборке" : "Сборка заказа"}">Сборка заказа</button>`;
             const palletsBtn = `<button type="button" class="om-expand-btn om-expand-btn--label" data-order-monitoring-pallets="${oid}" aria-expanded="${palletsExpanded ? "true" : "false"}" title="${palletsExpanded ? "Свернуть сборку паллет" : "Сборка паллет"}">Сборка паллет</button>`;
             const expandActions = `<div class="om-expand-actions">${settingsBtn}${assemblyBtn}${palletsBtn}</div>`;
+            const rowCells = buildOrderMonitoringMainRowCells(o, {
+              oid,
+              expandActions,
+              pctCellClass,
+              qtyCellHtml,
+              chatBtn,
+            });
             const mainRow = `<tr class="om-order-row${rowExpanded ? " is-expanded" : ""}" data-order-id="${oid}">
-                  <td class="col-expand">${expandActions}</td>
-                  <td class="col-date">
-                    <div class="orders-date-cell">
-                      <span class="orders-date-text orders-date-text--full">${escapeXml(o.ship_date || "—")}</span>
-                      <span class="orders-date-text orders-date-text--short">${escapeXml(formatOrderShipDateDayMonth(o.ship_date))}</span>
-                    </div>
-                  </td>
-                  <td class="col-client">
-                    <div class="orders-client-cell">
-                      <span class="orders-client-text">${escapeXml(o.client || "—")}${formatOrderClientCityLine(o)}</span>
-                    </div>
-                  </td>
-                  <td class="${pctCellClass}">${formatOrderMonitoringPctCell(o)}</td>
-                  <td class="col-qty">${qtyCellHtml}</td>
-                  <td class="col-extra-info">${formatOrderExtraInfoCell(o)}</td>
-                  <td class="col-actions"><div class="orders-row-actions">${chatBtn}</div></td>
+                  ${rowCells}
                 </tr>`;
             const settingsDetailRow = settingsExpanded
               ? `<tr class="om-order-detail-row om-order-detail-row--settings" data-order-id="${oid}"><td colspan="7">${formatOrderMonitoringExpandPanel(oid)}</td></tr>`
@@ -13622,6 +14039,7 @@
           .join("");
         scheduleOrderMonitoringDetailLoads();
         scheduleOrderMonitoringAssemblyLoads();
+        syncOrderMonitoringColumnLayout();
       }
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
@@ -19324,6 +19742,7 @@
       }
 
       if (orderMonitoringWorkspace) {
+        syncOrderMonitoringColumnLayout();
         orderMonitoringWorkspace.addEventListener("click", (ev) => {
           const sortBtn = ev.target.closest("[data-orders-sort]");
           if (sortBtn && orderMonitoringWorkspace.contains(sortBtn)) {

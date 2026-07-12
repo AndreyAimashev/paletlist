@@ -558,7 +558,7 @@
         table-layout: fixed;
         width: 100%;
         --om-col-expand: 7.5rem;
-        --om-col-date: 9.75rem;
+        --om-col-date: 17rem;
         --om-col-client: 51%;
         --om-col-pct: 5.5rem;
         --om-col-qty: 6.4rem;
@@ -2250,6 +2250,32 @@
         min-width: 0;
       }
 
+      .orders-ship-date-filter--desktop {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .orders-ship-date-field {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: 1 1 0;
+        min-width: 0;
+      }
+
+      .orders-ship-date-label {
+        flex-shrink: 0;
+        font-size: 11px;
+        line-height: 1;
+        color: var(--text-muted);
+      }
+
+      .orders-ship-date-filter--desktop .orders-filter-date {
+        flex: 1 1 0;
+        width: auto;
+      }
+
       .orders-ship-date-filter--mobile {
         display: none;
       }
@@ -2260,7 +2286,7 @@
       }
 
       .orders-table thead th.col-date {
-        min-width: 9.75rem;
+        min-width: 17rem;
       }
 
       .orders-filter-select {
@@ -5419,8 +5445,14 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" aria-label="Дата отгрузки с" />
-                            <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" aria-label="Дата отгрузки по" />
+                            <label class="orders-ship-date-field">
+                              <span class="orders-ship-date-label">от</span>
+                              <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" aria-label="Дата отгрузки от" />
+                            </label>
+                            <label class="orders-ship-date-field">
+                              <span class="orders-ship-date-label">до</span>
+                              <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" aria-label="Дата отгрузки до" />
+                            </label>
                           </div>
                           <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="orders-filter-ship-mobile" aria-label="Дата отгрузки" />
                         </div>
@@ -5641,8 +5673,14 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" aria-label="Дата отгрузки с" />
-                            <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" aria-label="Дата отгрузки по" />
+                            <label class="orders-ship-date-field">
+                              <span class="orders-ship-date-label">от</span>
+                              <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" aria-label="Дата отгрузки от" />
+                            </label>
+                            <label class="orders-ship-date-field">
+                              <span class="orders-ship-date-label">до</span>
+                              <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" aria-label="Дата отгрузки до" />
+                            </label>
                           </div>
                           <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="om-filter-ship-mobile" aria-label="Дата отгрузки" />
                         </div>
@@ -13973,7 +14011,7 @@
       };
       const OM_MONITORING_DEFAULT_WIDTHS = {
         expand: "7.5rem",
-        date: "9.75rem",
+        date: "17rem",
         client: "51%",
         pct: "5.5rem",
         qty: "6.4rem",

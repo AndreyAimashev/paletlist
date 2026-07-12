@@ -2269,47 +2269,45 @@
 
       .orders-filter-date-text {
         width: 100%;
-        padding-right: 1.85rem;
+        padding-right: 2.1rem;
         box-sizing: border-box;
+      }
+
+      .orders-filter-date-calendar-btn {
+        position: absolute;
+        right: 2px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 22px;
+        height: 22px;
+        min-width: 22px;
+        min-height: 22px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        border-radius: 4px;
+        background: rgba(0, 200, 160, 0.1) center / 16px 16px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
+        cursor: pointer;
+        z-index: 2;
+      }
+
+      .orders-filter-date-calendar-btn:hover {
+        background-color: rgba(0, 200, 160, 0.22);
       }
 
       .orders-filter-date-picker {
         position: absolute;
-        right: 0;
-        top: 0;
-        width: 1.85rem;
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        border: none;
-        background: transparent;
-        color-scheme: dark;
-        cursor: pointer;
-        opacity: 1;
-      }
-
-      .orders-filter-date-picker::-webkit-calendar-picker-indicator {
-        cursor: pointer;
-        width: 100%;
-        height: 100%;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
         padding: 0;
         margin: 0;
-        opacity: 1;
-        -webkit-appearance: none;
-        appearance: none;
-        background: transparent center / 16px 16px no-repeat
-          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
-      }
-
-      .orders-filter-date-picker::-moz-calendar-picker-indicator {
-        cursor: pointer;
-        width: 100%;
-        height: 100%;
-        padding: 0;
-        margin: 0;
-        opacity: 1;
-        background: transparent center / 16px 16px no-repeat
-          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
       }
 
       .orders-ship-date-filter--mobile {
@@ -4968,6 +4966,19 @@
           font-size: 14px;
         }
 
+        .orders-filter-date-text {
+          padding-right: 2.35rem;
+        }
+
+        .orders-filter-date-calendar-btn {
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          min-height: 28px;
+          right: 1px;
+          background-size: 18px 18px;
+        }
+
         .orders-ship-date-filter--desktop {
           display: none !important;
         }
@@ -5484,16 +5495,19 @@
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
                             <div class="orders-ship-date-input-wrap">
                               <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
-                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-from" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                              <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату от" title="Выбрать дату"></button>
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-from" tabindex="-1" aria-hidden="true" />
                             </div>
                             <div class="orders-ship-date-input-wrap">
                               <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
-                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-to" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                              <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату до" title="Выбрать дату"></button>
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-to" tabindex="-1" aria-hidden="true" />
                             </div>
                           </div>
                           <div class="orders-ship-date-input-wrap orders-ship-date-filter--mobile">
                             <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
-                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-mobile" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату" title="Выбрать дату"></button>
+                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-mobile" tabindex="-1" aria-hidden="true" />
                           </div>
                         </div>
                       </div>
@@ -5715,16 +5729,19 @@
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
                             <div class="orders-ship-date-input-wrap">
                               <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
-                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-from" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                              <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату от" title="Выбрать дату"></button>
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-from" tabindex="-1" aria-hidden="true" />
                             </div>
                             <div class="orders-ship-date-input-wrap">
                               <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
-                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-to" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                              <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату до" title="Выбрать дату"></button>
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-to" tabindex="-1" aria-hidden="true" />
                             </div>
                           </div>
                           <div class="orders-ship-date-input-wrap orders-ship-date-filter--mobile">
                             <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
-                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-mobile" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            <button type="button" class="orders-filter-date-calendar-btn" aria-label="Выбрать дату" title="Выбрать дату"></button>
+                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-mobile" tabindex="-1" aria-hidden="true" />
                           </div>
                         </div>
                       </div>
@@ -12493,12 +12510,40 @@
         picker.value = iso || "";
       }
 
-      function initOrdersShipDatePickers() {
-        document.querySelectorAll(".orders-filter-date-picker").forEach((picker) => {
-          if (picker.dataset.ordersPickerBound === "1") {
+      function openOrdersFilterDatePicker(picker) {
+        if (!picker) {
+          return;
+        }
+        try {
+          if (typeof picker.showPicker === "function") {
+            picker.showPicker();
             return;
           }
-          picker.dataset.ordersPickerBound = "1";
+        } catch (e) {
+          /* showPicker may require user gesture */
+        }
+        picker.click();
+      }
+
+      function initOrdersShipDatePickers() {
+        document.querySelectorAll(".orders-ship-date-input-wrap").forEach((wrap) => {
+          if (wrap.dataset.ordersPickerBound === "1") {
+            return;
+          }
+          wrap.dataset.ordersPickerBound = "1";
+          const picker = wrap.querySelector(".orders-filter-date-picker");
+          const calendarBtn = wrap.querySelector(".orders-filter-date-calendar-btn");
+          if (calendarBtn && picker) {
+            calendarBtn.addEventListener("click", (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              openOrdersFilterDatePicker(picker);
+            });
+          }
+          if (!picker || picker.dataset.ordersPickerChangeBound === "1") {
+            return;
+          }
+          picker.dataset.ordersPickerChangeBound = "1";
           picker.addEventListener("change", () => {
             const textId = picker.getAttribute("data-orders-filter-date-for");
             const textInput = textId ? document.getElementById(textId) : null;

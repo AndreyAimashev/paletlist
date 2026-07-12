@@ -2250,6 +2250,10 @@
         min-width: 0;
       }
 
+      .orders-ship-date-filter--mobile {
+        display: none;
+      }
+
       .orders-filter-date {
         min-width: 0;
         color-scheme: dark;
@@ -4905,6 +4909,12 @@
           display: none !important;
         }
 
+        .orders-ship-date-filter--mobile {
+          display: block;
+          width: 100%;
+          min-width: 0;
+        }
+
         .orders-table tbody td.col-date {
           white-space: nowrap;
           height: 1px;
@@ -5412,6 +5422,7 @@
                             <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" aria-label="Дата отгрузки с" />
                             <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" aria-label="Дата отгрузки по" />
                           </div>
+                          <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="orders-filter-ship-mobile" aria-label="Дата отгрузки" />
                         </div>
                       </div>
                     </th>
@@ -5633,6 +5644,7 @@
                             <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" aria-label="Дата отгрузки с" />
                             <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" aria-label="Дата отгрузки по" />
                           </div>
+                          <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="om-filter-ship-mobile" aria-label="Дата отгрузки" />
                         </div>
                       </div>
                     </th>
@@ -11610,6 +11622,7 @@
       let ordersSortDir = "asc";
       let ordersFilterShipFrom = "";
       let ordersFilterShipTo = "";
+      let ordersFilterShipMobile = "";
       let ordersFilterPct = "";
       /** @type {Set<string> | null} */
       let ordersFilterReadinessSelected = null;
@@ -12309,6 +12322,7 @@
         const pairs = [
           ["orders-filter-ship-from", "om-filter-ship-from", ordersFilterShipFrom],
           ["orders-filter-ship-to", "om-filter-ship-to", ordersFilterShipTo],
+          ["orders-filter-ship-mobile", "om-filter-ship-mobile", ordersFilterShipMobile],
         ];
         pairs.forEach(([ordersId, omId, value]) => {
           [ordersId, omId].forEach((id) => {
@@ -12357,8 +12371,17 @@
       }
 
       function orderMatchesShipDateFilter(orderRow) {
+        const orderDay = parseOrderShipDateToDayStart(orderRow.ship_date);
         if (isMobileLayout()) {
-          return true;
+          const mobileVal = ordersFilterShipMobile.trim();
+          if (!mobileVal) {
+            return true;
+          }
+          if (orderDay == null) {
+            return false;
+          }
+          const filterDay = parseOrdersFilterDateInputToDayStart(mobileVal);
+          return filterDay != null && orderDay === filterDay;
         }
         const fromVal = ordersFilterShipFrom.trim();
         const toVal = ordersFilterShipTo.trim();
@@ -12394,6 +12417,8 @@
           "om-filter-ship-from": ["ordersFilterShipFrom", "orders-filter-ship-from"],
           "orders-filter-ship-to": ["ordersFilterShipTo", "om-filter-ship-to"],
           "om-filter-ship-to": ["ordersFilterShipTo", "orders-filter-ship-to"],
+          "orders-filter-ship-mobile": ["ordersFilterShipMobile", "om-filter-ship-mobile"],
+          "om-filter-ship-mobile": ["ordersFilterShipMobile", "orders-filter-ship-mobile"],
         };
         const mapping = fieldMap[t.id];
         if (!mapping) {
@@ -12402,8 +12427,10 @@
         const [stateKey, mirrorId] = mapping;
         if (stateKey === "ordersFilterShipFrom") {
           ordersFilterShipFrom = t.value;
-        } else {
+        } else if (stateKey === "ordersFilterShipTo") {
           ordersFilterShipTo = t.value;
+        } else {
+          ordersFilterShipMobile = t.value;
         }
         const mirror = document.getElementById(mirrorId);
         if (mirror && mirror.value !== t.value) {
@@ -13677,6 +13704,7 @@
         const filterDigest = [
           ordersFilterShipFrom,
           ordersFilterShipTo,
+          ordersFilterShipMobile,
           ordersFilterPct,
           ordersSortKey || "",
           ordersSortDir,

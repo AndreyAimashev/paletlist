@@ -557,7 +557,7 @@
       .order-monitoring-table {
         table-layout: fixed;
         width: 100%;
-        --om-col-expand: 6rem;
+        --om-col-expand: 7.5rem;
         --om-col-date: 6.65rem;
         --om-col-client: 51%;
         --om-col-pct: 5.5rem;
@@ -572,6 +572,9 @@
         max-width: var(--om-col-expand);
         text-align: left;
         vertical-align: middle;
+        overflow: visible;
+        position: relative;
+        z-index: 2;
       }
 
       .order-monitoring-table .col-date {
@@ -690,6 +693,8 @@
         flex-direction: column;
         align-items: stretch;
         gap: 4px;
+        position: relative;
+        z-index: 1;
       }
 
       .order-monitoring-table tbody tr:hover td {
@@ -715,6 +720,7 @@
         font-size: 11px;
         line-height: 1;
         transition: background 120ms ease, border-color 120ms ease;
+        touch-action: manipulation;
       }
 
       .om-expand-btn--label {
@@ -11595,6 +11601,12 @@
       const orderMonitoringAssemblyUnit = new Map();
       /** @type {Map<number, string>} */
       const orderMonitoringPalletsUnit = new Map();
+      const ORDER_MONITORING_EXPAND_SELECTOR =
+        "[data-order-monitoring-settings], [data-order-monitoring-assembly], [data-order-monitoring-pallets]";
+      let orderMonitoringExpandPointerAction = null;
+      let orderMonitoringInteractionLock = 0;
+      let orderMonitoringRenderDeferred = false;
+      let orderMonitoringLastRenderSignature = "";
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -13451,6 +13463,127 @@
         return !!node.closest(".om-order-detail-row");
       }
 
+      function getOrderMonitoringExpandActionFromBtn(btn) {
+        if (!btn) {
+          return null;
+        }
+        if (btn.dataset.orderMonitoringSettings != null) {
+          return { kind: "settings", orderId: btn.dataset.orderMonitoringSettings };
+        }
+        if (btn.dataset.orderMonitoringAssembly != null) {
+          return { kind: "assembly", orderId: btn.dataset.orderMonitoringAssembly };
+        }
+        if (btn.dataset.orderMonitoringPallets != null) {
+          return { kind: "pallets", orderId: btn.dataset.orderMonitoringPallets };
+        }
+        return null;
+      }
+
+      function runOrderMonitoringExpandAction(action) {
+        if (!action) {
+          return;
+        }
+        if (action.kind === "settings") {
+          toggleOrderMonitoringSettingsExpand(action.orderId);
+        } else if (action.kind === "assembly") {
+          toggleOrderMonitoringAssemblyExpand(action.orderId);
+        } else if (action.kind === "pallets") {
+          toggleOrderMonitoringPalletsExpand(action.orderId);
+        }
+      }
+
+      function getOrderMonitoringRowDigest(o) {
+        const chat = orderChatStateFromRow(o);
+        return [
+          o.id,
+          o.ship_date || "",
+          o.client || "",
+          o.city || "",
+          Math.round(Number(o.assembled_percent) || 0),
+          orderAssemblePalletCount(o),
+          getEffectiveOrderReadiness(o),
+          Number(o.assemble_revision) || 0,
+          formatOrderSkippedImportNote(o) ? "1" : "0",
+          ordersNamesDisplayUnit,
+          JSON.stringify(o.extra_info ?? null),
+          Array.isArray(o.items) ? o.items.length : 0,
+          chat.hasUnread ? "1" : "0",
+          chat.hasMessages ? "1" : "0",
+        ].join(":");
+      }
+
+      function getOrderMonitoringPanelDigest() {
+        const parts = [];
+        for (const oid of orderMonitoringExpandedIds) {
+          const cached = orderMonitoringDetailCache.get(oid);
+          if (!cached) {
+            parts.push(`s${oid}:load`);
+          } else if (cached.error) {
+            parts.push(`s${oid}:e:${cached.error}`);
+          } else {
+            parts.push(`s${oid}:ok:${Number(cached.assemble_revision) || 0}`);
+          }
+        }
+        for (const oid of orderMonitoringAssemblyExpandedIds) {
+          const cached = orderMonitoringAssemblyCache.get(oid);
+          const unit = orderMonitoringAssemblyUnit.get(oid) || "piece";
+          if (!cached) {
+            parts.push(`a${oid}:${unit}:load`);
+          } else if (cached.error) {
+            parts.push(`a${oid}:${unit}:e:${cached.error}`);
+          } else {
+            parts.push(`a${oid}:${unit}:ok:${Number(cached.assemble_revision) || 0}`);
+          }
+        }
+        for (const oid of orderMonitoringPalletsExpandedIds) {
+          const cached = orderMonitoringAssemblyCache.get(oid);
+          const unit = orderMonitoringPalletsUnit.get(oid) || "piece";
+          if (!cached) {
+            parts.push(`p${oid}:${unit}:load`);
+          } else if (cached.error) {
+            parts.push(`p${oid}:${unit}:e:${cached.error}`);
+          } else {
+            parts.push(`p${oid}:${unit}:ok:${Number(cached.assemble_revision) || 0}`);
+          }
+        }
+        return parts.sort().join(";");
+      }
+
+      function getOrderMonitoringRenderSignature() {
+        const rows = getOrdersRowsForDisplay();
+        const rowDigest = rows.map((o) => getOrderMonitoringRowDigest(o)).join("|");
+        const expandDigest = [
+          [...orderMonitoringExpandedIds].sort((a, b) => a - b).join(","),
+          [...orderMonitoringAssemblyExpandedIds].sort((a, b) => a - b).join(","),
+          [...orderMonitoringPalletsExpandedIds].sort((a, b) => a - b).join(","),
+        ].join("/");
+        const filterDigest = [
+          ordersFilterShip,
+          ordersFilterPct,
+          ordersSortKey || "",
+          ordersSortDir,
+          ordersNamesDisplayUnit,
+          ordersFilterClientsSelected ? [...ordersFilterClientsSelected].sort().join(",") : "*",
+          ordersFilterExtraInfoSelected
+            ? [...ordersFilterExtraInfoSelected].sort().join(",")
+            : "*",
+          ordersFilterReadinessSelected
+            ? [...ordersFilterReadinessSelected].sort().join(",")
+            : "*",
+        ].join("~");
+        return `${rowDigest}||${expandDigest}||${getOrderMonitoringPanelDigest()}||${filterDigest}`;
+      }
+
+      function flushOrderMonitoringRenderIfDeferred() {
+        if (!orderMonitoringRenderDeferred || orderMonitoringInteractionLock > 0) {
+          return;
+        }
+        orderMonitoringRenderDeferred = false;
+        if (currentStage === "order_monitoring") {
+          renderOrderMonitoringTable();
+        }
+      }
+
       function pruneOrderMonitoringDetailCache(enriched) {
         const activeIds = new Set(enriched.map((o) => Number(o.id)));
         for (const oid of [...orderMonitoringDetailCache.keys()]) {
@@ -13694,7 +13827,7 @@
         actions: "--om-col-actions",
       };
       const OM_MONITORING_DEFAULT_WIDTHS = {
-        expand: "6rem",
+        expand: "7.5rem",
         date: "6.65rem",
         client: "51%",
         pct: "5.5rem",
@@ -14031,7 +14164,8 @@
         ensureOrderMonitoringColumnChrome();
       }
 
-      function renderOrderMonitoringTable() {
+      function renderOrderMonitoringTable(opts) {
+        const force = !!(opts && opts.force);
         syncOrdersNamesUnitButtons();
         syncOrdersFilteredCount();
         syncOrdersClientFilterSelect();
@@ -14044,14 +14178,26 @@
           return;
         }
         if (!cachedOrdersListRows.length) {
+          orderMonitoringLastRenderSignature = "";
           orderMonitoringTableBody.innerHTML =
             '<tr><td colspan="7" class="muted">Заказов пока нет.</td></tr>';
           return;
         }
         const rows = getOrdersRowsForDisplay();
         if (!rows.length) {
+          orderMonitoringLastRenderSignature = "";
           orderMonitoringTableBody.innerHTML =
             '<tr><td colspan="7" class="muted">Нет заказов по текущим фильтрам.</td></tr>';
+          return;
+        }
+        if (!force && orderMonitoringInteractionLock > 0) {
+          orderMonitoringRenderDeferred = true;
+          return;
+        }
+        const renderSignature = getOrderMonitoringRenderSignature();
+        if (!force && renderSignature === orderMonitoringLastRenderSignature) {
+          scheduleOrderMonitoringDetailLoads();
+          scheduleOrderMonitoringAssemblyLoads();
           return;
         }
         if (isTextSelectionInOrderMonitoringDetail()) {
@@ -14059,6 +14205,8 @@
           scheduleOrderMonitoringAssemblyLoads();
           return;
         }
+        orderMonitoringLastRenderSignature = renderSignature;
+        orderMonitoringRenderDeferred = false;
         orderMonitoringTableBody.innerHTML = rows
           .map((o) => {
             const oid = Number(o.id);
@@ -19903,23 +20051,87 @@
       }
 
       if (orderMonitoringTableBody) {
+        orderMonitoringTableBody.addEventListener(
+          "pointerdown",
+          (ev) => {
+            if (typeof ev.button === "number" && ev.button !== 0) {
+              return;
+            }
+            const btn = ev.target.closest(ORDER_MONITORING_EXPAND_SELECTOR);
+            if (!btn || !orderMonitoringTableBody.contains(btn)) {
+              return;
+            }
+            orderMonitoringExpandPointerAction = getOrderMonitoringExpandActionFromBtn(btn);
+            orderMonitoringInteractionLock += 1;
+          },
+          true,
+        );
+        orderMonitoringTableBody.addEventListener(
+          "pointerup",
+          (ev) => {
+            if (typeof ev.button === "number" && ev.button !== 0) {
+              return;
+            }
+            const action = orderMonitoringExpandPointerAction;
+            orderMonitoringExpandPointerAction = null;
+            if (orderMonitoringInteractionLock > 0) {
+              orderMonitoringInteractionLock -= 1;
+            }
+            if (action) {
+              const btn = ev.target.closest(ORDER_MONITORING_EXPAND_SELECTOR);
+              const sameBtn = btn ? getOrderMonitoringExpandActionFromBtn(btn) : null;
+              if (
+                !btn ||
+                (sameBtn &&
+                  sameBtn.kind === action.kind &&
+                  sameBtn.orderId === action.orderId)
+              ) {
+                ev.preventDefault();
+                runOrderMonitoringExpandAction(action);
+              }
+            }
+            if (orderMonitoringInteractionLock === 0) {
+              setTimeout(flushOrderMonitoringRenderIfDeferred, 0);
+            }
+          },
+          true,
+        );
+        orderMonitoringTableBody.addEventListener(
+          "pointercancel",
+          () => {
+            orderMonitoringExpandPointerAction = null;
+            if (orderMonitoringInteractionLock > 0) {
+              orderMonitoringInteractionLock -= 1;
+            }
+            if (orderMonitoringInteractionLock === 0) {
+              setTimeout(flushOrderMonitoringRenderIfDeferred, 0);
+            }
+          },
+          true,
+        );
         orderMonitoringTableBody.addEventListener("click", (ev) => {
           const settingsBtn = ev.target.closest("[data-order-monitoring-settings]");
           if (settingsBtn && orderMonitoringTableBody.contains(settingsBtn)) {
             ev.preventDefault();
-            toggleOrderMonitoringSettingsExpand(settingsBtn.dataset.orderMonitoringSettings);
+            if (ev.detail === 0) {
+              toggleOrderMonitoringSettingsExpand(settingsBtn.dataset.orderMonitoringSettings);
+            }
             return;
           }
           const assemblyBtn = ev.target.closest("[data-order-monitoring-assembly]");
           if (assemblyBtn && orderMonitoringTableBody.contains(assemblyBtn)) {
             ev.preventDefault();
-            toggleOrderMonitoringAssemblyExpand(assemblyBtn.dataset.orderMonitoringAssembly);
+            if (ev.detail === 0) {
+              toggleOrderMonitoringAssemblyExpand(assemblyBtn.dataset.orderMonitoringAssembly);
+            }
             return;
           }
           const palletsBtn = ev.target.closest("[data-order-monitoring-pallets]");
           if (palletsBtn && orderMonitoringTableBody.contains(palletsBtn)) {
             ev.preventDefault();
-            toggleOrderMonitoringPalletsExpand(palletsBtn.dataset.orderMonitoringPallets);
+            if (ev.detail === 0) {
+              toggleOrderMonitoringPalletsExpand(palletsBtn.dataset.orderMonitoringPallets);
+            }
             return;
           }
           const omAssemblyUnitBtn = ev.target.closest("[data-om-assembly-summary-unit]");

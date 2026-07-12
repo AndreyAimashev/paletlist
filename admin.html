@@ -1938,7 +1938,7 @@
       }
 
       #orders-workspace {
-        --orders-col-date-width: 13.5rem;
+        --orders-col-date-width: 13.13rem;
       }
 
       #orders-workspace .orders-table {
@@ -1951,92 +1951,6 @@
         min-width: var(--orders-col-date-width);
         max-width: var(--orders-col-date-width);
         box-sizing: border-box;
-      }
-
-      .orders-col-date-tuning-panel {
-        display: none;
-        flex-direction: column;
-        gap: 10px;
-        margin: 0 0 10px;
-        padding: 12px 14px;
-        border: 1px dashed rgba(255, 196, 96, 0.55);
-        border-radius: 10px;
-        background: rgba(255, 196, 96, 0.08);
-        color: #ffe8c0;
-        font-size: 12px;
-        line-height: 1.4;
-      }
-
-      .orders-col-date-tuning-panel__title {
-        margin: 0;
-        font-family: "Orbitron", sans-serif;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        color: #ffd48a;
-      }
-
-      .orders-col-date-tuning-panel__hint {
-        margin: 0;
-        color: rgba(255, 232, 192, 0.82);
-      }
-
-      .orders-col-date-tuning-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px 12px;
-      }
-
-      .orders-col-date-tuning-row label {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }
-
-      .orders-col-date-tuning-row input[type="range"] {
-        width: min(240px, 100%);
-        accent-color: #ffc460;
-      }
-
-      .orders-col-date-tuning-value {
-        min-width: 5.5rem;
-        font-variant-numeric: tabular-nums;
-        color: #fff6df;
-      }
-
-      .orders-col-date-tuning-css {
-        margin: 0;
-        padding: 8px 10px;
-        border-radius: 8px;
-        background: rgba(10, 14, 23, 0.72);
-        color: #d8fff4;
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 12px;
-        word-break: break-all;
-      }
-
-      .orders-col-date-tuning-copy-btn {
-        align-self: flex-start;
-        margin: 0;
-        padding: 6px 10px;
-        border: 1px solid rgba(255, 196, 96, 0.45);
-        border-radius: 8px;
-        background: rgba(255, 196, 96, 0.12);
-        color: #ffe8c0;
-        font-size: 12px;
-        cursor: pointer;
-      }
-
-      .orders-col-date-tuning-copy-btn:hover {
-        background: rgba(255, 196, 96, 0.22);
-      }
-
-      @media (min-width: 769px) {
-        #orders-workspace.visible .orders-col-date-tuning-panel {
-          display: flex;
-        }
       }
 
       .orders-table td {
@@ -5573,26 +5487,6 @@
                   Наборы
                 </button>
               </div>
-            </div>
-            <div id="orders-col-date-tuning-panel" class="orders-col-date-tuning-panel" aria-label="Временная настройка ширины столбца даты отгрузки">
-              <p class="orders-col-date-tuning-panel__title">Временная панель: ширина столбца «Дата отгрузки»</p>
-              <p class="orders-col-date-tuning-panel__hint">Подберите ширину и сообщите значение из строки CSS ниже — его сохраним в коде.</p>
-              <div class="orders-col-date-tuning-row">
-                <label for="orders-col-date-width-rem">
-                  rem
-                  <input type="range" id="orders-col-date-width-rem" min="8" max="28" step="0.25" value="13.5" />
-                </label>
-                <span class="orders-col-date-tuning-value" id="orders-col-date-width-rem-val">13.5 rem</span>
-              </div>
-              <div class="orders-col-date-tuning-row">
-                <label for="orders-col-date-width-px">
-                  px
-                  <input type="range" id="orders-col-date-width-px" min="120" max="448" step="1" value="216" />
-                </label>
-                <span class="orders-col-date-tuning-value" id="orders-col-date-width-px-val">216 px</span>
-              </div>
-              <code class="orders-col-date-tuning-css" id="orders-col-date-width-css">--orders-col-date-width: 13.5rem;</code>
-              <button type="button" class="orders-col-date-tuning-copy-btn" id="orders-col-date-copy-css">Скопировать CSS-значение</button>
             </div>
             <div class="orders-table-wrap">
               <table class="orders-table">
@@ -12674,108 +12568,6 @@
             scheduleOrdersTableReRender();
           });
         });
-      }
-
-      const ORDERS_COL_DATE_WIDTH_DEFAULT_REM = 13.5;
-      let ordersColDateTuningSyncing = false;
-
-      function getOrdersColDateRootFontSizePx() {
-        return Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      }
-
-      function formatOrdersColDateCssValue(remValue) {
-        const rounded = Math.round(remValue * 100) / 100;
-        return `${rounded}rem`;
-      }
-
-      function remToPxForOrdersColDate(remValue) {
-        return Math.round(remValue * getOrdersColDateRootFontSizePx());
-      }
-
-      function pxToRemForOrdersColDate(pxValue) {
-        return Math.round((pxValue / getOrdersColDateRootFontSizePx()) * 100) / 100;
-      }
-
-      function updateOrdersColDateTuningUi(remValue) {
-        const remSlider = document.getElementById("orders-col-date-width-rem");
-        const pxSlider = document.getElementById("orders-col-date-width-px");
-        const remValEl = document.getElementById("orders-col-date-width-rem-val");
-        const pxValEl = document.getElementById("orders-col-date-width-px-val");
-        const cssEl = document.getElementById("orders-col-date-width-css");
-        const cssValue = formatOrdersColDateCssValue(remValue);
-        const pxValue = remToPxForOrdersColDate(remValue);
-        if (remSlider && Number(remSlider.value) !== remValue) {
-          remSlider.value = String(remValue);
-        }
-        if (pxSlider && Number(pxSlider.value) !== pxValue) {
-          pxSlider.value = String(pxValue);
-        }
-        if (remValEl) {
-          remValEl.textContent = `${cssValue.replace("rem", "")} rem`;
-        }
-        if (pxValEl) {
-          pxValEl.textContent = `${pxValue} px`;
-        }
-        if (cssEl) {
-          cssEl.textContent = `--orders-col-date-width: ${cssValue};`;
-        }
-      }
-
-      function applyOrdersColDateWidthRem(remValue) {
-        if (!ordersWorkspace) {
-          return;
-        }
-        const clamped = Math.max(8, Math.min(28, remValue));
-        const cssValue = formatOrdersColDateCssValue(clamped);
-        ordersWorkspace.style.setProperty("--orders-col-date-width", cssValue);
-        updateOrdersColDateTuningUi(clamped);
-      }
-
-      function initOrdersColDateTuningPanel() {
-        const remSlider = document.getElementById("orders-col-date-width-rem");
-        const pxSlider = document.getElementById("orders-col-date-width-px");
-        const copyBtn = document.getElementById("orders-col-date-copy-css");
-        if (!remSlider || !pxSlider || remSlider.dataset.bound === "1") {
-          return;
-        }
-        remSlider.dataset.bound = "1";
-        applyOrdersColDateWidthRem(
-          Number(remSlider.value) || ORDERS_COL_DATE_WIDTH_DEFAULT_REM,
-        );
-        remSlider.addEventListener("input", () => {
-          if (ordersColDateTuningSyncing) {
-            return;
-          }
-          ordersColDateTuningSyncing = true;
-          applyOrdersColDateWidthRem(Number(remSlider.value));
-          ordersColDateTuningSyncing = false;
-        });
-        pxSlider.addEventListener("input", () => {
-          if (ordersColDateTuningSyncing) {
-            return;
-          }
-          ordersColDateTuningSyncing = true;
-          applyOrdersColDateWidthRem(pxToRemForOrdersColDate(Number(pxSlider.value)));
-          ordersColDateTuningSyncing = false;
-        });
-        if (copyBtn) {
-          copyBtn.addEventListener("click", async () => {
-            const cssEl = document.getElementById("orders-col-date-width-css");
-            const text = cssEl ? cssEl.textContent : "";
-            if (!text) {
-              return;
-            }
-            try {
-              await navigator.clipboard.writeText(text);
-              copyBtn.textContent = "Скопировано";
-              window.setTimeout(() => {
-                copyBtn.textContent = "Скопировать CSS-значение";
-              }, 1400);
-            } catch (e) {
-              /* ignore */
-            }
-          });
-        }
       }
 
       function orderShipDateShort(raw) {
@@ -20396,7 +20188,6 @@
       ensureOrdersExtraInfoFilterPopoverMounted();
 
       if (ordersWorkspace) {
-        initOrdersColDateTuningPanel();
         ordersWorkspace.addEventListener("click", (ev) => {
           const sortBtn = ev.target.closest("[data-orders-sort]");
           if (sortBtn && ordersWorkspace.contains(sortBtn)) {
@@ -22595,7 +22386,6 @@
       ensureNewOrderDeliveryToggleButtons("Обычный");
       applyAssembleMobileNavSyncVisual("is-idle");
       initOrdersShipDatePickers();
-      initOrdersColDateTuningPanel();
       setStage("main", false);
       setSidebarCollapsed(false);
       buildSheetPreview();

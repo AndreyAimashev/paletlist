@@ -558,7 +558,7 @@
         table-layout: fixed;
         width: 100%;
         --om-col-expand: 7.5rem;
-        --om-col-date: 12.5rem;
+        --om-col-date: 13.5rem;
         --om-col-client: 51%;
         --om-col-pct: 5.5rem;
         --om-col-qty: 6.4rem;
@@ -2256,9 +2256,60 @@
         gap: 6px;
       }
 
-      .orders-ship-date-filter--desktop .orders-filter-date {
+      .orders-ship-date-filter--desktop .orders-ship-date-input-wrap {
         flex: 1 1 0;
-        width: auto;
+        min-width: 0;
+      }
+
+      .orders-ship-date-input-wrap {
+        position: relative;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .orders-filter-date-text {
+        width: 100%;
+        padding-right: 1.85rem;
+        box-sizing: border-box;
+      }
+
+      .orders-filter-date-picker {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 1.85rem;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color-scheme: dark;
+        cursor: pointer;
+        opacity: 1;
+      }
+
+      .orders-filter-date-picker::-webkit-calendar-picker-indicator {
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        opacity: 1;
+        -webkit-appearance: none;
+        appearance: none;
+        background: transparent center / 16px 16px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
+      }
+
+      .orders-filter-date-picker::-moz-calendar-picker-indicator {
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        opacity: 1;
+        background: transparent center / 16px 16px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5f8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
       }
 
       .orders-ship-date-filter--mobile {
@@ -2272,7 +2323,7 @@
       }
 
       .orders-table thead th.col-date {
-        min-width: 12.5rem;
+        min-width: 13.5rem;
       }
 
       .orders-filter-select {
@@ -5431,10 +5482,19 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <input type="text" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
-                            <input type="text" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
+                            <div class="orders-ship-date-input-wrap">
+                              <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-from" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            </div>
+                            <div class="orders-ship-date-input-wrap">
+                              <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-to" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            </div>
                           </div>
-                          <input type="text" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="orders-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
+                          <div class="orders-ship-date-input-wrap orders-ship-date-filter--mobile">
+                            <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="orders-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
+                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="orders-filter-ship-mobile" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                          </div>
                         </div>
                       </div>
                     </th>
@@ -5653,10 +5713,19 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <input type="text" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
-                            <input type="text" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
+                            <div class="orders-ship-date-input-wrap">
+                              <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-from" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            </div>
+                            <div class="orders-ship-date-input-wrap">
+                              <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
+                              <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-to" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                            </div>
                           </div>
-                          <input type="text" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="om-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
+                          <div class="orders-ship-date-input-wrap orders-ship-date-filter--mobile">
+                            <input type="text" class="orders-filter-input orders-filter-date orders-filter-date-text" id="om-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
+                            <input type="date" class="orders-filter-date-picker" data-orders-filter-date-for="om-filter-ship-mobile" tabindex="-1" aria-hidden="true" title="Выбрать дату" />
+                          </div>
                         </div>
                       </div>
                     </th>
@@ -12342,7 +12411,9 @@
             const el = document.getElementById(id);
             if (el && el.value !== displayValue) {
               el.value = displayValue;
+              el.dataset.prevValue = displayValue;
             }
+            syncOrdersFilterDatePickerFromText(el);
           });
         });
       }
@@ -12357,6 +12428,132 @@
           return `${iso[3]}.${iso[2]}.${iso[1].slice(-2)}`;
         }
         return normalizeOrdersFilterDateText(s);
+      }
+
+      function maskOrdersFilterDateInput(input) {
+        if (!input) {
+          return;
+        }
+        const prev = input.dataset.prevValue || "";
+        let digits = String(input.value || "").replace(/\D/g, "");
+        if (
+          input.value.length < prev.length &&
+          prev.length > digits.length &&
+          prev.charAt(prev.length - 1) === "."
+        ) {
+          digits = digits.slice(0, -1);
+        }
+        digits = digits.slice(0, 6);
+        let formatted = "";
+        if (digits.length > 0) {
+          formatted += digits.slice(0, Math.min(2, digits.length));
+        }
+        if (digits.length > 2) {
+          formatted += "." + digits.slice(2, Math.min(4, digits.length));
+        }
+        if (digits.length > 4) {
+          formatted += "." + digits.slice(4, 6);
+        }
+        if (input.value !== formatted) {
+          input.value = formatted;
+        }
+        input.dataset.prevValue = formatted;
+      }
+
+      function isoDateToOrdersFilterText(iso) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
+        if (!m) {
+          return "";
+        }
+        return `${m[3]}.${m[2]}.${m[1].slice(-2)}`;
+      }
+
+      function ordersFilterTextToIsoDate(text) {
+        const dayStart = parseOrdersFilterDateInputToDayStart(text);
+        if (dayStart == null) {
+          return "";
+        }
+        const d = new Date(dayStart);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${dd}`;
+      }
+
+      function syncOrdersFilterDatePickerFromText(textInput) {
+        if (!textInput) {
+          return;
+        }
+        const wrap = textInput.closest(".orders-ship-date-input-wrap");
+        const picker = wrap?.querySelector(".orders-filter-date-picker");
+        if (!picker) {
+          return;
+        }
+        const iso = ordersFilterTextToIsoDate(textInput.value);
+        picker.value = iso || "";
+      }
+
+      function initOrdersShipDatePickers() {
+        document.querySelectorAll(".orders-filter-date-picker").forEach((picker) => {
+          if (picker.dataset.ordersPickerBound === "1") {
+            return;
+          }
+          picker.dataset.ordersPickerBound = "1";
+          picker.addEventListener("change", () => {
+            const textId = picker.getAttribute("data-orders-filter-date-for");
+            const textInput = textId ? document.getElementById(textId) : null;
+            if (!textInput || !picker.value) {
+              return;
+            }
+            textInput.value = isoDateToOrdersFilterText(picker.value);
+            textInput.dataset.prevValue = textInput.value;
+            applyOrdersShipDateFilterInput(textInput);
+            scheduleOrdersTableReRender();
+          });
+        });
+      }
+
+      function orderShipDateShort(raw) {
+        const s = String(raw || "").trim();
+        if (!s || s === "—") {
+          return null;
+        }
+        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s);
+        if (!m) {
+          return null;
+        }
+        return `${m[1].padStart(2, "0")}.${m[2].padStart(2, "0")}.${m[3].slice(-2)}`;
+      }
+
+      function normalizeOrdersFilterDatePrefix(value) {
+        const digits = String(value || "").replace(/\D/g, "").slice(0, 6);
+        if (!digits) {
+          return "";
+        }
+        let formatted = digits.slice(0, Math.min(2, digits.length));
+        if (digits.length > 2) {
+          formatted += "." + digits.slice(2, Math.min(4, digits.length));
+        }
+        if (digits.length > 4) {
+          formatted += "." + digits.slice(4, 6);
+        }
+        return formatted;
+      }
+
+      function isCompleteOrdersFilterDate(value) {
+        return /^\d{2}\.\d{2}\.\d{2}$/.test(normalizeOrdersFilterDateText(value));
+      }
+
+      function orderMatchesPartialShipDateFilter(orderShipDate, filterValue) {
+        const filter = normalizeOrdersFilterDatePrefix(filterValue);
+        if (!filter) {
+          return true;
+        }
+        const orderStr = orderShipDateShort(orderShipDate);
+        if (!orderStr) {
+          return false;
+        }
+        return orderStr.startsWith(filter);
       }
 
       function parseOrderShipDateToDayStart(raw) {
@@ -12443,33 +12640,64 @@
           if (!mobileVal) {
             return true;
           }
-          if (orderDay == null) {
-            return false;
+          if (isCompleteOrdersFilterDate(mobileVal) && orderDay != null) {
+            const filterDay = parseOrdersFilterDateInputToDayStart(mobileVal);
+            return filterDay != null && orderDay === filterDay;
           }
-          const filterDay = parseOrdersFilterDateInputToDayStart(mobileVal);
-          return filterDay != null && orderDay === filterDay;
+          return orderMatchesPartialShipDateFilter(orderRow.ship_date, mobileVal);
         }
         const fromVal = ordersFilterShipFrom.trim();
         const toVal = ordersFilterShipTo.trim();
         if (!fromVal && !toVal) {
           return true;
         }
-        if (orderDay == null) {
+        const fromComplete = fromVal && isCompleteOrdersFilterDate(fromVal);
+        const toComplete = toVal && isCompleteOrdersFilterDate(toVal);
+        if (fromComplete && toComplete && orderDay != null) {
+          const fromDay = parseOrdersFilterDateInputToDayStart(fromVal);
+          const toDay = parseOrdersFilterDateInputToDayStart(toVal);
+          if (fromDay != null && toDay != null) {
+            const minDay = Math.min(fromDay, toDay);
+            const maxDay = Math.max(fromDay, toDay);
+            return orderDay >= minDay && orderDay <= maxDay;
+          }
+        }
+        if (fromVal && toVal && !fromComplete && !toComplete) {
+          return (
+            orderMatchesPartialShipDateFilter(orderRow.ship_date, fromVal) ||
+            orderMatchesPartialShipDateFilter(orderRow.ship_date, toVal)
+          );
+        }
+        if (fromComplete && toVal && !toComplete && orderDay != null) {
+          const fromDay = parseOrdersFilterDateInputToDayStart(fromVal);
+          if (fromDay != null && orderDay < fromDay) {
+            return false;
+          }
+          return orderMatchesPartialShipDateFilter(orderRow.ship_date, toVal);
+        }
+        if (toComplete && fromVal && !fromComplete && orderDay != null) {
+          const toDay = parseOrdersFilterDateInputToDayStart(toVal);
+          if (toDay != null && orderDay > toDay) {
+            return false;
+          }
+          return orderMatchesPartialShipDateFilter(orderRow.ship_date, fromVal);
+        }
+        if (fromVal && !orderMatchesPartialShipDateFilter(orderRow.ship_date, fromVal)) {
           return false;
         }
-        const fromDay = fromVal ? parseOrdersFilterDateInputToDayStart(fromVal) : null;
-        const toDay = toVal ? parseOrdersFilterDateInputToDayStart(toVal) : null;
-        if (fromDay != null && toDay == null) {
-          return orderDay === fromDay;
+        if (toVal && !orderMatchesPartialShipDateFilter(orderRow.ship_date, toVal)) {
+          return false;
         }
-        if (fromDay == null && toDay != null) {
-          return orderDay === toDay;
+        return true;
+      }
+
+      function handleOrdersShipDateFilterInputEvent(t) {
+        if (!t || !t.matches(".orders-filter-date-text")) {
+          return false;
         }
-        if (fromDay != null && toDay != null) {
-          const minDay = Math.min(fromDay, toDay);
-          const maxDay = Math.max(fromDay, toDay);
-          return orderDay >= minDay && orderDay <= maxDay;
-        }
+        maskOrdersFilterDateInput(t);
+        applyOrdersShipDateFilterInput(t);
+        syncOrdersFilterDatePickerFromText(t);
         return true;
       }
 
@@ -12505,14 +12733,16 @@
       }
 
       function finalizeOrdersShipDateFilterInput(t) {
-        if (!applyOrdersShipDateFilterInput(t)) {
+        if (!t || !t.matches(".orders-filter-date-text")) {
           return false;
         }
         const normalized = normalizeOrdersFilterDateText(t.value);
         if (t.value !== normalized) {
           t.value = normalized;
-          applyOrdersShipDateFilterInput(t);
+          t.dataset.prevValue = normalized;
         }
+        applyOrdersShipDateFilterInput(t);
+        syncOrdersFilterDatePickerFromText(t);
         return true;
       }
 
@@ -14051,7 +14281,7 @@
       };
       const OM_MONITORING_DEFAULT_WIDTHS = {
         expand: "7.5rem",
-        date: "12.5rem",
+        date: "13.5rem",
         client: "51%",
         pct: "5.5rem",
         qty: "6.4rem",
@@ -19934,7 +20164,7 @@
         });
         ordersWorkspace.addEventListener("input", (ev) => {
           const t = ev.target;
-          if (applyOrdersShipDateFilterInput(t)) {
+          if (handleOrdersShipDateFilterInputEvent(t)) {
             scheduleOrdersTableReRender();
           }
         });
@@ -20213,7 +20443,7 @@
         });
         orderMonitoringWorkspace.addEventListener("input", (ev) => {
           const t = ev.target;
-          if (applyOrdersShipDateFilterInput(t)) {
+          if (handleOrdersShipDateFilterInputEvent(t)) {
             scheduleOrdersTableReRender();
           }
         });
@@ -22098,6 +22328,7 @@
       syncMobileLayoutState();
       ensureNewOrderDeliveryToggleButtons("Обычный");
       applyAssembleMobileNavSyncVisual("is-idle");
+      initOrdersShipDatePickers();
       setStage("main", false);
       setSidebarCollapsed(false);
       buildSheetPreview();

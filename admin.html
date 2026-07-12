@@ -558,7 +558,7 @@
         table-layout: fixed;
         width: 100%;
         --om-col-expand: 7.5rem;
-        --om-col-date: 6.65rem;
+        --om-col-date: 9.75rem;
         --om-col-client: 51%;
         --om-col-pct: 5.5rem;
         --om-col-qty: 6.4rem;
@@ -2240,6 +2240,23 @@
         border: 1px solid rgba(0, 200, 160, 0.22);
         background: rgba(10, 14, 23, 0.85);
         color: var(--text-main);
+      }
+
+      .orders-ship-date-filter {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .orders-filter-date {
+        min-width: 0;
+        color-scheme: dark;
+      }
+
+      .orders-table thead th.col-date {
+        min-width: 9.75rem;
       }
 
       .orders-filter-select {
@@ -4884,6 +4901,10 @@
           font-size: 14px;
         }
 
+        .orders-ship-date-filter--desktop {
+          display: none !important;
+        }
+
         .orders-table tbody td.col-date {
           white-space: nowrap;
           height: 1px;
@@ -5387,7 +5408,10 @@
                           </button>
                         </div>
                         <div class="orders-th-controls">
-                          <input type="search" class="orders-filter-input" id="orders-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                          <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
+                            <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" aria-label="Дата отгрузки с" />
+                            <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" aria-label="Дата отгрузки по" />
+                          </div>
                         </div>
                       </div>
                     </th>
@@ -5605,7 +5629,10 @@
                           </button>
                         </div>
                         <div class="orders-th-controls">
-                          <input type="search" class="orders-filter-input" id="om-filter-ship" placeholder="Содержит…" autocomplete="off" />
+                          <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
+                            <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" aria-label="Дата отгрузки с" />
+                            <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" aria-label="Дата отгрузки по" />
+                          </div>
                         </div>
                       </div>
                     </th>
@@ -11581,7 +11608,8 @@
       let cachedOrdersListRows = [];
       let ordersSortKey = null;
       let ordersSortDir = "asc";
-      let ordersFilterShip = "";
+      let ordersFilterShipFrom = "";
+      let ordersFilterShipTo = "";
       let ordersFilterPct = "";
       /** @type {Set<string> | null} */
       let ordersFilterReadinessSelected = null;
@@ -12278,13 +12306,110 @@
       }
 
       function syncOrdersFilterShipInputs() {
-        const v = ordersFilterShip;
-        ["orders-filter-ship", "om-filter-ship"].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el && el.value !== v) {
-            el.value = v;
-          }
+        const pairs = [
+          ["orders-filter-ship-from", "om-filter-ship-from", ordersFilterShipFrom],
+          ["orders-filter-ship-to", "om-filter-ship-to", ordersFilterShipTo],
+        ];
+        pairs.forEach(([ordersId, omId, value]) => {
+          [ordersId, omId].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el && el.value !== value) {
+              el.value = value;
+            }
+          });
         });
+      }
+
+      function parseOrderShipDateToDayStart(raw) {
+        const s = String(raw || "").trim();
+        if (!s || s === "—") {
+          return null;
+        }
+        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s);
+        if (m) {
+          const t = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])).getTime();
+          return Number.isFinite(t) ? t : null;
+        }
+        const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (iso) {
+          const t = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
+          return Number.isFinite(t) ? t : null;
+        }
+        const t2 = Date.parse(s);
+        if (!Number.isFinite(t2)) {
+          return null;
+        }
+        const d = new Date(t2);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      }
+
+      function parseOrdersFilterDateInputToDayStart(value) {
+        const s = String(value || "").trim();
+        if (!s) {
+          return null;
+        }
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (!m) {
+          return null;
+        }
+        const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+        return Number.isFinite(t) ? t : null;
+      }
+
+      function orderMatchesShipDateFilter(orderRow) {
+        if (isMobileLayout()) {
+          return true;
+        }
+        const fromVal = ordersFilterShipFrom.trim();
+        const toVal = ordersFilterShipTo.trim();
+        if (!fromVal && !toVal) {
+          return true;
+        }
+        const orderDay = parseOrderShipDateToDayStart(orderRow.ship_date);
+        if (orderDay == null) {
+          return false;
+        }
+        const fromDay = fromVal ? parseOrdersFilterDateInputToDayStart(fromVal) : null;
+        const toDay = toVal ? parseOrdersFilterDateInputToDayStart(toVal) : null;
+        if (fromDay != null && toDay == null) {
+          return orderDay === fromDay;
+        }
+        if (fromDay == null && toDay != null) {
+          return orderDay === toDay;
+        }
+        if (fromDay != null && toDay != null) {
+          const minDay = Math.min(fromDay, toDay);
+          const maxDay = Math.max(fromDay, toDay);
+          return orderDay >= minDay && orderDay <= maxDay;
+        }
+        return true;
+      }
+
+      function applyOrdersShipDateFilterInput(t) {
+        if (!t || !t.id) {
+          return false;
+        }
+        const fieldMap = {
+          "orders-filter-ship-from": ["ordersFilterShipFrom", "om-filter-ship-from"],
+          "om-filter-ship-from": ["ordersFilterShipFrom", "orders-filter-ship-from"],
+          "orders-filter-ship-to": ["ordersFilterShipTo", "om-filter-ship-to"],
+          "om-filter-ship-to": ["ordersFilterShipTo", "orders-filter-ship-to"],
+        };
+        const mapping = fieldMap[t.id];
+        if (!mapping) {
+          return false;
+        }
+        const [stateKey, mirrorId] = mapping;
+        if (stateKey === "ordersFilterShipFrom") {
+          ordersFilterShipFrom = t.value;
+        } else {
+          ordersFilterShipTo = t.value;
+        }
+        const mirror = document.getElementById(mirrorId);
+        if (mirror && mirror.value !== t.value) {
+          mirror.value = t.value;
+        }
+        return true;
       }
 
       function setOrdersNamesDisplayUnit(next) {
@@ -12342,20 +12467,12 @@
       /** Заказы, из которых собираются варианты фильтров клиента и доп. информации. */
       function getOrdersRowsForFilterOptionScope() {
         const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows : [];
-        const shipQ = ordersFilterShip.trim().toLowerCase();
-        if (!shipQ) {
-          return base;
-        }
-        return base.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
+        return base.filter((o) => orderMatchesShipDateFilter(o));
       }
 
       function getOrdersRowsForDisplay() {
         const base = Array.isArray(cachedOrdersListRows) ? cachedOrdersListRows.slice() : [];
-        let list = base;
-        const shipQ = ordersFilterShip.trim().toLowerCase();
-        if (shipQ) {
-          list = list.filter((o) => String(o.ship_date || "").toLowerCase().includes(shipQ));
-        }
+        let list = base.filter((o) => orderMatchesShipDateFilter(o));
         const clientValues = collectOrdersClientFilterValues();
         if (
           ordersFilterClientsSelected &&
@@ -13558,7 +13675,8 @@
           [...orderMonitoringPalletsExpandedIds].sort((a, b) => a - b).join(","),
         ].join("/");
         const filterDigest = [
-          ordersFilterShip,
+          ordersFilterShipFrom,
+          ordersFilterShipTo,
           ordersFilterPct,
           ordersSortKey || "",
           ordersSortDir,
@@ -13828,7 +13946,7 @@
       };
       const OM_MONITORING_DEFAULT_WIDTHS = {
         expand: "7.5rem",
-        date: "6.65rem",
+        date: "9.75rem",
         client: "51%",
         pct: "5.5rem",
         qty: "6.4rem",
@@ -19711,12 +19829,7 @@
         });
         ordersWorkspace.addEventListener("input", (ev) => {
           const t = ev.target;
-          if (t.id === "orders-filter-ship") {
-            ordersFilterShip = t.value;
-            const omShip = document.getElementById("om-filter-ship");
-            if (omShip && omShip.value !== t.value) {
-              omShip.value = t.value;
-            }
+          if (applyOrdersShipDateFilterInput(t)) {
             scheduleOrdersTableReRender();
           }
         });
@@ -19989,12 +20102,7 @@
         });
         orderMonitoringWorkspace.addEventListener("input", (ev) => {
           const t = ev.target;
-          if (t.id === "om-filter-ship") {
-            ordersFilterShip = t.value;
-            const ordersShip = document.getElementById("orders-filter-ship");
-            if (ordersShip && ordersShip.value !== t.value) {
-              ordersShip.value = t.value;
-            }
+          if (applyOrdersShipDateFilterInput(t)) {
             scheduleOrdersTableReRender();
           }
         });

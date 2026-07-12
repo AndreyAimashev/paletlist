@@ -558,7 +558,7 @@
         table-layout: fixed;
         width: 100%;
         --om-col-expand: 7.5rem;
-        --om-col-date: 17rem;
+        --om-col-date: 12.5rem;
         --om-col-client: 51%;
         --om-col-pct: 5.5rem;
         --om-col-qty: 6.4rem;
@@ -2256,21 +2256,6 @@
         gap: 6px;
       }
 
-      .orders-ship-date-field {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        flex: 1 1 0;
-        min-width: 0;
-      }
-
-      .orders-ship-date-label {
-        flex-shrink: 0;
-        font-size: 11px;
-        line-height: 1;
-        color: var(--text-muted);
-      }
-
       .orders-ship-date-filter--desktop .orders-filter-date {
         flex: 1 1 0;
         width: auto;
@@ -2282,11 +2267,12 @@
 
       .orders-filter-date {
         min-width: 0;
-        color-scheme: dark;
+        font-variant-numeric: tabular-nums;
+        text-align: center;
       }
 
       .orders-table thead th.col-date {
-        min-width: 17rem;
+        min-width: 12.5rem;
       }
 
       .orders-filter-select {
@@ -5445,16 +5431,10 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <label class="orders-ship-date-field">
-                              <span class="orders-ship-date-label">от</span>
-                              <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" aria-label="Дата отгрузки от" />
-                            </label>
-                            <label class="orders-ship-date-field">
-                              <span class="orders-ship-date-label">до</span>
-                              <input type="date" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" aria-label="Дата отгрузки до" />
-                            </label>
+                            <input type="text" class="orders-filter-input orders-filter-date" id="orders-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
+                            <input type="text" class="orders-filter-input orders-filter-date" id="orders-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
                           </div>
-                          <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="orders-filter-ship-mobile" aria-label="Дата отгрузки" />
+                          <input type="text" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="orders-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
                         </div>
                       </div>
                     </th>
@@ -5673,16 +5653,10 @@
                         </div>
                         <div class="orders-th-controls">
                           <div class="orders-ship-date-filter orders-ship-date-filter--desktop">
-                            <label class="orders-ship-date-field">
-                              <span class="orders-ship-date-label">от</span>
-                              <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" aria-label="Дата отгрузки от" />
-                            </label>
-                            <label class="orders-ship-date-field">
-                              <span class="orders-ship-date-label">до</span>
-                              <input type="date" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" aria-label="Дата отгрузки до" />
-                            </label>
+                            <input type="text" class="orders-filter-input orders-filter-date" id="om-filter-ship-from" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки от" />
+                            <input type="text" class="orders-filter-input orders-filter-date" id="om-filter-ship-to" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки до" />
                           </div>
-                          <input type="date" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="om-filter-ship-mobile" aria-label="Дата отгрузки" />
+                          <input type="text" class="orders-filter-input orders-filter-date orders-ship-date-filter--mobile" id="om-filter-ship-mobile" placeholder="дд.мм.гг" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="Дата отгрузки" />
                         </div>
                       </div>
                     </th>
@@ -12363,13 +12337,26 @@
           ["orders-filter-ship-mobile", "om-filter-ship-mobile", ordersFilterShipMobile],
         ];
         pairs.forEach(([ordersId, omId, value]) => {
+          const displayValue = formatOrdersFilterDateForInput(value);
           [ordersId, omId].forEach((id) => {
             const el = document.getElementById(id);
-            if (el && el.value !== value) {
-              el.value = value;
+            if (el && el.value !== displayValue) {
+              el.value = displayValue;
             }
           });
         });
+      }
+
+      function formatOrdersFilterDateForInput(value) {
+        const s = String(value || "").trim();
+        if (!s) {
+          return "";
+        }
+        const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (iso) {
+          return `${iso[3]}.${iso[2]}.${iso[1].slice(-2)}`;
+        }
+        return normalizeOrdersFilterDateText(s);
       }
 
       function parseOrderShipDateToDayStart(raw) {
@@ -12395,17 +12382,58 @@
         return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
       }
 
+      function expandOrdersFilterTwoDigitYear(yy) {
+        const n = Number(yy);
+        if (!Number.isFinite(n) || n < 0 || n > 99) {
+          return null;
+        }
+        return 2000 + n;
+      }
+
+      function normalizeOrdersFilterDateText(raw) {
+        const s = String(raw || "").trim();
+        if (!s) {
+          return "";
+        }
+        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(s);
+        if (!m) {
+          return s;
+        }
+        const dd = m[1].padStart(2, "0");
+        const mm = m[2].padStart(2, "0");
+        const yy = m[3].length === 4 ? m[3].slice(-2) : m[3].padStart(2, "0");
+        return `${dd}.${mm}.${yy}`;
+      }
+
       function parseOrdersFilterDateInputToDayStart(value) {
         const s = String(value || "").trim();
         if (!s) {
           return null;
         }
-        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-        if (!m) {
-          return null;
+        const dmYy = /^(\d{1,2})\.(\d{1,2})\.(\d{2})$/.exec(s);
+        if (dmYy) {
+          const year = expandOrdersFilterTwoDigitYear(dmYy[3]);
+          if (year == null) {
+            return null;
+          }
+          const t = new Date(year, Number(dmYy[2]) - 1, Number(dmYy[1])).getTime();
+          return Number.isFinite(t) ? t : null;
         }
-        const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-        return Number.isFinite(t) ? t : null;
+        const dmYyyy = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s);
+        if (dmYyyy) {
+          const t = new Date(
+            Number(dmYyyy[3]),
+            Number(dmYyyy[2]) - 1,
+            Number(dmYyyy[1]),
+          ).getTime();
+          return Number.isFinite(t) ? t : null;
+        }
+        const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (iso) {
+          const t = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
+          return Number.isFinite(t) ? t : null;
+        }
+        return null;
       }
 
       function orderMatchesShipDateFilter(orderRow) {
@@ -12472,6 +12500,18 @@
         const mirror = document.getElementById(mirrorId);
         if (mirror && mirror.value !== t.value) {
           mirror.value = t.value;
+        }
+        return true;
+      }
+
+      function finalizeOrdersShipDateFilterInput(t) {
+        if (!applyOrdersShipDateFilterInput(t)) {
+          return false;
+        }
+        const normalized = normalizeOrdersFilterDateText(t.value);
+        if (t.value !== normalized) {
+          t.value = normalized;
+          applyOrdersShipDateFilterInput(t);
         }
         return true;
       }
@@ -14011,7 +14051,7 @@
       };
       const OM_MONITORING_DEFAULT_WIDTHS = {
         expand: "7.5rem",
-        date: "17rem",
+        date: "12.5rem",
         client: "51%",
         pct: "5.5rem",
         qty: "6.4rem",
@@ -19898,6 +19938,12 @@
             scheduleOrdersTableReRender();
           }
         });
+        ordersWorkspace.addEventListener("blur", (ev) => {
+          const t = ev.target;
+          if (finalizeOrdersShipDateFilterInput(t)) {
+            scheduleOrdersTableReRender();
+          }
+        }, true);
         const clientToggle = document.getElementById("orders-filter-client-toggle");
         const clientPopover = document.getElementById("orders-filter-client-popover");
         const clientAllBtn = document.getElementById("orders-filter-client-all");
@@ -20171,6 +20217,12 @@
             scheduleOrdersTableReRender();
           }
         });
+        orderMonitoringWorkspace.addEventListener("blur", (ev) => {
+          const t = ev.target;
+          if (finalizeOrdersShipDateFilterInput(t)) {
+            scheduleOrdersTableReRender();
+          }
+        }, true);
         const omClientToggle = document.getElementById("om-filter-client-toggle");
         const omPctToggle = document.getElementById("om-filter-pct-toggle");
         const omExtraToggle = document.getElementById("om-filter-extra-toggle");

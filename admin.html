@@ -1944,6 +1944,7 @@
       #orders-workspace {
         --orders-col-date-width: 13.13rem;
         --orders-col-date-width-mobile: 2.5rem;
+        --orders-col-date-width-effective: var(--orders-col-date-width);
       }
 
       #orders-workspace .orders-table {
@@ -1952,9 +1953,9 @@
 
       #orders-workspace .orders-table thead th.col-date,
       #orders-workspace .orders-table tbody td.col-date {
-        width: var(--orders-col-date-width);
-        min-width: var(--orders-col-date-width);
-        max-width: var(--orders-col-date-width);
+        width: var(--orders-col-date-width-effective);
+        min-width: var(--orders-col-date-width-effective);
+        max-width: var(--orders-col-date-width-effective);
         box-sizing: border-box;
       }
 
@@ -4969,15 +4970,15 @@
           display: none !important;
         }
 
-        .orders-table thead th.col-date,
-        .orders-table tbody td.col-date {
-          width: var(--orders-col-date-width-mobile);
-          min-width: var(--orders-col-date-width-mobile);
-          max-width: var(--orders-col-date-width-mobile);
+        #orders-workspace {
+          --orders-col-date-width-effective: var(--orders-col-date-width-mobile);
+        }
+
+        #orders-workspace .orders-table thead th.col-date,
+        #orders-workspace .orders-table tbody td.col-date {
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
-          box-sizing: border-box;
         }
 
         .orders-col-date-tuning-panel {

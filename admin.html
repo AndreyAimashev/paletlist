@@ -1877,6 +1877,10 @@
         font-weight: 600;
       }
 
+      .orders-col-date-tuning-panel {
+        display: none;
+      }
+
       .orders-table-wrap {
         overflow-x: auto;
         max-height: min(52vh, 560px);
@@ -1939,6 +1943,7 @@
 
       #orders-workspace {
         --orders-col-date-width: 13.13rem;
+        --orders-col-date-width-mobile: 2.5rem;
       }
 
       #orders-workspace .orders-table {
@@ -4956,15 +4961,79 @@
           display: none !important;
         }
 
+        .orders-col-date-tuning-panel {
+          display: flex;
+        }
+
+        .orders-col-date-tuning-panel[hidden] {
+          display: none !important;
+        }
+
         .orders-table thead th.col-date,
         .orders-table tbody td.col-date {
-          width: 2.5rem;
-          min-width: 2.5rem;
-          max-width: 2.5rem;
+          width: var(--orders-col-date-width-mobile);
+          min-width: var(--orders-col-date-width-mobile);
+          max-width: var(--orders-col-date-width-mobile);
           padding-left: 2px;
           padding-right: 2px;
           vertical-align: top;
           box-sizing: border-box;
+        }
+
+        .orders-col-date-tuning-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin: 8px 0 4px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px dashed rgba(255, 200, 80, 0.55);
+          background: rgba(255, 180, 60, 0.1);
+          font-size: 12px;
+          line-height: 1.35;
+          color: rgba(255, 220, 160, 0.95);
+        }
+
+        .orders-col-date-tuning-panel__title {
+          margin: 0;
+          font-family: "Orbitron", sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          color: #ffd080;
+        }
+
+        .orders-col-date-tuning-panel__hint {
+          margin: 0;
+          opacity: 0.85;
+        }
+
+        .orders-col-date-tuning-panel__row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .orders-col-date-tuning-panel__slider {
+          flex: 1 1 auto;
+          min-width: 0;
+          accent-color: #00c8a0;
+        }
+
+        .orders-col-date-tuning-panel__value {
+          flex: 0 0 auto;
+          min-width: 4.5rem;
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: rgba(0, 0, 0, 0.35);
+          border: 1px solid rgba(0, 200, 160, 0.35);
+          font-family: "Roboto Mono", "Consolas", monospace;
+          font-size: 13px;
+          font-weight: 600;
+          color: #7ef4c8;
+          text-align: center;
+          font-variant-numeric: tabular-nums;
         }
 
         .orders-table thead th.col-date .orders-th-title {
@@ -5486,6 +5555,34 @@
                 <button type="button" class="orders-names-unit-btn" data-orders-names-unit="set">
                   Наборы
                 </button>
+              </div>
+            </div>
+            <div
+              id="orders-col-date-tuning-panel"
+              class="orders-col-date-tuning-panel"
+              hidden
+              aria-label="Временная настройка ширины столбца Дата"
+            >
+              <p class="orders-col-date-tuning-panel__title">Временно: ширина «Дата»</p>
+              <p class="orders-col-date-tuning-panel__hint">
+                Подберите значение и сообщите его для постоянной настройки.
+              </p>
+              <div class="orders-col-date-tuning-panel__row">
+                <input
+                  type="range"
+                  id="orders-col-date-tuning-slider"
+                  class="orders-col-date-tuning-panel__slider"
+                  min="1.5"
+                  max="10"
+                  step="0.05"
+                  value="2.5"
+                  aria-label="Ширина столбца Дата"
+                />
+                <output
+                  id="orders-col-date-tuning-value"
+                  class="orders-col-date-tuning-panel__value"
+                  for="orders-col-date-tuning-slider"
+                >2.50rem</output>
               </div>
             </div>
             <div class="orders-table-wrap">
@@ -20186,6 +20283,58 @@
         }
       });
       ensureOrdersExtraInfoFilterPopoverMounted();
+
+      function initOrdersColDateTuningPanel() {
+        const panel = document.getElementById("orders-col-date-tuning-panel");
+        const slider = document.getElementById("orders-col-date-tuning-slider");
+        const valueEl = document.getElementById("orders-col-date-tuning-value");
+        if (!panel || !slider || !ordersWorkspace) {
+          return;
+        }
+
+        const defaultRem = 2.5;
+        const storageKey = "orders-col-date-width-mobile-tuning";
+
+        function formatRem(rem) {
+          return `${rem.toFixed(2)}rem`;
+        }
+
+        function applyRem(rem) {
+          const safeRem = Number.isFinite(rem) ? rem : defaultRem;
+          const cssValue = formatRem(safeRem);
+          ordersWorkspace.style.setProperty("--orders-col-date-width-mobile", cssValue);
+          slider.value = String(safeRem);
+          if (valueEl) {
+            valueEl.textContent = cssValue;
+          }
+        }
+
+        function parseRemFromCss() {
+          const raw = getComputedStyle(ordersWorkspace)
+            .getPropertyValue("--orders-col-date-width-mobile")
+            .trim();
+          const match = raw.match(/^([\d.]+)rem$/);
+          return match ? parseFloat(match[1]) : defaultRem;
+        }
+
+        const savedRem = parseFloat(sessionStorage.getItem(storageKey) || "");
+        applyRem(Number.isFinite(savedRem) ? savedRem : parseRemFromCss());
+
+        slider.addEventListener("input", () => {
+          const rem = parseFloat(slider.value);
+          applyRem(rem);
+          sessionStorage.setItem(storageKey, String(rem));
+        });
+
+        function syncPanelVisibility() {
+          panel.hidden = !isMobileLayout();
+        }
+
+        syncPanelVisibility();
+        mobileLayoutMq.addEventListener("change", syncPanelVisibility);
+      }
+
+      initOrdersColDateTuningPanel();
 
       if (ordersWorkspace) {
         ordersWorkspace.addEventListener("click", (ev) => {

@@ -11824,6 +11824,7 @@
       const orderMonitoringPrefetchQueue = [];
       let orderMonitoringPrefetchInFlight = 0;
       const ORDER_MONITORING_PREFETCH_CONCURRENCY = 3;
+      let orderMonitoringBtnStateRefreshTimer = 0;
       /** @type {Set<string> | null} */
       let ordersFilterClientsSelected = null;
       /** @type {Set<string> | null} */
@@ -13872,6 +13873,71 @@
         }
       }
 
+      function refreshOrderMonitoringExpandBtnStates() {
+        if (currentStage !== "order_monitoring" || !orderMonitoringTableBody) {
+          return;
+        }
+        const buttons = orderMonitoringTableBody.querySelectorAll(
+          `${ORDER_MONITORING_EXPAND_SELECTOR}[data-om-btn-state]`,
+        );
+        buttons.forEach((btn) => {
+          let kind = null;
+          let oid = NaN;
+          if (btn.hasAttribute("data-order-monitoring-settings")) {
+            kind = "settings";
+            oid = Number(btn.getAttribute("data-order-monitoring-settings"));
+          } else if (btn.hasAttribute("data-order-monitoring-assembly")) {
+            kind = "assembly";
+            oid = Number(btn.getAttribute("data-order-monitoring-assembly"));
+          } else if (btn.hasAttribute("data-order-monitoring-pallets")) {
+            kind = "pallets";
+            oid = Number(btn.getAttribute("data-order-monitoring-pallets"));
+          }
+          if (!kind || !Number.isFinite(oid)) {
+            return;
+          }
+          const expanded = btn.getAttribute("aria-expanded") === "true";
+          const tpl = document.createElement("template");
+          tpl.innerHTML = renderOrderMonitoringExpandBtn(kind, oid, expanded).trim();
+          const next = tpl.content.firstElementChild;
+          if (next) {
+            btn.replaceWith(next);
+          }
+        });
+        orderMonitoringLastRenderSignature = getOrderMonitoringRenderSignature();
+      }
+
+      function scheduleOrderMonitoringExpandBtnStateRefresh() {
+        if (orderMonitoringBtnStateRefreshTimer) {
+          return;
+        }
+        orderMonitoringBtnStateRefreshTimer = window.setTimeout(() => {
+          orderMonitoringBtnStateRefreshTimer = 0;
+          refreshOrderMonitoringExpandBtnStates();
+        }, 80);
+      }
+
+      function notifyOrderMonitoringLoadStateChanged(orderId, kind) {
+        if (currentStage !== "order_monitoring") {
+          return;
+        }
+        if (isTextSelectionInOrderMonitoringDetail()) {
+          return;
+        }
+        const oid = Number(orderId);
+        const expanded =
+          kind === "settings"
+            ? orderMonitoringExpandedIds.has(oid)
+            : orderMonitoringAssemblyExpandedIds.has(oid) ||
+              orderMonitoringPalletsExpandedIds.has(oid);
+        if (expanded) {
+          renderOrderMonitoringTable();
+          return;
+        }
+        // Prefetch readiness dots: update buttons in place, never rebuild the whole table.
+        scheduleOrderMonitoringExpandBtnStateRefresh();
+      }
+
       function scheduleOrderMonitoringPrefetchLoads() {
         if (currentStage !== "order_monitoring") {
           return;
@@ -13881,17 +13947,14 @@
           if (!Number.isFinite(oid)) {
             continue;
           }
+          // Prefetch only missing cache. Do not auto-retry errors (avoids render/API storms).
           const detailCached = orderMonitoringDetailCache.get(oid);
-          if (!detailCached || detailCached.error) {
-            if (!orderMonitoringDetailLoading.has(oid)) {
-              enqueueOrderMonitoringPrefetch(() => ensureOrderMonitoringDetailLoaded(oid));
-            }
+          if (!detailCached && !orderMonitoringDetailLoading.has(oid)) {
+            enqueueOrderMonitoringPrefetch(() => ensureOrderMonitoringDetailLoaded(oid));
           }
           const assemblyCached = orderMonitoringAssemblyCache.get(oid);
-          if (!assemblyCached || assemblyCached.error) {
-            if (!orderMonitoringAssemblyLoading.has(oid)) {
-              enqueueOrderMonitoringPrefetch(() => ensureOrderMonitoringAssemblyLoaded(oid));
-            }
+          if (!assemblyCached && !orderMonitoringAssemblyLoading.has(oid)) {
+            enqueueOrderMonitoringPrefetch(() => ensureOrderMonitoringAssemblyLoaded(oid));
           }
         }
       }
@@ -14409,12 +14472,7 @@
           return;
         }
         orderMonitoringDetailLoading.add(oid);
-        if (
-          currentStage === "order_monitoring" &&
-          !isTextSelectionInOrderMonitoringDetail()
-        ) {
-          renderOrderMonitoringTable();
-        }
+        notifyOrderMonitoringLoadStateChanged(oid, "settings");
         try {
           let res;
           try {
@@ -14437,12 +14495,7 @@
           }
         } finally {
           orderMonitoringDetailLoading.delete(oid);
-          if (
-            currentStage === "order_monitoring" &&
-            !isTextSelectionInOrderMonitoringDetail()
-          ) {
-            renderOrderMonitoringTable();
-          }
+          notifyOrderMonitoringLoadStateChanged(oid, "settings");
         }
       }
 
@@ -14486,12 +14539,7 @@
           return;
         }
         orderMonitoringAssemblyLoading.add(oid);
-        if (
-          currentStage === "order_monitoring" &&
-          !isTextSelectionInOrderMonitoringDetail()
-        ) {
-          renderOrderMonitoringTable();
-        }
+        notifyOrderMonitoringLoadStateChanged(oid, "assembly");
         try {
           const orderData = await fetchOrderMonitoringOrderData(oid);
           if (orderData.error) {
@@ -14506,12 +14554,7 @@
           });
         } finally {
           orderMonitoringAssemblyLoading.delete(oid);
-          if (
-            currentStage === "order_monitoring" &&
-            !isTextSelectionInOrderMonitoringDetail()
-          ) {
-            renderOrderMonitoringTable();
-          }
+          notifyOrderMonitoringLoadStateChanged(oid, "assembly");
         }
       }
 

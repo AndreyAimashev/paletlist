@@ -89,6 +89,7 @@ jobs:
       - name: Deploy via SSH (retry 2)
         id: deploy_retry2
         if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -113,8 +114,14 @@ jobs:
             systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
 
       - name: Fail if all deploy attempts failed
-        if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure' && steps.deploy_retry2.outcome == 'failure'
+        if: >
+          always() &&
+          steps.deploy.outcome != 'success' &&
+          steps.deploy_retry1.outcome != 'success' &&
+          steps.deploy_retry2.outcome != 'success'
         run: |
-          echo "SSH deploy failed after 3 attempts (server unreachable on port 22?)."
-          echo "On the server run: sudo bash /var/www/paletlist/scripts/pull-on-server.sh"
+          echo "SSH deploy failed after retries (dial tcp :22 i/o timeout / host unreachable)."
+          echo "Check SERVER_HOST / router port-forward / firewall, then either re-run this workflow"
+          echo "or on the server run:"
+          echo "  cd /var/www/paletlist && git pull --ff-only origin main && sudo bash scripts/pull-on-server.sh"
           exit 1

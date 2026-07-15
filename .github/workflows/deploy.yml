@@ -12,14 +12,22 @@ jobs:
 
     steps:
       - name: Deploy via SSH
+        id: deploy
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 15m
           script: |
             set -e
             cd /var/www/paletlist
+            # Preserve local runtime edits (e.g. updates.json) across pull.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              git stash push -u -m "deploy-stash-$(date +%s)" || true
+            fi
             git fetch origin
             git checkout main
             git pull --ff-only origin main
@@ -29,6 +37,7 @@ jobs:
             grep -q "pallet-printer-raw-ping" api_server.py || { echo "api_server.py: нет проверки принтера"; exit 1; }
             grep -q "packing-sheets-pdf" api_server.py || { echo "api_server.py: нет маршрута PDF упаковочных листов"; exit 1; }
             grep -q "packing-sheets-html" api_server.py || { echo "api_server.py: нет маршрута HTML упаковочных листов"; exit 1; }
+            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
             if [ -f requirements.txt ]; then
               if ! python3 -m pip --version 2>/dev/null; then
                 sudo apt-get update -qq
@@ -47,3 +56,65 @@ jobs:
             sudo systemctl reload nginx || true
             # Обязательно перезапустить процесс Python, иначе останется старый api_server.py
             sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
+            sleep 1
+            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+
+      - name: Deploy via SSH (retry 1)
+        id: deploy_retry1
+        if: steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /var/www/paletlist
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              git stash push -u -m "deploy-stash-$(date +%s)" || true
+            fi
+            git fetch origin
+            git checkout main
+            git pull --ff-only origin main
+            echo "Deployed: $(git log -1 --oneline)"
+            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
+            sudo systemctl reload nginx || true
+            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
+            sleep 1
+            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+
+      - name: Deploy via SSH (retry 2)
+        id: deploy_retry2
+        if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          timeout: 90s
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /var/www/paletlist
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              git stash push -u -m "deploy-stash-$(date +%s)" || true
+            fi
+            git fetch origin
+            git checkout main
+            git pull --ff-only origin main
+            echo "Deployed: $(git log -1 --oneline)"
+            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
+            sudo systemctl reload nginx || true
+            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
+            sleep 1
+            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+
+      - name: Fail if all deploy attempts failed
+        if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure' && steps.deploy_retry2.outcome == 'failure'
+        run: |
+          echo "SSH deploy failed after 3 attempts (server unreachable on port 22?)."
+          echo "On the server run: sudo bash /var/www/paletlist/scripts/pull-on-server.sh"
+          exit 1

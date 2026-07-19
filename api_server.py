@@ -110,6 +110,10 @@ _PUBLIC_API_PATHS = frozenset({"/api/auth/login"})
 _AUTH_SESSION_TTL_SEC = 24 * 3600
 _AUTH_SESSIONS: dict[str, dict] = {}
 _AUTH_SESSIONS_LOCK = threading.Lock()
+_LOGIN_GUARD_LOCK = threading.Lock()
+_LOGIN_FAIL_LIMIT = 5
+_LOGIN_BAN_SECONDS = 24 * 3600
+_LOGIN_GUARD_PATH = BASE_DIR / "login_guard.json"
 
 
 def _admin_password() -> str:
@@ -263,6 +267,147 @@ def create_auth_session(user: dict) -> str:
     with _AUTH_SESSIONS_LOCK:
         _AUTH_SESSIONS[token] = payload
     return token
+
+
+def _login_guard_load() -> dict:
+    if not _LOGIN_GUARD_PATH.is_file():
+        return {"ips": {}, "logins": {}}
+    try:
+        data = json.loads(_LOGIN_GUARD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"ips": {}, "logins": {}}
+    if not isinstance(data, dict):
+        return {"ips": {}, "logins": {}}
+    ips = data.get("ips") if isinstance(data.get("ips"), dict) else {}
+    logins = data.get("logins") if isinstance(data.get("logins"), dict) else {}
+    return {"ips": ips, "logins": logins}
+
+
+def _login_guard_save(data: dict) -> None:
+    tmp = _LOGIN_GUARD_PATH.with_suffix(".json.tmp")
+    payload = json.dumps(data, ensure_ascii=False, indent=2)
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, _LOGIN_GUARD_PATH)
+
+
+def _login_guard_entry(bucket: dict, key: str) -> dict:
+    raw = bucket.get(key)
+    if not isinstance(raw, dict):
+        return {"fails": 0, "banned_until": 0}
+    try:
+        fails = int(raw.get("fails") or 0)
+    except (TypeError, ValueError):
+        fails = 0
+    try:
+        banned_until = float(raw.get("banned_until") or 0)
+    except (TypeError, ValueError):
+        banned_until = 0.0
+    return {"fails": max(0, fails), "banned_until": max(0.0, banned_until)}
+
+
+def _login_guard_prune(bucket: dict, now: float) -> None:
+    stale = []
+    for key, raw in list(bucket.items()):
+        entry = _login_guard_entry(bucket, key)
+        if entry["banned_until"] and entry["banned_until"] <= now:
+            stale.append(key)
+        elif entry["fails"] <= 0 and not entry["banned_until"]:
+            stale.append(key)
+    for key in stale:
+        bucket.pop(key, None)
+
+
+def login_guard_status(ip: str, login: str) -> dict | None:
+    """Если IP или логин в бане — вернуть описание блокировки."""
+    ip_key = (ip or "").strip()
+    login_key = (login or "").strip().casefold()
+    now = time.time()
+    with _LOGIN_GUARD_LOCK:
+        data = _login_guard_load()
+        _login_guard_prune(data["ips"], now)
+        _login_guard_prune(data["logins"], now)
+        checks = []
+        if ip_key:
+            checks.append(("ip", ip_key, _login_guard_entry(data["ips"], ip_key)))
+        if login_key:
+            checks.append(
+                ("login", login_key, _login_guard_entry(data["logins"], login_key))
+            )
+        for kind, key, entry in checks:
+            until = float(entry.get("banned_until") or 0)
+            if until > now:
+                left = int(until - now)
+                hours = max(1, (left + 3599) // 3600)
+                return {
+                    "error": "banned",
+                    "message": (
+                        "Слишком много неверных попыток входа. "
+                        f"Доступ заблокирован примерно на {hours} ч."
+                    ),
+                    "banned_until": int(until),
+                    "scope": kind,
+                    "key": key,
+                }
+        _login_guard_save(data)
+    return None
+
+
+def login_guard_register_failure(ip: str, login: str) -> dict | None:
+    """Учесть неудачный вход. При 5 ошибках — бан на сутки (IP и/или логин)."""
+    ip_key = (ip or "").strip()
+    login_key = (login or "").strip().casefold()
+    now = time.time()
+    banned = None
+    with _LOGIN_GUARD_LOCK:
+        data = _login_guard_load()
+        _login_guard_prune(data["ips"], now)
+        _login_guard_prune(data["logins"], now)
+
+        def _bump(bucket: dict, key: str, kind: str) -> None:
+            nonlocal banned
+            if not key:
+                return
+            entry = _login_guard_entry(bucket, key)
+            if entry["banned_until"] > now:
+                banned = {
+                    "error": "banned",
+                    "message": "Слишком много неверных попыток входа. Доступ заблокирован на сутки.",
+                    "banned_until": int(entry["banned_until"]),
+                    "scope": kind,
+                }
+                return
+            entry["fails"] = int(entry["fails"]) + 1
+            if entry["fails"] >= _LOGIN_FAIL_LIMIT:
+                entry["banned_until"] = now + _LOGIN_BAN_SECONDS
+                entry["fails"] = _LOGIN_FAIL_LIMIT
+                banned = {
+                    "error": "banned",
+                    "message": (
+                        "Слишком много неверных попыток входа. "
+                        "Доступ заблокирован на 24 часа."
+                    ),
+                    "banned_until": int(entry["banned_until"]),
+                    "scope": kind,
+                }
+            bucket[key] = entry
+
+        _bump(data["ips"], ip_key, "ip")
+        _bump(data["logins"], login_key, "login")
+        _login_guard_save(data)
+    return banned
+
+
+def login_guard_clear_success(ip: str, login: str) -> None:
+    """После успешного входа сбросить счётчики для IP и логина."""
+    ip_key = (ip or "").strip()
+    login_key = (login or "").strip().casefold()
+    with _LOGIN_GUARD_LOCK:
+        data = _login_guard_load()
+        if ip_key:
+            data["ips"].pop(ip_key, None)
+        if login_key:
+            data["logins"].pop(login_key, None)
+        _login_guard_save(data)
 
 
 def resolve_auth_session(token: str | None) -> dict | None:
@@ -7205,13 +7350,27 @@ class ApiHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Invalid JSON"})
             return
-        user = authenticate_app_login(body.get("login", ""), body.get("password", ""))
+        login_raw = body.get("login", "")
+        ip = self._client_ip()
+        banned = login_guard_status(ip, str(login_raw or ""))
+        if banned:
+            self._send_json(429, banned)
+            return
+        user = authenticate_app_login(login_raw, body.get("password", ""))
         if not user:
+            ban_now = login_guard_register_failure(ip, str(login_raw or ""))
+            if ban_now:
+                self._send_json(429, ban_now)
+                return
             self._send_json(
                 401,
-                {"error": "invalid_credentials", "message": "Неверный логин или пароль."},
+                {
+                    "error": "invalid_credentials",
+                    "message": "Неверный логин или пароль.",
+                },
             )
             return
+        login_guard_clear_success(ip, user.get("login") or str(login_raw or ""))
         token = create_auth_session(user)
         self._send_json(
             200,

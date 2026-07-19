@@ -8,3 +8,4 @@ warehouse.*.db
 *.local-backup-*.db
 .paletlist/
 *.secret
+login_guard.json

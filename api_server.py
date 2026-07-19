@@ -2675,29 +2675,71 @@ def allow_ssh_ip(ip: str) -> dict:
     allowed = list(pinned)
     if ip not in allowed:
         allowed.append(ip)
+    allowed_set = set(allowed)
 
-    script = Path("/usr/local/sbin/paletlist-ssh-set-ips")
-    if not script.is_file():
-        return {
-            "error": "config",
-            "message": "На сервере нет скрипта paletlist-ssh-set-ips.",
-        }
-    try:
-        proc = subprocess.run(
-            ["bash", str(script), *allowed],
+    def _run(args: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            args,
             capture_output=True,
             text=True,
             timeout=30,
             check=False,
         )
+
+    try:
+        # Add needed IPs first (safe even if previous SSH rules were wiped).
+        for addr in allowed:
+            proc = _run(
+                [
+                    "ufw",
+                    "allow",
+                    "from",
+                    addr,
+                    "to",
+                    "any",
+                    "port",
+                    "22",
+                    "proto",
+                    "tcp",
+                    "comment",
+                    "SSH allowed",
+                ]
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "").strip().lower()
+                if "existing" not in detail and "skipping" not in detail:
+                    return {
+                        "error": "firewall",
+                        "message": (proc.stderr or proc.stdout or "").strip()
+                        or f"Не удалось добавить {addr}",
+                    }
+
+        # Remove only stale SSH source IPs not in allow-list.
+        for _ in range(40):
+            status = _run(["ufw", "status", "numbered"])
+            stale_num = None
+            for line in (status.stdout or "").splitlines():
+                m = re.match(r"^\[\s*(\d+)\]\s+22/tcp\b(.*)$", line.strip())
+                if not m:
+                    continue
+                rest = m.group(2)
+                ip_match = re.search(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", rest)
+                src_ip = ip_match.group(1) if ip_match else None
+                if src_ip and src_ip not in allowed_set:
+                    stale_num = int(m.group(1))
+                    break
+                if not src_ip and "Anywhere" in rest:
+                    stale_num = int(m.group(1))
+                    break
+            if stale_num is None:
+                break
+            _run(["ufw", "--force", "delete", str(stale_num)])
+
+        _run(["ufw", "allow", "80/tcp"])
+        _run(["ufw", "allow", "443/tcp"])
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"error": "firewall", "message": f"Не удалось обновить UFW: {exc}"}
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
-        return {
-            "error": "firewall",
-            "message": detail or "UFW вернул ошибку.",
-        }
+
     return {
         "ok": True,
         "allowed_ip": ip,

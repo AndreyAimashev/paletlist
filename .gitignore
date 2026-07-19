@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 fonts/*.ttf
 fonts/*.TTF
+warehouse.db
+warehouse.*.db
+*.from-server-*.db
+*.local-backup-*.db

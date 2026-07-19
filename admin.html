@@ -5435,6 +5435,64 @@
               </svg>
               <span class="updates-menu-btn__label">Последние обновления</span>
             </button>
+            <button
+              id="db-backup-btn"
+              type="button"
+              class="updates-menu-btn"
+              title="Скачать базу данных"
+              hidden
+            >
+              <svg
+                class="updates-menu-btn__icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" x2="12" y1="15" y2="3" />
+              </svg>
+              <span class="updates-menu-btn__label">Скачать БД</span>
+            </button>
+            <button
+              id="db-restore-btn"
+              type="button"
+              class="updates-menu-btn"
+              title="Загрузить базу данных на сервер"
+              hidden
+            >
+              <svg
+                class="updates-menu-btn__icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" x2="12" y1="3" y2="15" />
+              </svg>
+              <span class="updates-menu-btn__label">Загрузить БД</span>
+            </button>
+            <input
+              id="db-restore-file"
+              type="file"
+              accept=".db,application/x-sqlite3,application/octet-stream"
+              hidden
+            />
           </div>
           <div class="menu-items">
             <button id="orders-button" class="menu-button" type="button">Заказы</button>
@@ -6822,6 +6880,9 @@
       const feedbackUserButton = document.getElementById("feedback-user-button");
       const feedbackAdminButton = document.getElementById("feedback-admin-button");
       const backToMainFeedbackButton = document.getElementById("back-to-main-feedback-button");
+      const dbBackupBtn = document.getElementById("db-backup-btn");
+      const dbRestoreBtn = document.getElementById("db-restore-btn");
+      const dbRestoreFileInput = document.getElementById("db-restore-file");
       const nomenclatureCreateProductButton = document.getElementById("nomenclature-create-product-button");
       const nomenclatureCreateOverlay = document.getElementById("nomenclature-create-overlay");
       const nomenclatureCreateForm = document.getElementById("nomenclature-create-form");
@@ -7090,6 +7151,12 @@
         }
         if (mainMenuTools) {
           mainMenuTools.style.display = st === "main" ? "" : "none";
+        }
+        if (dbBackupBtn) {
+          dbBackupBtn.hidden = !(st === "main" && isAdminUser());
+        }
+        if (dbRestoreBtn) {
+          dbRestoreBtn.hidden = !(st === "main" && isAdminUser());
         }
         syncFeedbackAdminControls();
         renderNavOrder();
@@ -11023,6 +11090,134 @@
       }
       if (updatesOpenBtn) {
         updatesOpenBtn.addEventListener("click", openUpdatesModal);
+      }
+
+      function triggerBrowserDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function filenameFromContentDisposition(header, fallback) {
+        const raw = String(header || "");
+        const m = /filename="([^"]+)"/i.exec(raw) || /filename=([^;]+)/i.exec(raw);
+        if (!m) {
+          return fallback;
+        }
+        return String(m[1] || "").trim().replace(/^"|"$/g, "") || fallback;
+      }
+
+      async function downloadDatabaseBackup() {
+        if (!isAdminUser()) {
+          return;
+        }
+        if (dbBackupBtn) {
+          dbBackupBtn.disabled = true;
+        }
+        try {
+          const res = await fetch("/api/database/backup", { cache: "no-store" });
+          if (!res.ok) {
+            let detail = "";
+            try {
+              const j = await res.json();
+              detail = j.message || j.error || "";
+            } catch (e2) {
+              /* ignore */
+            }
+            throw new Error(detail || `HTTP ${res.status}`);
+          }
+          const blob = await res.blob();
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+          const name = filenameFromContentDisposition(
+            res.headers.get("Content-Disposition"),
+            `paletlist-warehouse-${stamp}.db`
+          );
+          triggerBrowserDownload(blob, name);
+        } catch (err) {
+          alert(err?.message || "Не удалось скачать базу данных.");
+        } finally {
+          if (dbBackupBtn) {
+            dbBackupBtn.disabled = false;
+          }
+        }
+      }
+
+      async function uploadDatabaseRestore(file) {
+        if (!isAdminUser() || !file) {
+          return;
+        }
+        const ok = window.confirm(
+          "Заменить текущую базу данных на сервере выбранным файлом?\n\n" +
+            "Номенклатура, заказы, пользователи и остальные данные станут такими, как в файле.\n" +
+            "Перед заменой сервер сохранит копию текущей БД."
+        );
+        if (!ok) {
+          return;
+        }
+        if (dbRestoreBtn) {
+          dbRestoreBtn.disabled = true;
+        }
+        try {
+          const form = new FormData();
+          form.append("file", file, file.name || "warehouse.db");
+          const res = await fetch("/api/database/restore", {
+            method: "POST",
+            body: form,
+          });
+          let payload = null;
+          try {
+            payload = await res.json();
+          } catch (e2) {
+            payload = null;
+          }
+          if (!res.ok) {
+            throw new Error(
+              (payload && (payload.message || payload.error)) || `HTTP ${res.status}`
+            );
+          }
+          alert(
+            "База данных обновлена." +
+              (payload && payload.backup
+                ? `\nРезервная копия на сервере: ${payload.backup}`
+                : "")
+          );
+          window.location.reload();
+        } catch (err) {
+          alert(err?.message || "Не удалось загрузить базу данных.");
+        } finally {
+          if (dbRestoreBtn) {
+            dbRestoreBtn.disabled = false;
+          }
+          if (dbRestoreFileInput) {
+            dbRestoreFileInput.value = "";
+          }
+        }
+      }
+
+      if (dbBackupBtn) {
+        dbBackupBtn.addEventListener("click", () => {
+          void downloadDatabaseBackup();
+        });
+      }
+      if (dbRestoreBtn && dbRestoreFileInput) {
+        dbRestoreBtn.addEventListener("click", () => {
+          if (!isAdminUser()) {
+            return;
+          }
+          dbRestoreFileInput.click();
+        });
+        dbRestoreFileInput.addEventListener("change", () => {
+          const file = dbRestoreFileInput.files && dbRestoreFileInput.files[0];
+          if (file) {
+            void uploadDatabaseRestore(file);
+          }
+        });
       }
       if (updatesEditBtn) {
         updatesEditBtn.addEventListener("click", enterUpdatesEditMode);

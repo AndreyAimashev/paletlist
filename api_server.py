@@ -7,8 +7,10 @@ import math
 import os
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
+import tempfile
 import threading
 import time
 import unicodedata
@@ -131,6 +133,14 @@ def _is_auth_account_path(path: str) -> bool:
 
 def _is_updates_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/updates"
+
+
+def _is_database_backup_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/database/backup"
+
+
+def _is_database_restore_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/database/restore"
 
 
 def _is_unique_clients_list_path(path: str) -> bool:
@@ -2458,6 +2468,117 @@ def get_connection():
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     return con
+
+
+_DB_BACKUP_REQUIRED_TABLES = (
+    "products",
+    "orders",
+    "order_items",
+    "app_users",
+)
+_DB_RESTORE_MAX_BYTES = 200 * 1024 * 1024
+
+
+def export_database_bytes():
+    """Согласованный снимок warehouse.db для скачивания администратором."""
+    with DB_LOCK:
+        if not DB_PATH.is_file():
+            return None, {
+                "error": "not_found",
+                "message": "Файл базы данных не найден на сервере.",
+            }
+        con = sqlite3.connect(str(DB_PATH))
+        try:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+        finally:
+            con.close()
+        return DB_PATH.read_bytes(), None
+
+
+def restore_database_from_bytes(data: bytes) -> dict:
+    """Заменить warehouse.db загруженным файлом (с бэкапом текущей БД)."""
+    if not isinstance(data, (bytes, bytearray)):
+        return {"error": "validation", "message": "Файл не передан."}
+    raw = bytes(data)
+    if len(raw) < 100:
+        return {"error": "validation", "message": "Файл слишком маленький."}
+    if len(raw) > _DB_RESTORE_MAX_BYTES:
+        return {
+            "error": "validation",
+            "message": "Файл слишком большой (лимит 200 МБ).",
+        }
+    if not raw.startswith(b"SQLite format 3\x00"):
+        return {
+            "error": "validation",
+            "message": "Нужен файл SQLite базы данных (.db).",
+        }
+
+    fd, tmp_name = tempfile.mkstemp(prefix="paletlist-restore-", suffix=".db")
+    tmp_path = Path(tmp_name)
+    staging = None
+    bak_name = ""
+    try:
+        os.close(fd)
+        tmp_path.write_bytes(raw)
+        con = sqlite3.connect(str(tmp_path))
+        try:
+            tables = {
+                str(r[0])
+                for r in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            missing = [t for t in _DB_BACKUP_REQUIRED_TABLES if t not in tables]
+            if missing:
+                return {
+                    "error": "validation",
+                    "message": "В файле нет нужных таблиц: " + ", ".join(missing),
+                }
+            check = con.execute("PRAGMA integrity_check").fetchone()
+            if not check or str(check[0]).lower() != "ok":
+                return {
+                    "error": "validation",
+                    "message": "Файл базы данных повреждён.",
+                }
+        finally:
+            con.close()
+
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        bak_name = f"warehouse.before-restore-{stamp}.db"
+        bak_path = DB_PATH.with_name(bak_name)
+        staging = DB_PATH.with_name(f"warehouse.restore-{stamp}.tmp")
+        with DB_LOCK:
+            if DB_PATH.is_file():
+                shutil.copy2(DB_PATH, bak_path)
+            shutil.copy2(tmp_path, staging)
+            os.replace(staging, DB_PATH)
+            staging = None
+    except OSError as exc:
+        return {"error": "io", "message": f"Не удалось заменить БД: {exc}"}
+    except sqlite3.Error as exc:
+        return {"error": "validation", "message": f"Некорректный файл БД: {exc}"}
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if staging is not None:
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    try:
+        init_db()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "error": "database",
+            "message": f"БД заменена, но миграция не завершилась: {exc}",
+            "backup": bak_name,
+        }
+    return {"ok": True, "backup": bak_name, "size": len(raw)}
 
 
 def _table_columns(cur, table: str):
@@ -7002,6 +7123,27 @@ class ApiHandler(BaseHTTPRequestHandler):
         if _is_updates_path(path):
             self._send_json(200, fetch_updates())
             return
+        if _is_database_backup_path(path):
+            if not self._require_admin():
+                return
+            blob, err = export_database_bytes()
+            if err:
+                status = 404 if err.get("error") == "not_found" else 500
+                self._send_json(status, err)
+                return
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"paletlist-warehouse-{stamp}.db"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(blob)))
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="{filename}"',
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(blob)
+            return
         if _is_unique_clients_list_path(path):
             self._send_json(200, fetch_unique_clients())
             return
@@ -7232,6 +7374,36 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._handle_auth_login()
             return
         if not self._ensure_authenticated():
+            return
+        if _is_database_restore_path(path):
+            if not self._require_admin():
+                return
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            if length > _DB_RESTORE_MAX_BYTES:
+                self._send_json(
+                    400,
+                    {
+                        "error": "validation",
+                        "message": "Файл слишком большой (лимит 200 МБ).",
+                    },
+                )
+                return
+            data, read_err = self._read_multipart_file_field("file")
+            if read_err:
+                self._send_json(400, read_err)
+                return
+            result = restore_database_from_bytes(data)
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err == "io":
+                self._send_json(500, result)
+                return
+            if err == "database":
+                self._send_json(500, result)
+                return
+            self._send_json(200, result)
             return
         if _is_feedback_threads_list_path(path):
             if not self._ensure_feedback_permission():

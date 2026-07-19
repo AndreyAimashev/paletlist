@@ -6,3 +6,5 @@ warehouse.db
 warehouse.*.db
 *.from-server-*.db
 *.local-backup-*.db
+.paletlist/
+*.secret

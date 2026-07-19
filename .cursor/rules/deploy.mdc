@@ -11,7 +11,9 @@ alwaysApply: true
 
 1. Закоммитить осмысленным сообщением (не включать `__pycache__/` и прочий мусор).
 2. Выполнить `git push origin main`.
-3. Пуш в `main` сам запускает workflow **Deploy to server** (`.github/workflows/deploy.yml`): SSH на сервер, `git pull` в `/var/www/paletlist`, `nginx reload`, `systemctl try-restart paletlist-api.service`.
+3. Пуш в `main` сам запускает workflow **Deploy to server** (`.github/workflows/deploy.yml`): HTTPS POST на `/api/deploy` с секретом `DEPLOY_SECRET` (SSH с GitHub не нужен; порт 22 закрыт для чужих IP).
 4. Не ограничиваться фразой «запушьте сами» — агент сам делает commit/push, когда задача готова и это уместно.
 
-Если деплой не прошёл, пользователь проверяет **Actions** в репозитории и секреты `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`.
+Если деплой не прошёл, пользователь проверяет **Actions** и секреты `SERVER_HOST`, `DEPLOY_SECRET`. Лог на сервере: `/var/log/paletlist-deploy.log`.
+
+SSH с вашего ПК из любой сети: `scripts/allow-my-ssh.ps1` (секрет в `%USERPROFILE%\.paletlist\ssh-allow.secret`).

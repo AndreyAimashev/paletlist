@@ -116,6 +116,16 @@ def _admin_password() -> str:
     return os.environ.get("PALETLIST_ADMIN_PASSWORD", "1999")
 
 
+def _deploy_secret() -> str:
+    return (os.environ.get("PALETLIST_DEPLOY_SECRET") or "").strip()
+
+
+def _ssh_allow_secret() -> str:
+    # Отдельный секрет предпочтителен; иначе тот же, что для деплоя.
+    raw = (os.environ.get("PALETLIST_SSH_ALLOW_SECRET") or "").strip()
+    return raw or _deploy_secret()
+
+
 def _is_public_api_path(path: str) -> bool:
     return _norm_api_path(path) in _PUBLIC_API_PATHS
 
@@ -146,6 +156,14 @@ def _is_database_restore_path(path: str) -> bool:
 
 def _is_server_status_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/server-status"
+
+
+def _is_deploy_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/deploy"
+
+
+def _is_ssh_allow_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/ssh-allow"
 
 
 def _is_unique_clients_list_path(path: str) -> bool:
@@ -2616,6 +2634,119 @@ def restore_database_from_bytes(data: bytes) -> dict:
             "backup": bak_name,
         }
     return {"ok": True, "backup": bak_name, "size": len(raw)}
+
+
+def _is_valid_ipv4(ip: str) -> bool:
+    parts = (ip or "").strip().split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(0 <= int(p) <= 255 for p in parts)
+    except ValueError:
+        return False
+
+
+def _secrets_match(provided: str | None, expected: str) -> bool:
+    if not expected or not provided:
+        return False
+    a = str(provided).strip().encode("utf-8")
+    b = str(expected).strip().encode("utf-8")
+    if len(a) != len(b):
+        return False
+    return secrets.compare_digest(a, b)
+
+
+def allow_ssh_ip(ip: str) -> dict:
+    """Разрешить SSH с IP (UFW), сохранив закреплённые адреса."""
+    ip = (ip or "").strip()
+    if not _is_valid_ipv4(ip):
+        return {"error": "validation", "message": "Некорректный IPv4-адрес."}
+    if ip in ("0.0.0.0", "127.0.0.1"):
+        return {"error": "validation", "message": "Этот адрес нельзя добавлять."}
+
+    pinned_path = Path("/etc/paletlist/ssh-pinned-ips.txt")
+    pinned: list[str] = []
+    if pinned_path.is_file():
+        for line in pinned_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and _is_valid_ipv4(line):
+                if line not in pinned:
+                    pinned.append(line)
+    allowed = list(pinned)
+    if ip not in allowed:
+        allowed.append(ip)
+
+    script = Path("/usr/local/sbin/paletlist-ssh-set-ips")
+    if not script.is_file():
+        return {
+            "error": "config",
+            "message": "На сервере нет скрипта paletlist-ssh-set-ips.",
+        }
+    try:
+        proc = subprocess.run(
+            ["bash", str(script), *allowed],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"error": "firewall", "message": f"Не удалось обновить UFW: {exc}"}
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        return {
+            "error": "firewall",
+            "message": detail or "UFW вернул ошибку.",
+        }
+    return {
+        "ok": True,
+        "allowed_ip": ip,
+        "ssh_ips": allowed,
+        "message": f"SSH разрешён для {ip}. Можно подключаться.",
+    }
+
+
+def start_background_deploy() -> dict:
+    """Запустить деплой в фоне (git pull + restart), чтобы ответ успел уйти."""
+    script = Path("/usr/local/sbin/paletlist-deploy")
+    if not script.is_file():
+        # fallback to repo script after pull is impossible if not deployed yet
+        alt = BASE_DIR / "scripts" / "pull-on-server.sh"
+        if alt.is_file():
+            script = alt
+        else:
+            return {
+                "error": "config",
+                "message": "Скрипт деплоя не найден на сервере.",
+            }
+    log_path = Path("/var/log/paletlist-deploy.log")
+
+    def _run() -> None:
+        time.sleep(0.4)
+        try:
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write(
+                    f"\n===== deploy {datetime.datetime.now(datetime.timezone.utc).isoformat()} =====\n"
+                )
+                subprocess.run(
+                    ["bash", str(script)],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+        except Exception as exc:  # noqa: BLE001
+            try:
+                with log_path.open("a", encoding="utf-8") as log:
+                    log.write(f"deploy failed: {exc}\n")
+            except OSError:
+                pass
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {
+        "ok": True,
+        "started": True,
+        "message": "Деплой запущен. Лог: /var/log/paletlist-deploy.log",
+    }
 
 
 def _read_proc_meminfo() -> dict:
@@ -6984,6 +7115,34 @@ class ApiHandler(BaseHTTPRequestHandler):
             return token or None
         return None
 
+    def _client_ip(self) -> str:
+        xff = (self.headers.get("X-Forwarded-For") or "").strip()
+        if xff:
+            return xff.split(",")[0].strip()
+        xri = (self.headers.get("X-Real-IP") or "").strip()
+        if xri:
+            return xri
+        return str(self.client_address[0] if self.client_address else "")
+
+    def _require_shared_secret(self, expected: str) -> bool:
+        if not expected:
+            self._send_json(
+                503,
+                {
+                    "error": "config",
+                    "message": "Секрет не настроен на сервере.",
+                },
+            )
+            return False
+        provided = self._bearer_token()
+        if not _secrets_match(provided, expected):
+            self._send_json(
+                403,
+                {"error": "forbidden", "message": "Неверный секрет."},
+            )
+            return False
+        return True
+
     def _ensure_authenticated(self) -> bool:
         path = urlparse(self.path).path
         if _is_public_api_path(path):
@@ -7672,6 +7831,39 @@ class ApiHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if _is_auth_login_path(path):
             self._handle_auth_login()
+            return
+        if _is_deploy_path(path):
+            if not self._require_shared_secret(_deploy_secret()):
+                return
+            # Body optional; drain if present
+            try:
+                self._read_json_body()
+            except json.JSONDecodeError:
+                pass
+            result = start_background_deploy()
+            err = result.get("error")
+            if err:
+                self._send_json(500, result)
+                return
+            self._send_json(202, result)
+            return
+        if _is_ssh_allow_path(path):
+            if not self._require_shared_secret(_ssh_allow_secret()):
+                return
+            try:
+                body = self._read_json_body()
+            except json.JSONDecodeError:
+                body = {}
+            ip = _normalize_str((body or {}).get("ip") or "") or self._client_ip()
+            result = allow_ssh_ip(ip)
+            err = result.get("error")
+            if err == "validation":
+                self._send_json(400, result)
+                return
+            if err:
+                self._send_json(500, result)
+                return
+            self._send_json(200, result)
             return
         if not self._ensure_authenticated():
             return

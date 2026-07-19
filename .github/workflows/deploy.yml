@@ -11,107 +11,78 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy via SSH
+      - name: Deploy via HTTPS webhook
         id: deploy
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 15m
-          script: |
-            set -e
-            cd /var/www/paletlist
-            # Preserve local runtime edits (e.g. updates.json) across pull.
-            if ! git diff --quiet || ! git diff --cached --quiet; then
-              git stash push -u -m "deploy-stash-$(date +%s)" || true
-            fi
-            git fetch origin
-            git checkout main
-            git pull --ff-only origin main
-            echo "Deployed: $(git log -1 --oneline)"
-            grep -q "build_blank_arnest_unirus_pallet_sheets_pdf" api_server.py || { echo "api_server.py: нет генератора PDF паллетных листов"; exit 1; }
-            grep -q "print-arnest-unirus-pallet-sheets-raw" api_server.py || { echo "api_server.py: нет маршрута печати паллетных листов"; exit 1; }
-            grep -q "pallet-printer-raw-ping" api_server.py || { echo "api_server.py: нет проверки принтера"; exit 1; }
-            grep -q "packing-sheets-pdf" api_server.py || { echo "api_server.py: нет маршрута PDF упаковочных листов"; exit 1; }
-            grep -q "packing-sheets-html" api_server.py || { echo "api_server.py: нет маршрута HTML упаковочных листов"; exit 1; }
-            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
-            if [ -f requirements.txt ]; then
-              if ! python3 -m pip --version 2>/dev/null; then
-                sudo apt-get update -qq
-                sudo apt-get install -y python3-pip
-              fi
-              sudo apt-get update -qq
-              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-                libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libcairo2 \
-                libharfbuzz0b libharfbuzz-subset0 libfontconfig1 libgdk-pixbuf-2.0-0 \
-                libglib2.0-0 shared-mime-info
-              python3 -m pip install --break-system-packages -r requirements.txt
-            fi
-            if [ -f package.json ]; then
-              npm ci --omit=dev
-            fi
-            sudo systemctl reload nginx || true
-            # Обязательно перезапустить процесс Python, иначе останется старый api_server.py
-            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
-            sleep 1
-            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_HOST:-}" ] || [ -z "${DEPLOY_SECRET:-}" ]; then
+            echo "Need secrets SERVER_HOST and DEPLOY_SECRET"
+            exit 1
+          fi
+          # Self-signed cert is expected until Let's Encrypt / DNS is ready.
+          code=$(curl -kfsS -o /tmp/deploy-resp.json -w "%{http_code}" \
+            -X POST "https://${SERVER_HOST}/api/deploy" \
+            -H "Authorization: Bearer ${DEPLOY_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            --max-time 60 || true)
+          echo "HTTP $code"
+          cat /tmp/deploy-resp.json || true
+          echo
+          test "$code" = "202" -o "$code" = "200"
 
-      - name: Deploy via SSH (retry 1)
+      - name: Deploy via HTTPS webhook (retry 1)
         id: deploy_retry1
         if: steps.deploy.outcome == 'failure'
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 15m
-          script: |
-            set -e
-            cd /var/www/paletlist
-            if ! git diff --quiet || ! git diff --cached --quiet; then
-              git stash push -u -m "deploy-stash-$(date +%s)" || true
-            fi
-            git fetch origin
-            git checkout main
-            git pull --ff-only origin main
-            echo "Deployed: $(git log -1 --oneline)"
-            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
-            sudo systemctl reload nginx || true
-            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
-            sleep 1
-            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
+        run: |
+          set -euo pipefail
+          sleep 5
+          code=$(curl -kfsS -o /tmp/deploy-resp.json -w "%{http_code}" \
+            -X POST "https://${SERVER_HOST}/api/deploy" \
+            -H "Authorization: Bearer ${DEPLOY_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            --max-time 60 || true)
+          echo "HTTP $code"
+          cat /tmp/deploy-resp.json || true
+          echo
+          test "$code" = "202" -o "$code" = "200"
 
-      - name: Deploy via SSH (retry 2)
+      - name: Deploy via HTTPS webhook (retry 2)
         id: deploy_retry2
         if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          timeout: 90s
-          command_timeout: 15m
-          script: |
-            set -e
-            cd /var/www/paletlist
-            if ! git diff --quiet || ! git diff --cached --quiet; then
-              git stash push -u -m "deploy-stash-$(date +%s)" || true
-            fi
-            git fetch origin
-            git checkout main
-            git pull --ff-only origin main
-            echo "Deployed: $(git log -1 --oneline)"
-            grep -q "notifyOrderMonitoringLoadStateChanged" admin.html || { echo "admin.html: нет фикса prefetch freeze"; exit 1; }
-            sudo systemctl reload nginx || true
-            sudo systemctl restart paletlist-api.service || sudo systemctl try-restart paletlist-api.service || true
-            sleep 1
-            systemctl is-active --quiet paletlist-api.service && echo "API service: active" || echo "API service: not active"
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
+        run: |
+          set -euo pipefail
+          sleep 10
+          code=$(curl -kfsS -o /tmp/deploy-resp.json -w "%{http_code}" \
+            -X POST "https://${SERVER_HOST}/api/deploy" \
+            -H "Authorization: Bearer ${DEPLOY_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            --max-time 90 || true)
+          echo "HTTP $code"
+          cat /tmp/deploy-resp.json || true
+          echo
+          test "$code" = "202" -o "$code" = "200"
+
+      - name: Wait for deploy to finish
+        if: >
+          steps.deploy.outcome == 'success' ||
+          steps.deploy_retry1.outcome == 'success' ||
+          steps.deploy_retry2.outcome == 'success'
+        run: sleep 25
 
       - name: Fail if all deploy attempts failed
         if: >
@@ -120,8 +91,7 @@ jobs:
           steps.deploy_retry1.outcome != 'success' &&
           steps.deploy_retry2.outcome != 'success'
         run: |
-          echo "SSH deploy failed after retries (dial tcp :22 i/o timeout / host unreachable)."
-          echo "Check SERVER_HOST / router port-forward / firewall, then either re-run this workflow"
-          echo "or on the server run:"
-          echo "  cd /var/www/paletlist && git pull --ff-only origin main && sudo bash scripts/pull-on-server.sh"
+          echo "HTTPS deploy webhook failed after retries."
+          echo "Check secrets SERVER_HOST + DEPLOY_SECRET, HTTPS on the server,"
+          echo "and /var/log/paletlist-deploy.log"
           exit 1

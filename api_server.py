@@ -2502,6 +2502,35 @@ def export_database_bytes():
         return DB_PATH.read_bytes(), None
 
 
+def cleanup_database_backup_files(keep_backup_name: str | None = None) -> list[str]:
+    """Оставить только warehouse.db и один бэкап перед загрузкой (если указан)."""
+    keep = {"warehouse.db"}
+    if keep_backup_name:
+        keep.add(Path(keep_backup_name).name)
+    removed: list[str] = []
+    for path in BASE_DIR.glob("warehouse*"):
+        name = path.name
+        if name in keep:
+            continue
+        # Только файлы-копии БД рядом с приложением
+        if not (
+            name.startswith("warehouse.before-restore-")
+            or name.startswith("warehouse.bad-before-fix-")
+            or name.startswith("warehouse.restore-")
+            or name.startswith("warehouse.from-")
+            or name.endswith(".tmp")
+            or (name.startswith("warehouse.") and name.endswith(".db") and name != "warehouse.db")
+        ):
+            continue
+        try:
+            if path.is_file():
+                path.unlink()
+                removed.append(name)
+        except OSError:
+            pass
+    return removed
+
+
 def restore_database_from_bytes(data: bytes) -> dict:
     """Заменить warehouse.db загруженным файлом (с бэкапом текущей БД)."""
     if not isinstance(data, (bytes, bytearray)):
@@ -2557,9 +2586,12 @@ def restore_database_from_bytes(data: bytes) -> dict:
         with DB_LOCK:
             if DB_PATH.is_file():
                 shutil.copy2(DB_PATH, bak_path)
+            else:
+                bak_name = ""
             shutil.copy2(tmp_path, staging)
             os.replace(staging, DB_PATH)
             staging = None
+            cleanup_database_backup_files(bak_name or None)
     except OSError as exc:
         return {"error": "io", "message": f"Не удалось заменить БД: {exc}"}
     except sqlite3.Error as exc:

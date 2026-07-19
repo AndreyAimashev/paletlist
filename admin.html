@@ -7158,9 +7158,13 @@
         }
         if (dbBackupBtn) {
           dbBackupBtn.hidden = !(st === "main" && isAdminUser());
+          dbBackupBtn.style.display =
+            st === "main" && isAdminUser() ? "" : "none";
         }
         if (dbRestoreBtn) {
           dbRestoreBtn.hidden = !(st === "main" && isAdminUser());
+          dbRestoreBtn.style.display =
+            st === "main" && isAdminUser() ? "" : "none";
         }
         syncFeedbackAdminControls();
         renderNavOrder();

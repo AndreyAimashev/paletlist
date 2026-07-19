@@ -10,6 +10,7 @@ import secrets
 import shutil
 import socket
 import sqlite3
+import subprocess
 import tempfile
 import threading
 import time
@@ -141,6 +142,10 @@ def _is_database_backup_path(path: str) -> bool:
 
 def _is_database_restore_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/database/restore"
+
+
+def _is_server_status_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/server-status"
 
 
 def _is_unique_clients_list_path(path: str) -> bool:
@@ -2579,6 +2584,255 @@ def restore_database_from_bytes(data: bytes) -> dict:
             "backup": bak_name,
         }
     return {"ok": True, "backup": bak_name, "size": len(raw)}
+
+
+def _read_proc_meminfo() -> dict:
+    result = {}
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if ":" not in line:
+                continue
+            key, raw = line.split(":", 1)
+            parts = raw.strip().split()
+            if not parts:
+                continue
+            try:
+                kb = int(parts[0])
+            except ValueError:
+                continue
+            result[key] = kb * 1024
+    except OSError:
+        pass
+    return result
+
+
+def _read_proc_stat_cpu():
+    try:
+        line = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    parts = line.split()
+    if not parts or parts[0] != "cpu":
+        return None
+    try:
+        vals = [int(x) for x in parts[1:]]
+    except ValueError:
+        return None
+    if len(vals) < 4:
+        return None
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    total = sum(vals)
+    return idle, total
+
+
+def _cpu_usage_percent(sample_sec: float = 0.12) -> float | None:
+    first = _read_proc_stat_cpu()
+    if not first:
+        return None
+    time.sleep(max(0.05, min(0.5, sample_sec)))
+    second = _read_proc_stat_cpu()
+    if not second:
+        return None
+    idle1, total1 = first
+    idle2, total2 = second
+    d_total = total2 - total1
+    d_idle = idle2 - idle1
+    if d_total <= 0:
+        return 0.0
+    used = 100.0 * (1.0 - (d_idle / d_total))
+    return round(max(0.0, min(100.0, used)), 1)
+
+
+def _loadavg() -> list[float]:
+    try:
+        raw = Path("/proc/loadavg").read_text(encoding="utf-8").split()
+        return [round(float(raw[i]), 2) for i in range(3)]
+    except (OSError, ValueError, IndexError):
+        try:
+            return [round(float(x), 2) for x in os.getloadavg()]
+        except (OSError, AttributeError):
+            return []
+
+
+def _uptime_seconds() -> float | None:
+    try:
+        return float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _systemctl_state(unit: str) -> dict:
+    def _run(args: list[str]) -> str:
+        try:
+            proc = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            return (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return "unknown"
+
+    active = _run(["systemctl", "is-active", unit]) or "unknown"
+    enabled = _run(["systemctl", "is-enabled", unit]) or "unknown"
+    return {"unit": unit, "active": active, "enabled": enabled}
+
+
+def _listening_ports_summary() -> list[dict]:
+    ports = []
+    try:
+        proc = subprocess.run(
+            ["ss", "-tlnH"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        lines = (proc.stdout or "").splitlines()
+    except (OSError, subprocess.TimeoutExpired):
+        lines = []
+    seen = set()
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        local = parts[3]
+        if ":" not in local:
+            continue
+        port_s = local.rsplit(":", 1)[-1]
+        try:
+            port = int(port_s)
+        except ValueError:
+            continue
+        if port in seen:
+            continue
+        seen.add(port)
+        ports.append({"port": port, "address": local})
+    ports.sort(key=lambda row: row["port"])
+    return ports[:40]
+
+
+def _disk_usage_for(path: str) -> dict | None:
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return None
+    total = int(usage.total)
+    used = int(usage.used)
+    free = int(usage.free)
+    pct = round((used / total) * 100.0, 1) if total else 0.0
+    return {
+        "path": path,
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "used_percent": pct,
+    }
+
+
+def _database_status_snapshot() -> dict:
+    info = {
+        "path": str(DB_PATH),
+        "exists": DB_PATH.is_file(),
+        "size_bytes": 0,
+        "counts": {},
+    }
+    if not DB_PATH.is_file():
+        return info
+    try:
+        info["size_bytes"] = int(DB_PATH.stat().st_size)
+    except OSError:
+        pass
+    try:
+        with DB_LOCK:
+            con = get_connection()
+            try:
+                for table in (
+                    "products",
+                    "orders",
+                    "order_items",
+                    "app_users",
+                    "feedback_threads",
+                ):
+                    try:
+                        info["counts"][table] = int(
+                            con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                        )
+                    except sqlite3.Error:
+                        info["counts"][table] = None
+            finally:
+                con.close()
+    except sqlite3.Error as exc:
+        info["error"] = str(exc)
+    return info
+
+
+def collect_server_status() -> dict:
+    """Снимок ключевых показателей сервера для админ-мониторинга."""
+    mem = _read_proc_meminfo()
+    mem_total = int(mem.get("MemTotal") or 0)
+    mem_available = int(mem.get("MemAvailable") or mem.get("MemFree") or 0)
+    mem_used = max(0, mem_total - mem_available) if mem_total else 0
+    mem_pct = round((mem_used / mem_total) * 100.0, 1) if mem_total else 0.0
+    swap_total = int(mem.get("SwapTotal") or 0)
+    swap_free = int(mem.get("SwapFree") or 0)
+    swap_used = max(0, swap_total - swap_free) if swap_total else 0
+
+    hostname = socket.gethostname()
+    try:
+        uname = os.uname()
+        os_summary = f"{uname.sysname} {uname.release}"
+    except AttributeError:
+        os_summary = "unknown"
+
+    cpu_count = os.cpu_count() or 0
+    return {
+        "ok": True,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+        "hostname": hostname,
+        "os": os_summary,
+        "uptime_seconds": _uptime_seconds(),
+        "loadavg": _loadavg(),
+        "cpu": {
+            "count": cpu_count,
+            "usage_percent": _cpu_usage_percent(),
+        },
+        "memory": {
+            "total_bytes": mem_total,
+            "used_bytes": mem_used,
+            "available_bytes": mem_available,
+            "used_percent": mem_pct,
+            "swap_total_bytes": swap_total,
+            "swap_used_bytes": swap_used,
+        },
+        "disks": [
+            row
+            for row in (
+                _disk_usage_for("/"),
+                _disk_usage_for(str(BASE_DIR)),
+            )
+            if row
+        ],
+        "services": [
+            _systemctl_state("nginx"),
+            _systemctl_state("paletlist-api.service"),
+            _systemctl_state("ssh"),
+        ],
+        "listening_ports": _listening_ports_summary(),
+        "database": _database_status_snapshot(),
+        "process_count": _process_count(),
+    }
+
+
+def _process_count() -> int | None:
+    try:
+        return sum(1 for p in Path("/proc").iterdir() if p.name.isdigit())
+    except OSError:
+        return None
 
 
 def _table_columns(cur, table: str):
@@ -7143,6 +7397,20 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(blob)
+            return
+        if _is_server_status_path(path):
+            if not self._require_admin():
+                return
+            try:
+                self._send_json(200, collect_server_status())
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(
+                    500,
+                    {
+                        "error": "server_status",
+                        "message": f"Не удалось собрать показатели: {exc}",
+                    },
+                )
             return
         if _is_unique_clients_list_path(path):
             self._send_json(200, fetch_unique_clients())

@@ -266,6 +266,200 @@
         display: none !important;
       }
 
+      .server-status-workspace {
+        display: none;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 200, 160, 0.22);
+      }
+
+      .server-status-workspace.visible {
+        display: block;
+        animation: workspaceReveal 260ms ease;
+      }
+
+      .server-status-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .server-status-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .server-status-live__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent-teal);
+        box-shadow: 0 0 10px rgba(0, 200, 160, 0.7);
+        animation: serverStatusPulse 1.4s ease-in-out infinite;
+      }
+
+      .server-status-live.is-error .server-status-live__dot {
+        background: #ff6b8a;
+        box-shadow: 0 0 10px rgba(255, 107, 138, 0.7);
+        animation: none;
+      }
+
+      @keyframes serverStatusPulse {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.15);
+        }
+      }
+
+      .server-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+      }
+
+      .server-status-metric {
+        padding: 14px 16px;
+        border: 1px solid rgba(0, 200, 160, 0.22);
+        border-radius: 12px;
+        background: rgba(12, 18, 28, 0.72);
+        min-width: 0;
+      }
+
+      .server-status-metric__label {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: var(--text-muted);
+        text-transform: uppercase;
+      }
+
+      .server-status-metric__value {
+        margin: 0;
+        font-family: "Orbitron", sans-serif;
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.2;
+        word-break: break-word;
+      }
+
+      .server-status-metric__hint {
+        margin: 8px 0 0;
+        font-size: 12px;
+        color: var(--text-muted);
+        line-height: 1.4;
+      }
+
+      .server-status-metric.is-warn {
+        border-color: rgba(255, 184, 77, 0.45);
+      }
+
+      .server-status-metric.is-bad {
+        border-color: rgba(255, 107, 138, 0.5);
+      }
+
+      .server-status-metric.is-ok {
+        border-color: rgba(0, 200, 160, 0.42);
+      }
+
+      .server-status-bar {
+        margin-top: 10px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .server-status-bar > span {
+        display: block;
+        height: 100%;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #00a888, var(--accent-teal));
+        transition: width 0.35s ease;
+      }
+
+      .server-status-metric.is-warn .server-status-bar > span {
+        background: linear-gradient(90deg, #d89a2f, #ffb84d);
+      }
+
+      .server-status-metric.is-bad .server-status-bar > span {
+        background: linear-gradient(90deg, #d6456a, #ff6b8a);
+      }
+
+      .server-status-section {
+        margin-top: 18px;
+      }
+
+      .server-status-section__title {
+        margin: 0 0 10px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .server-status-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .server-status-table th,
+      .server-status-table td {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 1px solid rgba(0, 200, 160, 0.12);
+      }
+
+      .server-status-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .server-status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid transparent;
+      }
+
+      .server-status-pill.is-active {
+        color: #7dffe0;
+        border-color: rgba(0, 200, 160, 0.4);
+        background: rgba(0, 200, 160, 0.1);
+      }
+
+      .server-status-pill.is-inactive {
+        color: #ffb0c0;
+        border-color: rgba(255, 107, 138, 0.4);
+        background: rgba(255, 107, 138, 0.1);
+      }
+
+      .server-status-error {
+        margin: 0 0 12px;
+        color: #ff8fa8;
+        font-size: 13px;
+      }
+
+      .panel.fx-server_status {
+        animation: fxOrders 340ms ease;
+      }
+
       .updates-dialog {
         width: min(560px, 100%);
       }
@@ -5523,6 +5717,9 @@
                 </svg>
               </span>
             </button>
+            <button id="server-status-button" class="menu-button" type="button" hidden>
+              Мониторинг состояния сервера
+            </button>
             <button id="create-pallet-button" class="menu-button menu-step" type="button">
               Создать паллетные листы
             </button>
@@ -5549,6 +5746,13 @@
               Назад
             </button>
             <button id="back-to-main-feedback-button" class="menu-button menu-step back-button" type="button">
+              Назад
+            </button>
+            <button
+              id="back-to-main-server-status-button"
+              class="menu-button menu-step back-button"
+              type="button"
+            >
               Назад
             </button>
             <button
@@ -6260,6 +6464,79 @@
             </div>
           </section>
 
+          <section
+            id="server-status-workspace"
+            class="server-status-workspace"
+            aria-label="Мониторинг состояния сервера"
+          >
+            <div class="server-status-toolbar">
+              <div id="server-status-live" class="server-status-live" aria-live="polite">
+                <span class="server-status-live__dot" aria-hidden="true"></span>
+                <span id="server-status-live-text">Обновление…</span>
+              </div>
+              <button type="button" id="server-status-refresh-btn" class="updates-menu-btn">
+                <span class="updates-menu-btn__label">Обновить сейчас</span>
+              </button>
+            </div>
+            <p id="server-status-error" class="server-status-error" hidden></p>
+            <div class="server-status-grid" id="server-status-metrics">
+              <article class="server-status-metric" data-metric="cpu">
+                <p class="server-status-metric__label">CPU</p>
+                <p class="server-status-metric__value" data-field="cpu-value">—</p>
+                <div class="server-status-bar" aria-hidden="true"><span data-field="cpu-bar"></span></div>
+                <p class="server-status-metric__hint" data-field="cpu-hint"></p>
+              </article>
+              <article class="server-status-metric" data-metric="memory">
+                <p class="server-status-metric__label">Память</p>
+                <p class="server-status-metric__value" data-field="mem-value">—</p>
+                <div class="server-status-bar" aria-hidden="true"><span data-field="mem-bar"></span></div>
+                <p class="server-status-metric__hint" data-field="mem-hint"></p>
+              </article>
+              <article class="server-status-metric" data-metric="disk">
+                <p class="server-status-metric__label">Диск</p>
+                <p class="server-status-metric__value" data-field="disk-value">—</p>
+                <div class="server-status-bar" aria-hidden="true"><span data-field="disk-bar"></span></div>
+                <p class="server-status-metric__hint" data-field="disk-hint"></p>
+              </article>
+              <article class="server-status-metric" data-metric="uptime">
+                <p class="server-status-metric__label">Uptime</p>
+                <p class="server-status-metric__value" data-field="uptime-value">—</p>
+                <p class="server-status-metric__hint" data-field="uptime-hint"></p>
+              </article>
+              <article class="server-status-metric" data-metric="load">
+                <p class="server-status-metric__label">Load average</p>
+                <p class="server-status-metric__value" data-field="load-value">—</p>
+                <p class="server-status-metric__hint" data-field="load-hint"></p>
+              </article>
+              <article class="server-status-metric" data-metric="db">
+                <p class="server-status-metric__label">База данных</p>
+                <p class="server-status-metric__value" data-field="db-value">—</p>
+                <p class="server-status-metric__hint" data-field="db-hint"></p>
+              </article>
+            </div>
+            <div class="server-status-section">
+              <h3 class="server-status-section__title">Сервисы</h3>
+              <div class="users-table-wrap">
+                <table class="server-status-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Сервис</th>
+                      <th scope="col">Состояние</th>
+                      <th scope="col">Автозапуск</th>
+                    </tr>
+                  </thead>
+                  <tbody id="server-status-services-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="server-status-section">
+              <h3 class="server-status-section__title">Открытые порты</h3>
+              <p id="server-status-ports" class="muted" style="margin: 0; font-size: 13px; line-height: 1.5">
+                —
+              </p>
+            </div>
+          </section>
+
           <section id="users-workspace" class="users-workspace" aria-label="Пользователи и аккаунт">
             <div id="users-admin-panel">
               <div class="users-toolbar">
@@ -6884,6 +7161,10 @@
       const feedbackUserButton = document.getElementById("feedback-user-button");
       const feedbackAdminButton = document.getElementById("feedback-admin-button");
       const backToMainFeedbackButton = document.getElementById("back-to-main-feedback-button");
+      const serverStatusButton = document.getElementById("server-status-button");
+      const backToMainServerStatusButton = document.getElementById(
+        "back-to-main-server-status-button",
+      );
       const dbBackupBtn = document.getElementById("db-backup-btn");
       const dbRestoreBtn = document.getElementById("db-restore-btn");
       const dbRestoreFileInput = document.getElementById("db-restore-file");
@@ -7130,6 +7411,11 @@
         if (feedbackAdminButton) {
           feedbackAdminButton.style.display =
             st === "main" && isAdminUser() ? "" : "none";
+        }
+        if (serverStatusButton) {
+          serverStatusButton.style.display =
+            st === "main" && isAdminUser() ? "" : "none";
+          serverStatusButton.hidden = !(st === "main" && isAdminUser());
         }
         if (navOrders) {
           navOrders.hidden = !perms.orders;
@@ -8032,6 +8318,284 @@
         void loadFeedbackThreads();
       }
 
+      function stopServerStatusPoll() {
+        if (serverStatusPollTimer != null) {
+          clearInterval(serverStatusPollTimer);
+          serverStatusPollTimer = null;
+        }
+      }
+
+      function startServerStatusPoll() {
+        stopServerStatusPoll();
+        if (!isAdminUser()) {
+          return;
+        }
+        serverStatusPollTimer = setInterval(() => {
+          void refreshServerStatusOnce();
+        }, 2500);
+      }
+
+      function formatBytesShort(bytes) {
+        const n = Number(bytes);
+        if (!Number.isFinite(n) || n < 0) {
+          return "—";
+        }
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let v = n;
+        let i = 0;
+        while (v >= 1024 && i < units.length - 1) {
+          v /= 1024;
+          i += 1;
+        }
+        const digits = i === 0 ? 0 : v >= 10 ? 1 : 2;
+        return `${v.toFixed(digits)} ${units[i]}`;
+      }
+
+      function formatUptime(seconds) {
+        const s = Math.max(0, Math.floor(Number(seconds) || 0));
+        const days = Math.floor(s / 86400);
+        const hours = Math.floor((s % 86400) / 3600);
+        const mins = Math.floor((s % 3600) / 60);
+        if (days > 0) {
+          return `${days}д ${hours}ч ${mins}м`;
+        }
+        if (hours > 0) {
+          return `${hours}ч ${mins}м`;
+        }
+        return `${mins}м ${s % 60}с`;
+      }
+
+      function metricTone(percent) {
+        const p = Number(percent);
+        if (!Number.isFinite(p)) {
+          return "";
+        }
+        if (p >= 90) {
+          return "is-bad";
+        }
+        if (p >= 75) {
+          return "is-warn";
+        }
+        return "is-ok";
+      }
+
+      function setMetricTone(el, percent) {
+        if (!el) {
+          return;
+        }
+        el.classList.remove("is-ok", "is-warn", "is-bad");
+        const tone = metricTone(percent);
+        if (tone) {
+          el.classList.add(tone);
+        }
+      }
+
+      function setBarWidth(el, percent) {
+        if (!el) {
+          return;
+        }
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        el.style.width = `${p}%`;
+      }
+
+      function renderServerStatus(data) {
+        const root = document.getElementById("server-status-metrics");
+        if (!root || !data) {
+          return;
+        }
+        const cpuPct = data.cpu && data.cpu.usage_percent;
+        const memPct = data.memory && data.memory.used_percent;
+        const disks = Array.isArray(data.disks) ? data.disks : [];
+        const disk = disks[0] || null;
+        const diskPct = disk ? disk.used_percent : null;
+
+        const cpuCard = root.querySelector('[data-metric="cpu"]');
+        const memCard = root.querySelector('[data-metric="memory"]');
+        const diskCard = root.querySelector('[data-metric="disk"]');
+        const uptimeCard = root.querySelector('[data-metric="uptime"]');
+        const loadCard = root.querySelector('[data-metric="load"]');
+        const dbCard = root.querySelector('[data-metric="db"]');
+
+        const cpuValue = root.querySelector('[data-field="cpu-value"]');
+        const cpuHint = root.querySelector('[data-field="cpu-hint"]');
+        const cpuBar = root.querySelector('[data-field="cpu-bar"]');
+        if (cpuValue) {
+          cpuValue.textContent =
+            cpuPct == null || !Number.isFinite(Number(cpuPct))
+              ? "—"
+              : `${Number(cpuPct).toFixed(1)}%`;
+        }
+        if (cpuHint) {
+          cpuHint.textContent =
+            data.cpu && data.cpu.count ? `${data.cpu.count} ядер` : "";
+        }
+        setBarWidth(cpuBar, cpuPct);
+        setMetricTone(cpuCard, cpuPct);
+
+        const memValue = root.querySelector('[data-field="mem-value"]');
+        const memHint = root.querySelector('[data-field="mem-hint"]');
+        const memBar = root.querySelector('[data-field="mem-bar"]');
+        if (memValue) {
+          memValue.textContent =
+            memPct == null || !Number.isFinite(Number(memPct))
+              ? "—"
+              : `${Number(memPct).toFixed(1)}%`;
+        }
+        if (memHint && data.memory) {
+          memHint.textContent = `${formatBytesShort(data.memory.used_bytes)} / ${formatBytesShort(
+            data.memory.total_bytes,
+          )}`;
+        }
+        setBarWidth(memBar, memPct);
+        setMetricTone(memCard, memPct);
+
+        const diskValue = root.querySelector('[data-field="disk-value"]');
+        const diskHint = root.querySelector('[data-field="disk-hint"]');
+        const diskBar = root.querySelector('[data-field="disk-bar"]');
+        if (diskValue) {
+          diskValue.textContent =
+            diskPct == null || !Number.isFinite(Number(diskPct))
+              ? "—"
+              : `${Number(diskPct).toFixed(1)}%`;
+        }
+        if (diskHint) {
+          diskHint.textContent = disk
+            ? `${disk.path}: ${formatBytesShort(disk.used_bytes)} / ${formatBytesShort(
+                disk.total_bytes,
+              )}`
+            : "";
+        }
+        setBarWidth(diskBar, diskPct);
+        setMetricTone(diskCard, diskPct);
+
+        const uptimeValue = root.querySelector('[data-field="uptime-value"]');
+        const uptimeHint = root.querySelector('[data-field="uptime-hint"]');
+        if (uptimeValue) {
+          uptimeValue.textContent =
+            data.uptime_seconds == null ? "—" : formatUptime(data.uptime_seconds);
+        }
+        if (uptimeHint) {
+          uptimeHint.textContent = [data.hostname, data.os].filter(Boolean).join(" · ");
+        }
+        if (uptimeCard) {
+          uptimeCard.classList.remove("is-ok", "is-warn", "is-bad");
+          uptimeCard.classList.add("is-ok");
+        }
+
+        const loadValue = root.querySelector('[data-field="load-value"]');
+        const loadHint = root.querySelector('[data-field="load-hint"]');
+        const loadavg = Array.isArray(data.loadavg) ? data.loadavg : [];
+        if (loadValue) {
+          loadValue.textContent = loadavg.length
+            ? loadavg.map((x) => Number(x).toFixed(2)).join(" / ")
+            : "—";
+        }
+        if (loadHint) {
+          loadHint.textContent =
+            data.process_count != null ? `${data.process_count} процессов` : "";
+        }
+        if (loadCard) {
+          const cores = Number(data.cpu && data.cpu.count) || 1;
+          const l1 = Number(loadavg[0]);
+          setMetricTone(loadCard, Number.isFinite(l1) ? (l1 / cores) * 100 : null);
+        }
+
+        const dbValue = root.querySelector('[data-field="db-value"]');
+        const dbHint = root.querySelector('[data-field="db-hint"]');
+        const db = data.database || {};
+        if (dbValue) {
+          dbValue.textContent = formatBytesShort(db.size_bytes);
+        }
+        if (dbHint) {
+          const c = db.counts || {};
+          dbHint.textContent = `товары ${c.products ?? "—"} · заказы ${c.orders ?? "—"} · пользователи ${
+            c.app_users ?? "—"
+          }`;
+        }
+        if (dbCard) {
+          dbCard.classList.remove("is-ok", "is-warn", "is-bad");
+          dbCard.classList.add(db.exists ? "is-ok" : "is-bad");
+        }
+
+        if (serverStatusServicesBody) {
+          const services = Array.isArray(data.services) ? data.services : [];
+          serverStatusServicesBody.innerHTML = services
+            .map((svc) => {
+              const active = String(svc.active || "unknown");
+              const enabled = String(svc.enabled || "unknown");
+              const activeClass = active === "active" ? "is-active" : "is-inactive";
+              return `<tr>
+                <td>${escapeXml(svc.unit || "")}</td>
+                <td><span class="server-status-pill ${activeClass}">${escapeXml(active)}</span></td>
+                <td>${escapeXml(enabled)}</td>
+              </tr>`;
+            })
+            .join("");
+        }
+
+        if (serverStatusPorts) {
+          const ports = Array.isArray(data.listening_ports) ? data.listening_ports : [];
+          serverStatusPorts.textContent = ports.length
+            ? ports.map((p) => `${p.port}`).join(", ")
+            : "Нет данных";
+        }
+      }
+
+      async function refreshServerStatusOnce() {
+        if (!isAdminUser()) {
+          return;
+        }
+        const seq = ++serverStatusRequestSeq;
+        try {
+          const res = await fetch("/api/server-status", { cache: "no-store" });
+          if (!res.ok) {
+            let detail = "";
+            try {
+              const j = await res.json();
+              detail = j.message || j.error || "";
+            } catch (e2) {
+              /* ignore */
+            }
+            throw new Error(detail || `HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (seq !== serverStatusRequestSeq) {
+            return;
+          }
+          renderServerStatus(data);
+          if (serverStatusError) {
+            serverStatusError.hidden = true;
+            serverStatusError.textContent = "";
+          }
+          if (serverStatusLive) {
+            serverStatusLive.classList.remove("is-error");
+          }
+          if (serverStatusLiveText) {
+            const local = new Date().toLocaleTimeString("ru-RU", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+            serverStatusLiveText.textContent = `Онлайн · обновлено ${local}`;
+          }
+        } catch (err) {
+          if (seq !== serverStatusRequestSeq) {
+            return;
+          }
+          if (serverStatusLive) {
+            serverStatusLive.classList.add("is-error");
+          }
+          if (serverStatusLiveText) {
+            serverStatusLiveText.textContent = "Ошибка обновления";
+          }
+          if (serverStatusError) {
+            serverStatusError.hidden = false;
+            serverStatusError.textContent =
+              err?.message || "Не удалось получить показатели сервера.";
+          }
+        }
+      }
+
       function guardStagePermission(stage) {
         const perms = getAuthPermissions();
         if (stage === "orders" && !perms.orders) {
@@ -8044,6 +8608,9 @@
           return "main";
         }
         if (stage === "feedback" && !canAccessFeedback()) {
+          return "main";
+        }
+        if (stage === "server_status" && !isAdminUser()) {
           return "main";
         }
         return stage;
@@ -8172,6 +8739,15 @@
 
       const usersWorkspace = document.getElementById("users-workspace");
       const feedbackWorkspace = document.getElementById("feedback-workspace");
+      const serverStatusWorkspace = document.getElementById("server-status-workspace");
+      const serverStatusLive = document.getElementById("server-status-live");
+      const serverStatusLiveText = document.getElementById("server-status-live-text");
+      const serverStatusError = document.getElementById("server-status-error");
+      const serverStatusServicesBody = document.getElementById("server-status-services-body");
+      const serverStatusPorts = document.getElementById("server-status-ports");
+      const serverStatusRefreshBtn = document.getElementById("server-status-refresh-btn");
+      let serverStatusPollTimer = null;
+      let serverStatusRequestSeq = 0;
       const feedbackListView = document.getElementById("feedback-list-view");
       const feedbackThreadView = document.getElementById("feedback-thread-view");
       const feedbackNewView = document.getElementById("feedback-new-view");
@@ -10107,6 +10683,7 @@
           "fx-assemble",
           "fx-nomenclature",
           "fx-users",
+          "fx-server_status",
         ];
         panel.classList.remove("transitioning");
         effectClasses.forEach((className) => panel.classList.remove(className));
@@ -10172,6 +10749,9 @@
         backToMainNomenclatureButton.classList.remove("visible");
         backToMainUsersButton.classList.remove("visible");
         backToMainFeedbackButton.classList.remove("visible");
+        if (backToMainServerStatusButton) {
+          backToMainServerStatusButton.classList.remove("visible");
+        }
         if (backToMainOrderMonitoringButton) {
           backToMainOrderMonitoringButton.classList.remove("visible");
         }
@@ -10186,6 +10766,9 @@
         nomenclatureWorkspace.classList.remove("visible");
         usersWorkspace.classList.remove("visible");
         feedbackWorkspace.classList.remove("visible");
+        if (serverStatusWorkspace) {
+          serverStatusWorkspace.classList.remove("visible");
+        }
 
         if (stage === "pallet") {
           menuTitle.textContent = "Паллетные листы";
@@ -10305,6 +10888,29 @@
           refreshFeedbackStage();
         }
 
+        if (stage === "server_status") {
+          menuTitle.textContent = "Мониторинг состояния сервера";
+          ordersButton.style.display = "none";
+          nomenclatureButton.style.display = "none";
+          usersButton.style.display = "none";
+          if (feedbackUserButton) {
+            feedbackUserButton.style.display = "none";
+          }
+          if (feedbackAdminButton) {
+            feedbackAdminButton.style.display = "none";
+          }
+          if (serverStatusButton) {
+            serverStatusButton.style.display = "none";
+          }
+          if (backToMainServerStatusButton) {
+            backToMainServerStatusButton.classList.add("visible");
+          }
+          if (serverStatusWorkspace) {
+            serverStatusWorkspace.classList.add("visible");
+          }
+          void refreshServerStatusOnce();
+        }
+
         if (navMain) {
           navMain.classList.toggle("active", stage === "main");
         }
@@ -10346,6 +10952,11 @@
         } else {
           stopFeedbackSyncPoll();
           startFeedbackMenuBadgePoll();
+        }
+        if (stage === "server_status") {
+          startServerStatusPoll();
+        } else {
+          stopServerStatusPoll();
         }
         if (stage !== "assemble") {
           stopAssembleSyncPoll();
@@ -10530,8 +11141,19 @@
       if (feedbackAdminButton) {
         feedbackAdminButton.addEventListener("click", () => setStage("feedback"));
       }
+      if (serverStatusButton) {
+        serverStatusButton.addEventListener("click", () => setStage("server_status"));
+      }
       if (backToMainFeedbackButton) {
         backToMainFeedbackButton.addEventListener("click", () => setStage("main"));
+      }
+      if (backToMainServerStatusButton) {
+        backToMainServerStatusButton.addEventListener("click", () => setStage("main"));
+      }
+      if (serverStatusRefreshBtn) {
+        serverStatusRefreshBtn.addEventListener("click", () => {
+          void refreshServerStatusOnce();
+        });
       }
       if (feedbackNewBtn) {
         feedbackNewBtn.addEventListener("click", showFeedbackNewView);

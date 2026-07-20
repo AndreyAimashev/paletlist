@@ -15884,6 +15884,7 @@
       const ASSEMBLE_SYNC_FILL_UPLOAD_PCT = 82;
       const ASSEMBLE_SYNC_SOON_MS = 150;
       const ASSEMBLE_SAVE_RETRY_MS = 1000;
+      const ASSEMBLE_SYNC_FETCH_TIMEOUT_MS = 8000;
       const ORDERS_LIST_SYNC_POLL_MS = 1000;
       const ORDER_CHAT_SYNC_POLL_MS = 1000;
       const NOMENCLATURE_SYNC_POLL_MS = 1000;
@@ -18204,10 +18205,6 @@
         if (!assembleOrderSnapshot || !assembleAllocState) {
           return false;
         }
-        const remoteFromData = extractRemoteAssemblePallets(data) || mergedPallets;
-        if (assembleShouldBlockRemoteOverwrite(remoteFromData)) {
-          return false;
-        }
         const items = assembleOrderSnapshot.items;
         const orderId = assembleOrderSnapshot.id;
         const filtered = filterRemotePalletsForLocalDeletions(
@@ -18241,7 +18238,22 @@
         return changed;
       }
 
+      function normalizeAssembleSyncPayload(data) {
+        if (!data || typeof data !== "object") {
+          return null;
+        }
+        const id = data.id != null ? data.id : data.order_id;
+        if (id == null) {
+          return null;
+        }
+        if (data.id != null) {
+          return data;
+        }
+        return { ...data, id };
+      }
+
       function processRemoteAssembleOrderSync(data) {
+        data = normalizeAssembleSyncPayload(data);
         if (!assembleOrderSnapshot || !assembleAllocState || !data) {
           return;
         }
@@ -18254,13 +18266,22 @@
           assembleSavePending = false;
           assembleQueuedPayload = null;
           clearTimeout(assembleSaveTimer);
-          if (!isAssembleEditableFocused()) {
-            applyRemoteAssemblePayload(data);
-          }
+          applyRemoteAssemblePayload(data);
           noteAssembleServerSnapshot(data);
           return;
         }
-        if (isAssembleEditableFocused()) {
+        if (data.unchanged === true) {
+          noteAssembleServerSnapshot(data);
+          if (!assembleDirty) {
+            syncOptionalBatchToggleFromServer(data);
+          }
+          reconcileAssembleSyncFlagsWithServer(
+            data,
+            extractRemoteAssemblePallets(data),
+          );
+          if (assembleNeedsServerPush()) {
+            flushAssembleDraftToServerIfNeeded(assembleOrderSnapshot.id);
+          }
           return;
         }
         const orderId = assembleOrderSnapshot.id;
@@ -18272,6 +18293,9 @@
           }
           return;
         }
+        if (isAssembleEditableFocused()) {
+          syncAssembleStateFromDom();
+        }
         const items = assembleOrderSnapshot.items;
         const localPallets = assembleAllocState.pallets;
         const myClientId = getAssembleClientId();
@@ -18280,24 +18304,13 @@
           myClientId,
           remotePallets,
         );
-        if (pendingDel) {
-          if (assembleDirty || assembleSavePending || assembleSaveInFlight) {
-            void flushAssembleSaveNow();
-          }
-          return;
-        }
-        if (assembleShouldBlockRemoteOverwrite(remotePallets)) {
-          flushAssembleDraftToServerIfNeeded(orderId);
-          ensureAssembleSaveRetryScheduled();
-          return;
-        }
         if (!remoteAssembleStateDiffersFromLocal(data, remotePallets)) {
           if (!assembleDirty) {
             syncOptionalBatchToggleFromServer(data);
           }
           noteAssembleServerSnapshot(data);
           reconcileAssembleSyncFlagsWithServer(data, remotePallets);
-          if (assembleNeedsServerPush()) {
+          if (assembleNeedsServerPush() || pendingDel) {
             flushAssembleDraftToServerIfNeeded(orderId);
           }
           return;
@@ -18310,16 +18323,49 @@
           return;
         }
         syncOptionalBatchToggleFromServer(data);
-        applyPullAssembleMerge(
-          filterRemotePalletsForLocalDeletions(
-            orderId,
-            remotePallets,
-            myClientId,
-          ),
-          data,
-          false,
+        const ownUnpushed = clientHasUnpushedAssembleEdits(
+          localPallets,
+          remotePallets,
+          items,
+          myClientId,
+          orderId,
         );
+        const localBusy =
+          assembleDirty ||
+          assembleSavePending ||
+          assembleSaveInFlight ||
+          !!assembleQueuedPayload ||
+          pendingDel ||
+          isAssembleEditableFocused();
+        const preferLocal = localBusy || ownUnpushed;
+        const merged = mergeAssemblePalletLists(
+          localPallets,
+          remotePallets,
+          items,
+          {
+            preferLocalOnConflict: preferLocal,
+            localClientId: myClientId,
+            orderId,
+          },
+        );
+        const stillNeedsPush =
+          ownUnpushed ||
+          pendingDel ||
+          assembleDirty ||
+          assembleSavePending ||
+          thisClientHasEditsNotInRemote(
+            merged,
+            remotePallets,
+            items,
+            myClientId,
+            orderId,
+          );
+        applyPullAssembleMerge(merged, data, stillNeedsPush);
         reconcileAssembleSyncFlagsWithServer(data, remotePallets);
+        if (stillNeedsPush) {
+          flushAssembleDraftToServerIfNeeded(orderId);
+          ensureAssembleSaveRetryScheduled();
+        }
       }
 
       function reconcileAssembleSyncFlagsWithServer(data, remotePallets) {
@@ -18938,6 +18984,9 @@
               }
             }
             if (conflict && assembleOrderSnapshot?.id === oid && assembleDirty) {
+              if (isAssembleEditableFocused()) {
+                syncAssembleStateFromDom();
+              }
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || assembleKnownRevision;
               const remotePallets =
@@ -18971,12 +19020,10 @@
               markAssembleSaveFailed();
               return false;
             }
-            if (
-              conflict &&
-              assembleOrderSnapshot?.id === oid &&
-              !assembleDirty &&
-              !isAssembleEditableFocused()
-            ) {
+            if (conflict && assembleOrderSnapshot?.id === oid) {
+              if (isAssembleEditableFocused()) {
+                syncAssembleStateFromDom();
+              }
               assembleKnownRevision =
                 Number(conflict.assemble_revision) || payload.revision;
               const cp =
@@ -18996,6 +19043,19 @@
                 notifyAssembleSavedToOtherTabs(oid, assembleKnownRevision);
                 scheduleAssembleSyncPollSoon();
                 return true;
+              }
+              if (assembleNeedsServerPush()) {
+                const fresh = captureAssembleSavePayload();
+                if (fresh) {
+                  assembleQueuedPayload = fresh;
+                }
+                markAssembleSaveFailed();
+                setAssembleSaveUiState("saving", {
+                  orderId: oid,
+                  message:
+                    "Объединение изменений с сервером… повторная попытка сохранения…",
+                });
+                return false;
               }
             }
             setAssembleSaveUiState("saving", {
@@ -19316,12 +19376,26 @@
         assemblePresenceHint.hidden = false;
       }
 
-      async function postAssemblePresenceHeartbeat(orderId) {
+      async function postAssemblePresenceHeartbeat(orderId, opts) {
+        const options = opts || {};
+        const body = { client_id: getAssembleClientId() };
+        if (options.sinceRev != null || options.includeSync) {
+          body.since_rev =
+            options.sinceRev != null ? Number(options.sinceRev) || 0 : assembleKnownRevision;
+        }
+        const ctrl = new AbortController();
+        const timeoutMs =
+          Number(options.timeoutMs) > 0
+            ? Number(options.timeoutMs)
+            : ASSEMBLE_SYNC_FETCH_TIMEOUT_MS;
+        const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
         try {
           const res = await fetch(`/api/orders/${orderId}/assemble-presence`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ client_id: getAssembleClientId() }),
+            body: JSON.stringify(body),
+            cache: "no-store",
+            signal: ctrl.signal,
           });
           if (!res.ok) {
             return null;
@@ -19329,6 +19403,8 @@
           return res.json();
         } catch (e) {
           return null;
+        } finally {
+          window.clearTimeout(timer);
         }
       }
 
@@ -19441,13 +19517,18 @@
       }
 
       function applyRemoteAssemblePayload(data) {
+        data = normalizeAssembleSyncPayload(data);
         if (!assembleOrderSnapshot || !assembleAllocState || !data || data.id !== assembleOrderSnapshot.id) {
           return;
         }
         syncAssembleShipmentLockFromOrder(data);
         const locked = isAssembleShipmentLocked();
-        if (isAssembleEditableFocused()) {
+        if (data.unchanged === true) {
+          noteAssembleServerSnapshot(data);
           return;
+        }
+        if (isAssembleEditableFocused()) {
+          syncAssembleStateFromDom();
         }
         const orderId = assembleOrderSnapshot.id;
         const myClientId = getAssembleClientId();
@@ -19459,8 +19540,42 @@
         if (
           !locked &&
           (hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
-            assembleShouldBlockRemoteOverwrite(pallets))
+            assembleShouldBlockRemoteOverwrite(pallets) ||
+            isAssembleEditableFocused())
         ) {
+          const ownUnpushed = clientHasUnpushedAssembleEdits(
+            assembleAllocState.pallets,
+            pallets,
+            items,
+            myClientId,
+            orderId,
+          );
+          const merged = mergeAssemblePalletLists(
+            assembleAllocState.pallets,
+            pallets,
+            items,
+            {
+              preferLocalOnConflict: true,
+              localClientId: myClientId,
+              orderId,
+            },
+          );
+          const stillNeedsPush =
+            ownUnpushed ||
+            assembleDirty ||
+            assembleSavePending ||
+            thisClientHasEditsNotInRemote(
+              merged,
+              pallets,
+              items,
+              myClientId,
+              orderId,
+            );
+          applyPullAssembleMerge(merged, data, stillNeedsPush);
+          if (stillNeedsPush) {
+            flushAssembleDraftToServerIfNeeded(orderId);
+            ensureAssembleSaveRetryScheduled();
+          }
           return;
         }
         pallets = filterRemotePalletsForLocalDeletions(orderId, pallets, myClientId);
@@ -19510,30 +19625,15 @@
         assembleSyncPollInFlight = true;
         const oid = assembleOrderSnapshot.id;
         const saveBusy = assembleSaveBusy();
-        let presencePayload = null;
         let fetchOk = false;
         let data = null;
         try {
-          const [presenceResult, orderRes] = await Promise.all([
-            postAssemblePresenceHeartbeat(oid),
-            fetch(`/api/orders/${oid}`, { cache: "no-store" }).catch(() => null),
-          ]);
-          presencePayload = presenceResult;
-          if (
-            presencePayload &&
-            assembleOrderSnapshot &&
-            assembleOrderSnapshot.id === oid
-          ) {
-            updateAssemblePresenceHint(presencePayload.others);
-          }
-          if (orderRes && orderRes.ok) {
-            fetchOk = true;
-            try {
-              data = await orderRes.json();
-            } catch (e) {
-              fetchOk = false;
-            }
-          }
+          data = await postAssemblePresenceHeartbeat(oid, {
+            includeSync: true,
+            sinceRev: assembleKnownRevision,
+            timeoutMs: ASSEMBLE_SYNC_FETCH_TIMEOUT_MS,
+          });
+          fetchOk = !!data;
         } catch (e) {
           /* unreachable */
         } finally {
@@ -19562,11 +19662,27 @@
           return;
         }
         assembleSyncFetchFailStreak = 0;
-        if (!assembleOrderSnapshot || data.id !== oid) {
+        if (!assembleOrderSnapshot || assembleOrderSnapshot.id !== oid) {
           return;
         }
-        processRemoteAssembleOrderSync(data);
-        reconcileAssembleSyncFlagsWithServer(data, extractRemoteAssemblePallets(data));
+        if (Array.isArray(data.others)) {
+          updateAssemblePresenceHint(data.others);
+        }
+        const syncData = {
+          id: oid,
+          order_id: oid,
+          unchanged: !!data.unchanged,
+          assemble_revision: data.assemble_revision,
+          assemble_state_updated_at: data.assemble_state_updated_at,
+          assemble_state: data.assemble_state,
+          assembled_percent: data.assembled_percent,
+          order_readiness: data.order_readiness,
+        };
+        processRemoteAssembleOrderSync(syncData);
+        reconcileAssembleSyncFlagsWithServer(
+          syncData,
+          extractRemoteAssemblePallets(syncData),
+        );
         if (!saveBusy && assembleNeedsServerPush()) {
           try {
             await flushAssembleDraftToServerIfNeeded(oid);

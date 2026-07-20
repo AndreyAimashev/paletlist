@@ -2599,8 +2599,55 @@ def _prune_assemble_presence_locked(now: float) -> None:
             del _ASSEMBLE_PRESENCE[oid]
 
 
-def touch_assemble_presence(order_id: int, client_id: str, user_agent: str = "") -> dict:
-    """Отметить, что клиент открыл сборку заказа; вернуть других активных клиентов."""
+def fetch_order_assemble_sync_fields(
+    order_id: int, since_rev: int | None = None
+) -> dict | None:
+    """Лёгкий снимок сборки для live-sync (без позиций заказа).
+
+    Если since_rev совпадает с текущей ревизией — возвращает unchanged без assemble_state.
+    """
+    with DB_LOCK:
+        con = get_connection()
+        cur = con.cursor()
+        row = cur.execute(
+            """
+            SELECT assemble_state, assemble_revision, assemble_state_updated_at,
+                   assembled_percent, order_readiness,
+                   COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        con.close()
+    if not row:
+        return None
+    current_rev = max(0, int(row["assemble_revision"] or 0))
+    updated_at = (row["assemble_state_updated_at"] or "").strip()
+    readiness = _order_readiness_from_row(row)
+    base = {
+        "assemble_revision": current_rev,
+        "assemble_state_updated_at": updated_at,
+        "order_readiness": readiness,
+        "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
+    }
+    if since_rev is not None and int(since_rev) == current_rev:
+        return {**base, "unchanged": True}
+    return {
+        **base,
+        "unchanged": False,
+        "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
+    }
+
+
+def touch_assemble_presence(
+    order_id: int,
+    client_id: str,
+    user_agent: str = "",
+    *,
+    since_rev: int | None = None,
+    include_assemble_sync: bool = False,
+) -> dict:
+    """Отметить присутствие в сборке; опционально вернуть снимок assemble_state."""
     cid = (client_id or "").strip()
     if not cid or len(cid) > 80:
         return {"error": "validation", "message": "Укажите client_id (до 80 символов)."}
@@ -2615,7 +2662,13 @@ def touch_assemble_presence(order_id: int, client_id: str, user_agent: str = "")
             for k, v in bucket.items()
             if k != cid
         ]
-    return {"ok": True, "order_id": int(order_id), "others": others}
+    out: dict = {"ok": True, "order_id": int(order_id), "others": others}
+    if include_assemble_sync:
+        sync = fetch_order_assemble_sync_fields(int(order_id), since_rev)
+        if sync is None:
+            return {"error": "not_found", "message": "Заказ не найден."}
+        out.update(sync)
+    return out
 
 
 def leave_assemble_presence(order_id: int, client_id: str) -> dict:
@@ -8305,14 +8358,38 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Invalid JSON"})
                 return
             ua = self.headers.get("User-Agent", "")
+            body = body if isinstance(body, dict) else {}
+            since_rev = None
+            include_sync = "since_rev" in body
+            if include_sync:
+                raw_rev = body.get("since_rev")
+                if raw_rev is None or raw_rev == "":
+                    since_rev = None
+                else:
+                    try:
+                        since_rev = int(raw_rev)
+                    except (TypeError, ValueError):
+                        self._send_json(
+                            400,
+                            {
+                                "error": "validation",
+                                "message": "since_rev: нужно целое число или null.",
+                            },
+                        )
+                        return
             result = touch_assemble_presence(
                 presence_oid,
-                (body or {}).get("client_id", ""),
+                body.get("client_id", ""),
                 ua,
+                since_rev=since_rev,
+                include_assemble_sync=include_sync,
             )
             err = result.get("error")
             if err == "validation":
                 self._send_json(400, result)
+                return
+            if err == "not_found":
+                self._send_json(404, result)
                 return
             self._send_json(200, result)
             return

@@ -15874,7 +15874,7 @@
 
       const ASSEMBLE_STORAGE_PREFIX = "paletlist_assemble_v2_";
       const ASSEMBLE_SYNC_POLL_MS = 500;
-      const ASSEMBLE_SAVE_DEBOUNCE_MS = 250;
+      const ASSEMBLE_SAVE_DEBOUNCE_MS = 400;
       const ASSEMBLE_SYNC_FILL_TRANSITION_MS = 1100;
       const ASSEMBLE_SYNC_FILL_FINISH_MS = 2600;
       const ASSEMBLE_SYNC_FILL_MIN_MS = 2800;
@@ -17645,7 +17645,9 @@
           }
           mirrorAssembleDraftLocal();
           mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
-          renderAssemblePalletCards();
+          renderAssemblePalletCards({
+            preserveFocused: !!(opts && opts.preserveFocused !== false),
+          });
           renderAssembleSummary();
           renderAssembleAlerts();
         }
@@ -18201,10 +18203,11 @@
         return has;
       }
 
-      function applyPullAssembleMerge(mergedPallets, data, needsPush) {
+      function applyPullAssembleMerge(mergedPallets, data, needsPush, opts) {
         if (!assembleOrderSnapshot || !assembleAllocState) {
           return false;
         }
+        const options = opts || {};
         const items = assembleOrderSnapshot.items;
         const orderId = assembleOrderSnapshot.id;
         const filtered = filterRemotePalletsForLocalDeletions(
@@ -18225,10 +18228,12 @@
         if (!needsPush) {
           markAssembleSaveSucceeded();
         }
-        if (changed || needsPush) {
+        if (changed || needsPush || options.forceRender) {
           mirrorAssembleDraftLocal();
           mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
-          renderAssemblePalletCards();
+          renderAssemblePalletCards({
+            preserveFocused: !!options.preserveFocused,
+          });
           renderAssembleSummary();
           renderAssembleAlerts();
         }
@@ -18260,8 +18265,7 @@
           assembleDirty ||
           assembleSavePending ||
           assembleSaveInFlight ||
-          assembleQueuedPayload ||
-          isAssembleEditableFocused()
+          assembleQueuedPayload
         ) {
           return true;
         }
@@ -18278,6 +18282,92 @@
           myClientId,
           orderId,
         );
+      }
+
+      function getAssembleFocusProtection() {
+        if (!isAssembleEditableFocused() || !assembleAllocState || !assemblePalletsRoot) {
+          return null;
+        }
+        const el = document.activeElement;
+        if (!el || !assemblePalletsRoot.contains(el)) {
+          return null;
+        }
+        const card = el.closest("[data-pallet-card]");
+        const pIdx = card ? Number(card.dataset.palletCard) : NaN;
+        if (!Number.isFinite(pIdx)) {
+          return null;
+        }
+        const pal = assembleAllocState.pallets[pIdx];
+        if (!pal) {
+          return null;
+        }
+        const field = el.getAttribute("data-field") || "";
+        const sIdx = Number(el.getAttribute("data-slot"));
+        return {
+          pIdx,
+          sIdx: Number.isFinite(sIdx) ? sIdx : null,
+          field,
+          palletId: pal.id,
+          value: el.value,
+          selectionStart: el.selectionStart,
+          selectionEnd: el.selectionEnd,
+        };
+      }
+
+      function applyAssembleFocusProtection(mergedPallets, focusProt, localPallets) {
+        if (!focusProt || !Array.isArray(localPallets)) {
+          return mergedPallets;
+        }
+        const localPal = localPallets[focusProt.pIdx];
+        if (!localPal) {
+          return mergedPallets;
+        }
+        const result = (mergedPallets || []).map((p) => migratePalletRecord(p));
+        let targetIdx = -1;
+        if (focusProt.palletId != null) {
+          targetIdx = result.findIndex(
+            (p) => Number(p.id) === Number(focusProt.palletId),
+          );
+        }
+        if (targetIdx < 0) {
+          targetIdx = focusProt.pIdx;
+        }
+        if (targetIdx < 0 || targetIdx >= result.length) {
+          result.splice(
+            Math.max(0, focusProt.pIdx),
+            0,
+            migratePalletRecord(localPal),
+          );
+          return sortAssemblePalletsByNumber(result);
+        }
+        const target = migratePalletRecord(result[targetIdx]);
+        if (focusProt.field === "palletNumber") {
+          target.palletNumber = localPal.palletNumber;
+          target.palletEditedAt = localPal.palletEditedAt;
+          target.palletEditedBy = localPal.palletEditedBy;
+          result[targetIdx] = target;
+          return result;
+        }
+        if (focusProt.sIdx == null) {
+          return result;
+        }
+        const localSlot = (localPal.slots || [])[focusProt.sIdx];
+        if (!localSlot) {
+          return result;
+        }
+        const slots = Array.isArray(target.slots) ? target.slots.slice() : [];
+        const protectedSlot = attachSlotEditMetaFromRaw(
+          normalizeSlot(localSlot),
+          localSlot,
+        );
+        if (focusProt.sIdx < slots.length) {
+          slots[focusProt.sIdx] = protectedSlot;
+        } else {
+          slots.push(protectedSlot);
+        }
+        target.slots = slots;
+        result[targetIdx] = target;
+        return result;
       }
 
       function processRemoteAssembleOrderSync(data) {
@@ -18323,7 +18413,8 @@
         }
         const items = assembleOrderSnapshot.items;
         const myClientId = getAssembleClientId();
-        if (isAssembleEditableFocused()) {
+        const focusProt = getAssembleFocusProtection();
+        if (focusProt) {
           syncAssembleStateFromDom();
         }
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
@@ -18337,43 +18428,60 @@
           return;
         }
         syncOptionalBatchToggleFromServer(data);
-        const localLive = assembleHasLocalLiveEdits(remotePallets);
-        if (!localLive) {
-          // Как при повторном входе: берём серверное состояние целиком и сразу рисуем.
-          applyPullAssembleMerge(
-            filterRemotePalletsForLocalDeletions(orderId, remotePallets, myClientId),
-            data,
-            false,
-          );
-          mirrorAssembleDraftLocal();
-          renderAssemblePalletCards();
-          renderAssembleSummary();
-          renderAssembleAlerts();
-          reconcileAssembleSyncFlagsWithServer(data, remotePallets);
-          return;
-        }
+        const pendingDel = hasPendingLocalPalletDeletions(
+          orderId,
+          myClientId,
+          remotePallets,
+        );
         const overlay = extractOwnAssemblePalletOverlay(
           assembleAllocState.pallets,
           myClientId,
           orderId,
           items,
         );
-        const mergeLocal =
-          overlay.length > 0 ? overlay : assembleAllocState.pallets;
-        const merged = mergeAssemblePalletLists(
-          mergeLocal,
-          remotePallets,
-          items,
-          {
+        let localSide = overlay.slice();
+        // Паллет с фокусом добавляем в merge только если есть свои несохранённые правки.
+        // Иначе база = remote, а защита только у активного поля (см. applyAssembleFocusProtection).
+        if (
+          focusProt &&
+          (assembleDirty || assembleSavePending || overlay.length || pendingDel)
+        ) {
+          const focusedPal = assembleAllocState.pallets[focusProt.pIdx];
+          if (
+            focusedPal &&
+            !localSide.some((p) => Number(p.id) === Number(focusedPal.id))
+          ) {
+            localSide.push(migratePalletRecord(focusedPal));
+          }
+        }
+        let merged;
+        if (!localSide.length) {
+          merged = filterRemotePalletsForLocalDeletions(
+            orderId,
+            remotePallets,
+            myClientId,
+          );
+        } else {
+          merged = mergeAssemblePalletLists(localSide, remotePallets, items, {
             preferLocalOnConflict: true,
             localClientId: myClientId,
             orderId,
-          },
+          });
+          merged = filterRemotePalletsForLocalDeletions(
+            orderId,
+            merged,
+            myClientId,
+          );
+        }
+        merged = applyAssembleFocusProtection(
+          merged,
+          focusProt,
+          assembleAllocState.pallets,
         );
         const stillNeedsPush =
-          assembleDirty ||
-          assembleSavePending ||
-          hasPendingLocalPalletDeletions(orderId, myClientId, remotePallets) ||
+          !!assembleDirty ||
+          !!assembleSavePending ||
+          pendingDel ||
           thisClientHasEditsNotInRemote(
             merged,
             remotePallets,
@@ -18381,8 +18489,10 @@
             myClientId,
             orderId,
           );
-        const applied = applyPullAssembleMerge(merged, data, stillNeedsPush);
-        if (!applied && revNewer) {
+        const changed = applyPullAssembleMerge(merged, data, stillNeedsPush, {
+          preserveFocused: !!focusProt,
+        });
+        if (!changed && revNewer && !focusProt) {
           mirrorAssembleDraftLocal();
           renderAssemblePalletCards();
           renderAssembleSummary();
@@ -19494,6 +19604,7 @@
           field,
           pIdx,
           sIdx,
+          value: el.value,
           selectionStart: el.selectionStart,
           selectionEnd: el.selectionEnd,
         };
@@ -19525,6 +19636,13 @@
         if (!el || typeof el.focus !== "function") {
           return;
         }
+        if (state.value != null && "value" in el) {
+          try {
+            el.value = state.value;
+          } catch (e0) {
+            /* ignore */
+          }
+        }
         try {
           el.focus({ preventScroll: true });
         } catch (e) {
@@ -19545,7 +19663,12 @@
 
       function applyRemoteAssemblePayload(data) {
         data = normalizeAssembleSyncPayload(data);
-        if (!assembleOrderSnapshot || !assembleAllocState || !data || data.id !== assembleOrderSnapshot.id) {
+        if (
+          !assembleOrderSnapshot ||
+          !assembleAllocState ||
+          !data ||
+          Number(data.id) !== Number(assembleOrderSnapshot.id)
+        ) {
           return;
         }
         syncAssembleShipmentLockFromOrder(data);
@@ -19554,58 +19677,94 @@
           noteAssembleServerSnapshot(data);
           return;
         }
-        if (isAssembleEditableFocused()) {
+        const focusProt = getAssembleFocusProtection();
+        if (focusProt) {
           syncAssembleStateFromDom();
         }
         const orderId = assembleOrderSnapshot.id;
         const myClientId = getAssembleClientId();
         const items = assembleOrderSnapshot.items;
-        let pallets =
+        let remotePallets =
           data.assemble_state && Array.isArray(data.assemble_state.pallets)
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : [{ id: 1, palletNumber: "1", slots: [] }];
-        if (
-          !locked &&
-          (hasPendingLocalPalletDeletions(orderId, myClientId, pallets) ||
-            assembleShouldBlockRemoteOverwrite(pallets) ||
-            isAssembleEditableFocused())
-        ) {
+        if (!locked) {
+          const pendingDel = hasPendingLocalPalletDeletions(
+            orderId,
+            myClientId,
+            remotePallets,
+          );
           const ownUnpushed = clientHasUnpushedAssembleEdits(
             assembleAllocState.pallets,
-            pallets,
+            remotePallets,
             items,
             myClientId,
             orderId,
           );
-          const merged = mergeAssemblePalletLists(
-            assembleAllocState.pallets,
-            pallets,
-            items,
-            {
-              preferLocalOnConflict: true,
-              localClientId: myClientId,
-              orderId,
-            },
-          );
-          const stillNeedsPush =
-            ownUnpushed ||
-            assembleDirty ||
-            assembleSavePending ||
-            thisClientHasEditsNotInRemote(
-              merged,
-              pallets,
-              items,
+          if (pendingDel || ownUnpushed || focusProt || assembleDirty) {
+            const overlay = extractOwnAssemblePalletOverlay(
+              assembleAllocState.pallets,
               myClientId,
               orderId,
+              items,
             );
-          applyPullAssembleMerge(merged, data, stillNeedsPush);
-          if (stillNeedsPush) {
-            flushAssembleDraftToServerIfNeeded(orderId);
-            ensureAssembleSaveRetryScheduled();
+            let localSide = overlay.slice();
+            if (
+              focusProt &&
+              (assembleDirty || assembleSavePending || overlay.length || pendingDel)
+            ) {
+              const focusedPal = assembleAllocState.pallets[focusProt.pIdx];
+              if (
+                focusedPal &&
+                !localSide.some((p) => Number(p.id) === Number(focusedPal.id))
+              ) {
+                localSide.push(migratePalletRecord(focusedPal));
+              }
+            }
+            let merged = localSide.length
+              ? mergeAssemblePalletLists(
+                  localSide,
+                  remotePallets,
+                  items,
+                  {
+                    preferLocalOnConflict: true,
+                    localClientId: myClientId,
+                    orderId,
+                  },
+                )
+              : remotePallets.map((p) => migratePalletRecord(p));
+            merged = applyAssembleFocusProtection(
+              merged,
+              focusProt,
+              assembleAllocState.pallets,
+            );
+            const stillNeedsPush =
+              ownUnpushed ||
+              pendingDel ||
+              assembleDirty ||
+              assembleSavePending ||
+              thisClientHasEditsNotInRemote(
+                merged,
+                remotePallets,
+                items,
+                myClientId,
+                orderId,
+              );
+            applyPullAssembleMerge(merged, data, stillNeedsPush, {
+              preserveFocused: !!focusProt,
+            });
+            if (stillNeedsPush) {
+              flushAssembleDraftToServerIfNeeded(orderId);
+              ensureAssembleSaveRetryScheduled();
+            }
+            return;
           }
-          return;
         }
-        pallets = filterRemotePalletsForLocalDeletions(orderId, pallets, myClientId);
+        let pallets = filterRemotePalletsForLocalDeletions(
+          orderId,
+          remotePallets,
+          myClientId,
+        );
         pallets = applyDefaultFirstAssemblePalletNumber(
           sortAssemblePalletsByNumber(pallets),
           items,
@@ -19640,7 +19799,7 @@
             setAssembleSaveUiState("saved", { orderId: assembleOrderSnapshot.id });
           }
         }
-        renderAssemblePalletCards();
+        renderAssemblePalletCards({ preserveFocused: !!focusProt });
         renderAssembleSummary();
         renderAssembleAlerts();
       }
@@ -20617,41 +20776,27 @@
         </div>`;
       }
 
-      function renderAssemblePalletCards() {
-        if (!assemblePalletsRoot || !assembleOrderSnapshot || !assembleAllocState) {
-          return;
-        }
-        const focusState = captureAssembleFocusState();
-        const items = assembleOrderSnapshot.items;
-        if (!assembleAllocState.pallets.length) {
-          assemblePalletsRoot.innerHTML =
-            '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу страницы.</p>';
-          syncAssemblePalletNavVisibility();
-          return;
-        }
-        const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(assembleAllocState.pallets);
-        assemblePalletsRoot.innerHTML = assembleAllocState.pallets
-          .map((pal, pIdx) => {
-            const numVal = escapeXml(String(pal.palletNumber ?? ""));
-            const palletNumDupClass = duplicatePalletIdx.has(pIdx)
-              ? " assemble-pallet-number-field--duplicate"
-              : "";
-            const removePalKey =
-              Number(pal.id) > 0 ? String(pal.id) : `idx:${pIdx}`;
-            const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet-id="${removePalKey}">Удалить паллет</button>`;
-            const slots = Array.isArray(pal.slots) ? pal.slots : [];
-            const slotsHtml =
-              slots.length === 0
-                ? '<p class="muted">На паллете нет строк — нажмите «+ Добавить строку товара» ниже.</p>'
-                : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
-            const unirusAssemble = isAssembleUnirusMode();
-            const showAddSlotRow =
-              !unirusAssemble || !palletHasSelectedOrderLine(pal, items.length);
-            const addBtn = showAddSlotRow
-              ? `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`
-              : "";
-            const addRowHtml = addBtn ? `<div class="assemble-pallet-add-row">${addBtn}</div>` : "";
-            return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
+      function buildAssemblePalletCardHtml(pal, pIdx, items, duplicatePalletIdx) {
+        const numVal = escapeXml(String(pal.palletNumber ?? ""));
+        const palletNumDupClass = duplicatePalletIdx.has(pIdx)
+          ? " assemble-pallet-number-field--duplicate"
+          : "";
+        const removePalKey =
+          Number(pal.id) > 0 ? String(pal.id) : `idx:${pIdx}`;
+        const removeBtn = `<button type="button" class="assemble-btn assemble-btn--remove-pallet" data-remove-pallet-id="${removePalKey}">Удалить паллет</button>`;
+        const slots = Array.isArray(pal.slots) ? pal.slots : [];
+        const slotsHtml =
+          slots.length === 0
+            ? '<p class="muted">На паллете нет строк — нажмите «+ Добавить строку товара» ниже.</p>'
+            : slots.map((slot, sIdx) => renderOneAssembleSlotRow(pIdx, sIdx, slot, items)).join("");
+        const unirusAssemble = isAssembleUnirusMode();
+        const showAddSlotRow =
+          !unirusAssemble || !palletHasSelectedOrderLine(pal, items.length);
+        const addBtn = showAddSlotRow
+          ? `<button type="button" class="assemble-btn assemble-btn--add-slot" data-add-slot data-pallet="${pIdx}">+ Добавить строку товара</button>`
+          : "";
+        const addRowHtml = addBtn ? `<div class="assemble-pallet-add-row">${addBtn}</div>` : "";
+        return `<div class="assemble-pallet-card" data-pallet-card="${pIdx}">
             <div class="assemble-pallet-head">
               <div class="assemble-field assemble-pallet-number-field${palletNumDupClass}">
                 <label for="pn-${pIdx}">Номер паллета</label>
@@ -20662,7 +20807,105 @@
             ${slotsHtml}
             ${addRowHtml}
           </div>`;
-          })
+      }
+
+      function assembleNeedsFullPalletCardsRender(preservePIdx) {
+        if (!assemblePalletsRoot || !assembleAllocState) {
+          return true;
+        }
+        if (
+          !Number.isFinite(preservePIdx) ||
+          preservePIdx < 0 ||
+          preservePIdx >= assembleAllocState.pallets.length
+        ) {
+          return true;
+        }
+        const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
+        if (cards.length !== assembleAllocState.pallets.length) {
+          return true;
+        }
+        for (let i = 0; i < cards.length; i += 1) {
+          if (Number(cards[i].dataset.palletCard) !== i) {
+            return true;
+          }
+        }
+        const active = document.activeElement;
+        if (!active || !assemblePalletsRoot.contains(active)) {
+          return true;
+        }
+        const focusedCard = active.closest("[data-pallet-card]");
+        if (!focusedCard || Number(focusedCard.dataset.palletCard) !== preservePIdx) {
+          return true;
+        }
+        return false;
+      }
+
+      function renderAssemblePalletCardsPreserving(preservePIdx, items) {
+        const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(
+          assembleAllocState.pallets,
+        );
+        const cards = [
+          ...assemblePalletsRoot.querySelectorAll("[data-pallet-card]"),
+        ];
+        assembleAllocState.pallets.forEach((pal, pIdx) => {
+          if (pIdx === preservePIdx) {
+            return;
+          }
+          const html = buildAssemblePalletCardHtml(
+            pal,
+            pIdx,
+            items,
+            duplicatePalletIdx,
+          );
+          const existing = cards.find(
+            (c) => Number(c.dataset.palletCard) === pIdx,
+          );
+          if (existing) {
+            existing.outerHTML = html;
+          }
+        });
+        refreshAllAssembleUnirusDateValidations();
+        refreshAllAssembleLabBatchValidations();
+        refreshAssemblePalletNumberDuplicateStyles();
+        syncAssemblePalletNavVisibility();
+        assemblePalletCardsRenderedAt = Date.now();
+        assemblePalletActionPointerBtn = null;
+        syncAssembleShipmentLockUi();
+      }
+
+      function renderAssemblePalletCards(opts) {
+        if (!assemblePalletsRoot || !assembleOrderSnapshot || !assembleAllocState) {
+          return;
+        }
+        const options = opts || {};
+        const focusState = captureAssembleFocusState();
+        const items = assembleOrderSnapshot.items;
+        if (!assembleAllocState.pallets.length) {
+          assemblePalletsRoot.innerHTML =
+            '<p class="muted">Нет паллет — воспользуйтесь кнопкой «Добавить паллет» внизу страницы.</p>';
+          syncAssemblePalletNavVisibility();
+          return;
+        }
+        const preservePIdx =
+          options.preserveFocused &&
+          focusState &&
+          Number.isFinite(focusState.pIdx)
+            ? focusState.pIdx
+            : null;
+        if (
+          preservePIdx != null &&
+          !assembleNeedsFullPalletCardsRender(preservePIdx)
+        ) {
+          renderAssemblePalletCardsPreserving(preservePIdx, items);
+          return;
+        }
+        const duplicatePalletIdx = assembleDuplicatePalletNumberIndices(
+          assembleAllocState.pallets,
+        );
+        assemblePalletsRoot.innerHTML = assembleAllocState.pallets
+          .map((pal, pIdx) =>
+            buildAssemblePalletCardHtml(pal, pIdx, items, duplicatePalletIdx),
+          )
           .join("");
         refreshAllAssembleUnirusDateValidations();
         refreshAllAssembleLabBatchValidations();
@@ -20736,6 +20979,7 @@
         if (isAssembleShipmentLocked()) {
           return;
         }
+        const focusProt = getAssembleFocusProtection();
         const cards = assemblePalletsRoot.querySelectorAll("[data-pallet-card]");
         cards.forEach((card) => {
           const pIdx = Number(card.dataset.palletCard);
@@ -20744,7 +20988,11 @@
             return;
           }
           const numEl = card.querySelector("[data-assemble-pallet-number]");
-          if (numEl) {
+          const focusOnPalletNumber =
+            focusProt &&
+            focusProt.pIdx === pIdx &&
+            focusProt.field === "palletNumber";
+          if (numEl && (focusOnPalletNumber || !focusProt || focusProt.pIdx !== pIdx)) {
             const prevNum = String(pal.palletNumber ?? "");
             pal.palletNumber = numEl.value;
             if (
@@ -20761,6 +21009,22 @@
           card.querySelectorAll("[data-assemble-slot-row]").forEach((row) => {
             const sIdx = newSlots.length;
             const prevSlot = pal.slots && pal.slots[sIdx] ? pal.slots[sIdx] : null;
+            const isFocusedSlot =
+              focusProt &&
+              focusProt.pIdx === pIdx &&
+              focusProt.sIdx === sIdx;
+            // На паллете с фокусом DOM других строк может быть устаревшим
+            // (их не перерисовывали) — не затираем свежий state с сервера.
+            if (
+              focusProt &&
+              focusProt.pIdx === pIdx &&
+              !isFocusedSlot &&
+              focusProt.field !== "palletNumber" &&
+              prevSlot
+            ) {
+              newSlots.push(prevSlot);
+              return;
+            }
             const slot = normalizeSlot({ lineIndex: "", ...defaultAssembleLineAlloc() });
             const sel = row.querySelector("select[data-field='slotSource']");
             const parsed = parseSlotSelectValue(sel ? sel.value : "");
@@ -20825,6 +21089,17 @@
               (editHint.sIdx === sIdx || editHint.field === "slotSource");
             newSlots.push(preserveOrStampAssembleSlot(prevSlot, slot, shouldStamp));
           });
+          // Если из‑за selective-sync строк в DOM меньше, чем в state — сохраняем хвост state.
+          if (
+            focusProt &&
+            focusProt.pIdx === pIdx &&
+            Array.isArray(pal.slots) &&
+            pal.slots.length > newSlots.length
+          ) {
+            for (let i = newSlots.length; i < pal.slots.length; i += 1) {
+              newSlots.push(pal.slots[i]);
+            }
+          }
           pal.slots = newSlots;
         });
       }

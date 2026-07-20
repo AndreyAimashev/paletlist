@@ -2502,6 +2502,22 @@ def _parse_orders_assemble_presence_id(path: str) -> int | None:
         return None
 
 
+def _parse_orders_assemble_sync_id(path: str) -> int | None:
+    """Для GET /api/orders/12/assemble-sync возвращает 12."""
+    p = _norm_api_path(path)
+    prefix = "/api/orders/"
+    suffix = "/assemble-sync"
+    if not p.startswith(prefix) or not p.endswith(suffix):
+        return None
+    mid = p[len(prefix) : -len(suffix)]
+    if not mid or "/" in mid:
+        return None
+    try:
+        return int(mid)
+    except ValueError:
+        return None
+
+
 def _parse_order_messages_id(path: str) -> int | None:
     """Для /api/orders/12/messages возвращает 12."""
     p = _norm_api_path(path)
@@ -2566,6 +2582,8 @@ def _path_needs_orders_permission(path: str) -> bool:
     if _parse_orders_lab_ship_id(path) is not None:
         return True
     if _parse_orders_assemble_presence_id(path) is not None:
+        return True
+    if _parse_orders_assemble_sync_id(path) is not None:
         return True
     if _parse_order_messages_id(path) is not None:
         return True
@@ -8031,6 +8049,30 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "Not found"})
                 return
             self._send_json(200, detail)
+            return
+        assemble_sync_oid = _parse_orders_assemble_sync_id(path)
+        if assemble_sync_oid is not None:
+            qs = parse_qs(parsed.query)
+            since_rev = None
+            if "since_rev" in qs:
+                raw_rev = (qs.get("since_rev") or [""])[0]
+                if raw_rev not in ("", None):
+                    try:
+                        since_rev = int(raw_rev)
+                    except (TypeError, ValueError):
+                        self._send_json(
+                            400,
+                            {
+                                "error": "validation",
+                                "message": "since_rev: нужно целое число.",
+                            },
+                        )
+                        return
+            sync = fetch_order_assemble_sync_fields(assemble_sync_oid, since_rev)
+            if sync is None:
+                self._send_json(404, {"error": "not_found", "message": "Заказ не найден."})
+                return
+            self._send_json(200, {"ok": True, "id": int(assemble_sync_oid), **sync})
             return
         order_chat_oid = _parse_order_messages_id(path)
         if order_chat_oid is not None:

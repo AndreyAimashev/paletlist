@@ -2629,8 +2629,8 @@ def fetch_order_assemble_sync_fields(
         cur = con.cursor()
         row = cur.execute(
             """
-            SELECT assemble_state, assemble_revision, assemble_state_updated_at,
-                   assembled_percent, order_readiness,
+            SELECT assemble_state, assemble_revision, order_items_revision,
+                   assemble_state_updated_at, assembled_percent, order_readiness,
                    COALESCE(lab_sscc_shipped, 0) AS lab_sscc_shipped
             FROM orders WHERE id = ?
             """,
@@ -2644,6 +2644,7 @@ def fetch_order_assemble_sync_fields(
     readiness = _order_readiness_from_row(row)
     base = {
         "assemble_revision": current_rev,
+        "order_items_revision": max(0, int(row["order_items_revision"] or 0)),
         "assemble_state_updated_at": updated_at,
         "order_readiness": readiness,
         "assembled_percent": max(0, min(100, int(row["assembled_percent"] or 0))),
@@ -3676,6 +3677,10 @@ def _init_orders_table(cur):
         cur.execute(
             "ALTER TABLE orders ADD COLUMN assemble_revision INTEGER NOT NULL DEFAULT 0"
         )
+    if "order_items_revision" not in order_cols:
+        cur.execute(
+            "ALTER TABLE orders ADD COLUMN order_items_revision INTEGER NOT NULL DEFAULT 0"
+        )
     if "assemble_state_updated_at" not in order_cols:
         cur.execute(
             "ALTER TABLE orders ADD COLUMN assemble_state_updated_at TEXT NOT NULL DEFAULT ''"
@@ -4269,6 +4274,67 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
         )
         for row in rows
     ]
+
+
+def _remap_assemble_state_line_indices(
+    value, old_item_sigs: list[tuple], new_item_sigs: list[tuple]
+) -> str:
+    """Keep pallet slots attached to the same order line after lines are edited."""
+    state = _assemble_state_cell_to_api(value)
+    if not state or not old_item_sigs:
+        return value or ""
+
+    new_indices_by_sig: dict[tuple, list[int]] = {}
+    for index, signature in enumerate(new_item_sigs):
+        new_indices_by_sig.setdefault(signature, []).append(index)
+    old_to_new: dict[int, int] = {}
+    for old_index, signature in enumerate(old_item_sigs):
+        candidates = new_indices_by_sig.get(signature)
+        if candidates:
+            old_to_new[old_index] = candidates.pop(0)
+
+    # Дрогери/ЛАБ store indices of name-merged lines, not raw order lines.
+    if str(state.get("assembly_line_indices") or "").strip().lower() == "merged":
+        def merged_indices(signatures: list[tuple]) -> dict[int, str]:
+            result: dict[int, str] = {}
+            names: dict[str, int] = {}
+            for signature in signatures:
+                key = " ".join(str(signature[2] or "").split()).lower()
+                if key not in names:
+                    names[key] = len(names)
+                result[names[key]] = key
+            return result
+
+        old_groups = merged_indices(old_item_sigs)
+        new_groups = merged_indices(new_item_sigs)
+        new_by_name = {name: index for index, name in new_groups.items()}
+        old_to_new = {
+            index: new_by_name[name]
+            for index, name in old_groups.items()
+            if name in new_by_name
+        }
+
+    changed = False
+    for pallet in state.get("pallets") or []:
+        if not isinstance(pallet, dict):
+            continue
+        for slot in pallet.get("slots") or []:
+            if not isinstance(slot, dict):
+                continue
+            raw_index = slot.get("lineIndex")
+            try:
+                old_index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if old_index < 0:
+                continue
+            new_index = old_to_new.get(old_index, "")
+            if slot.get("lineIndex") != new_index:
+                slot["lineIndex"] = new_index
+                changed = True
+    if not changed:
+        return value or ""
+    return json.dumps(state, ensure_ascii=False)
 
 
 def _assemble_state_has_meaningful_pallets(pallets) -> bool:
@@ -6069,7 +6135,8 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, client_city, order_readiness
+                   assemble_revision, order_items_revision, buyer_order_mode, buyer_order,
+                   client_city, order_readiness
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -6094,9 +6161,16 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         xinfo = _encode_import_skip_extra_info(
             skipped, baseline, delivery_type, skipped_names
         )
-        xasm = row["assemble_state"] or ""
         new_item_sigs = [_order_item_save_signature(t) for t in normalized]
         old_item_sigs = _fetch_order_item_signatures(cur, order_id)
+        items_changed = old_item_sigs != new_item_sigs
+        xasm = (
+            _remap_assemble_state_line_indices(
+                row["assemble_state"], old_item_sigs, new_item_sigs
+            )
+            if items_changed
+            else row["assemble_state"] or ""
+        )
         if (
             (row["ship_date"] or "") == ship
             and _normalize_str(row["client"] or "") == client_n
@@ -6118,11 +6192,22 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         effective_readiness = current_readiness
         if current_readiness == _ORDER_READINESS_ASSEMBLED:
             effective_readiness = _ORDER_READINESS_ASSEMBLING
+        current_assemble_rev = max(0, int(row["assemble_revision"] or 0))
+        new_assemble_rev = current_assemble_rev + 1 if items_changed else current_assemble_rev
+        current_items_rev = max(0, int(row["order_items_revision"] or 0))
+        new_items_rev = current_items_rev + 1 if items_changed else current_items_rev
+        assemble_updated_at = (
+            datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if items_changed
+            else None
+        )
         cur.execute(
             """
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
               extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
-              client_city = ?, order_readiness = ?,
+              client_city = ?, order_readiness = ?, assemble_revision = ?,
+              order_items_revision = ?,
+              assemble_state_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE assemble_state_updated_at END,
               last_edited_by = CASE WHEN ? != '' THEN ? ELSE last_edited_by END
             WHERE id = ?
             """,
@@ -6137,6 +6222,10 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
                 order_buyer_order,
                 client_city,
                 effective_readiness,
+                new_assemble_rev,
+                new_items_rev,
+                assemble_updated_at,
+                assemble_updated_at,
                 modifier,
                 modifier,
                 order_id,
@@ -6156,7 +6245,13 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             )
         con.commit()
         con.close()
-    return {"ok": True, "id": int(order_id), "order_readiness": effective_readiness}
+    return {
+        "ok": True,
+        "id": int(order_id),
+        "order_readiness": effective_readiness,
+        "assemble_revision": new_assemble_rev,
+        "order_items_revision": new_items_rev,
+    }
 
 
 def _order_item_row_to_dict(ir):
@@ -6204,7 +6299,8 @@ def fetch_order_detail(order_id: int):
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    buyer_order_mode, buyer_order, client_city, total_order_quantity,
                    lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                   assemble_revision, assemble_state_updated_at, order_readiness,
+                   assemble_revision, order_items_revision, assemble_state_updated_at,
+                   order_readiness,
                    last_edited_by, last_assembled_by, last_modified_by
             FROM orders WHERE id = ?
             """,
@@ -6222,7 +6318,8 @@ def fetch_order_detail(order_id: int):
                 SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                        buyer_order_mode, buyer_order, client_city, total_order_quantity,
                        lab_sscc_seq_start, lab_sscc_shipped, lab_sscc_pallet_count,
-                       assemble_revision, assemble_state_updated_at, order_readiness,
+                       assemble_revision, order_items_revision, assemble_state_updated_at,
+                       order_readiness,
                        last_edited_by, last_assembled_by, last_modified_by
                 FROM orders WHERE id = ?
                 """,
@@ -6265,6 +6362,9 @@ def fetch_order_detail(order_id: int):
         "assemble_state": _assemble_state_cell_to_api(row["assemble_state"]),
         "assemble_revision": max(0, int(row["assemble_revision"] or 0))
         if "assemble_revision" in row.keys()
+        else 0,
+        "order_items_revision": max(0, int(row["order_items_revision"] or 0))
+        if "order_items_revision" in row.keys()
         else 0,
         "assemble_state_updated_at": (row["assemble_state_updated_at"] or "").strip()
         if "assemble_state_updated_at" in row.keys()

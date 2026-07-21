@@ -17072,6 +17072,14 @@
         }
       }
 
+      function clearAssemblePalletNumberDeletion(orderId, palletNumber) {
+        const number = String(palletNumber ?? "").trim();
+        if (!number) {
+          return;
+        }
+        getAssemblePalletDeletionsMap(orderId).delete(`n:${number}`);
+      }
+
       function isAssemblePalletDeletedLocally(orderId, palletRef, clientId) {
         if (!clientId || orderId == null) {
           return false;
@@ -17570,7 +17578,17 @@
           let matched = false;
           if (pn) {
             const rp = unmatchedRemote.find(
-              (r) => String(r.palletNumber || "").trim() === pn,
+              (r) =>
+                String(r.palletNumber || "").trim() === pn &&
+                !(
+                  mergeCtx.orderId != null &&
+                  mergeCtx.localClientId &&
+                  isAssemblePalletDeletedLocally(
+                    mergeCtx.orderId,
+                    r,
+                    mergeCtx.localClientId,
+                  )
+                ),
             );
             if (rp) {
               matchedRemoteIds.add(rp.id);
@@ -17863,6 +17881,7 @@
           items: assemblyItems,
           assemblySourceIndicesByMerged,
           rawOrderItems: rawItems,
+          orderItemsRevision: Number(orderData.order_items_revision) || 0,
         };
         return {
           items: assemblyItems,
@@ -18376,6 +18395,21 @@
           return;
         }
         if (Number(data.id) !== Number(assembleOrderSnapshot.id)) {
+          return;
+        }
+        const remoteItemsRevision = Number(data.order_items_revision) || 0;
+        const localItemsRevision = Number(assembleOrderSnapshot.orderItemsRevision) || 0;
+        if (remoteItemsRevision > localItemsRevision) {
+          const remotePallets = extractRemoteAssemblePallets(data) || [];
+          if (assembleHasLocalLiveEdits(remotePallets)) {
+            setAssembleSaveUiState("error", {
+              orderId: assembleOrderSnapshot.id,
+              message:
+                "Позиции заказа изменены на другом устройстве. Сохраните текущую сборку или обновите заказ.",
+            });
+            return;
+          }
+          void loadAssembleOrderWorkspace(assembleOrderSnapshot.id);
           return;
         }
         syncAssembleShipmentLockFromOrder(data);
@@ -21277,9 +21311,17 @@
           return;
         }
         syncAssembleStateFromDom();
-        const nextId =
+        const deletedIds = getAssemblePalletDeletionsMap(assembleOrderSnapshot?.id);
+        let nextId =
           assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
+        while (deletedIds.has(nextId)) {
+          nextId += 1;
+        }
         const nextPalletNumber = suggestNextAssemblePalletNumber(assembleAllocState.pallets);
+        clearAssemblePalletNumberDeletion(
+          assembleOrderSnapshot?.id,
+          nextPalletNumber,
+        );
         assembleAllocState.pallets.push(
           stampPalletEditMeta({
             id: nextId,
@@ -21386,6 +21428,7 @@
           items: assemblyItems,
           assemblySourceIndicesByMerged,
           rawOrderItems: rawItems,
+          orderItemsRevision: Number(data.order_items_revision) || 0,
         };
         const localDraft = loadAssembleDraft(orderId, assemblyItems.length);
         if (!assembleDraftIsOwn(localDraft)) {

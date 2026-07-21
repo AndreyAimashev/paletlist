@@ -2072,7 +2072,7 @@ def _batches_export_pdf_draw_row(
     return h_row
 
 
-class _OrdersBatchesExportPdf(FPDF):
+class _OrdersBatchesExportPdf(FPDF if FPDF is not None else object):
     _FOOTER_H_MM = 10.0
 
     def footer(self) -> None:

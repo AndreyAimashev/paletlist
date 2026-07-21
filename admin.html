@@ -16110,6 +16110,27 @@
         return `${ASSEMBLE_STORAGE_PREFIX}${orderId}`;
       }
 
+      function clearAssembleLocalDraft(orderId) {
+        const oid = Number(orderId);
+        if (!Number.isFinite(oid)) {
+          return;
+        }
+        try {
+          localStorage.removeItem(assembleStorageKey(oid));
+        } catch (e) {
+          /* ignore */
+        }
+        assemblePalletDeletions.delete(oid);
+        const assembleOpenForOrder =
+          !!assembleWorkspace &&
+          assembleWorkspace.classList.contains("visible") &&
+          assembleOrderSnapshot &&
+          Number(assembleOrderSnapshot.id) === oid;
+        if (assembleOpenForOrder) {
+          void loadAssembleOrderWorkspace(oid);
+        }
+      }
+
       function defaultAssembleLineAlloc() {
         return {
           mode: "direct",
@@ -23014,6 +23035,9 @@
         if (isEdit && editingOrderId != null && payload && payload.order_readiness != null) {
           setOrderReadinessPending(editingOrderId, payload.order_readiness);
           updateOrderReadinessLocally(editingOrderId, payload.order_readiness);
+        }
+        if (isEdit && editingOrderId != null) {
+          clearAssembleLocalDraft(editingOrderId);
         }
         closeNewOrderModal();
         if (ordersWorkspace.classList.contains("visible")) {

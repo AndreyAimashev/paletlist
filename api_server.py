@@ -4271,6 +4271,12 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
     ]
 
 
+def _order_item_identity_key(sig: tuple) -> tuple:
+    """Ключ позиции без количества — для remap при правке qty/total."""
+    pid, article, name, _qty, unit, line_buyer, _total = sig
+    return (pid, article or "", name or "", unit or "", line_buyer or "")
+
+
 def _build_order_line_index_remap(
     old_sigs: list[tuple], new_sigs: list[tuple]
 ) -> dict[int, int | None]:
@@ -4297,6 +4303,19 @@ def _build_order_line_index_remap(
                 break
         if not matched:
             remap[i] = None
+
+    # Смена qty/total той же номенклатуры: не сбрасывать слоты сборки.
+    for i, osig in enumerate(old_sigs):
+        if remap.get(i) is not None:
+            continue
+        oid = _order_item_identity_key(osig)
+        for j, nsig in enumerate(new_sigs):
+            if j in used_new:
+                continue
+            if _order_item_identity_key(nsig) == oid:
+                remap[i] = j
+                used_new.add(j)
+                break
 
     return remap
 
@@ -6177,15 +6196,14 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         xasm = row["assemble_state"] or ""
         new_item_sigs = [_order_item_save_signature(t) for t in normalized]
         old_item_sigs = _fetch_order_item_signatures(cur, order_id)
-        assemble_remapped = False
-        if old_item_sigs != new_item_sigs and xasm:
+        items_changed = old_item_sigs != new_item_sigs
+        if items_changed and xasm:
             index_remap = _build_order_line_index_remap(old_item_sigs, new_item_sigs)
-            xasm, assemble_remapped = _remap_assemble_state_line_indices(
-                xasm, index_remap
-            )
+            xasm, _ = _remap_assemble_state_line_indices(xasm, index_remap)
         assemble_rev = max(0, int(row["assemble_revision"] or 0))
         assemble_updated_at = (row["assemble_state_updated_at"] or "").strip()
-        if assemble_remapped:
+        # Bump revision on any item change so clients drop stale local drafts.
+        if items_changed:
             assemble_rev += 1
             assemble_updated_at = datetime.datetime.now(datetime.timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"

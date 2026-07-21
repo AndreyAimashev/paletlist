@@ -17694,14 +17694,10 @@
           );
         }
         if (!remote.length) {
-          return sortAssemblePalletsByNumber(
-            dedupeAssemblePalletsByNumber(local.slice(), mergeCtx),
-          );
+          return dedupeAssemblePalletsByNumber(local.slice(), mergeCtx);
         }
         if (!local.length) {
-          return sortAssemblePalletsByNumber(
-            dedupeAssemblePalletsByNumber(remote.slice(), mergeCtx),
-          );
+          return dedupeAssemblePalletsByNumber(remote.slice(), mergeCtx);
         }
 
         const localById = new Map();
@@ -17749,29 +17745,22 @@
               lpSameNum,
               mergeCtx.localClientId,
             );
-            // Пересозданный или локально предпочитаемый паллет с тем же номером —
-            // не возвращаем старый remote и не смешиваем его слоты.
+            // Не вставляем локальный паллет на место remote — он останется
+            // в хвосте (где его создали). Remote с тем же номером отбрасываем.
             if (recreated || mergeCtx.preferLocalOnConflict) {
-              if (!matchedLocalIds.has(lpSameNum.id)) {
-                matchedLocalIds.add(lpSameNum.id);
-                result.push(migratePalletRecord({ ...lpSameNum }));
-              }
               matchedRemoteIds.add(rp.id);
               return;
             }
-            if (!matchedLocalIds.has(lpSameNum.id)) {
-              matchedLocalIds.add(lpSameNum.id);
-              matchedRemoteIds.add(rp.id);
-              result.push(mergeAssemblePalletRecord(lpSameNum, rp, items, mergeCtx));
-            } else {
-              matchedRemoteIds.add(rp.id);
-            }
+            matchedLocalIds.add(lpSameNum.id);
+            matchedRemoteIds.add(rp.id);
+            result.push(mergeAssemblePalletRecord(lpSameNum, rp, items, mergeCtx));
             return;
           }
           result.push(migratePalletRecord({ ...rp }));
           matchedRemoteIds.add(rp.id);
         });
 
+        // Локальные паллеты, которых нет на remote — в конец (порядок создания).
         local.forEach((lp) => {
           if (matchedLocalIds.has(lp.id)) {
             return;
@@ -17803,9 +17792,8 @@
         if (mergeCtx.orderId != null) {
           noteAssemblePalletIdsFromList(mergeCtx.orderId, unique);
         }
-        return sortAssemblePalletsByNumber(
-          dedupeAssemblePalletsByNumber(unique, mergeCtx),
-        );
+        // Порядок как в UI: remote-порядок + новые локальные в конце (без сортировки по номеру).
+        return dedupeAssemblePalletsByNumber(unique, mergeCtx);
       }
 
       function applyMergedAssembleState(mergedPallets, opts) {
@@ -17819,11 +17807,9 @@
           getAssembleClientId(),
         );
         const pallets = applyDefaultFirstAssemblePalletNumber(
-          sortAssemblePalletsByNumber(
-            dedupeAssemblePalletsByNumber(filtered, {
-              preferLocalOnConflict: true,
-            }),
-          ),
+          dedupeAssemblePalletsByNumber(filtered, {
+            preferLocalOnConflict: true,
+          }),
           items,
         );
         noteAssemblePalletIdsFromList(assembleOrderSnapshot.id, pallets);
@@ -17886,13 +17872,24 @@
         return false;
       }
 
-      function extractOwnAssemblePalletOverlay(localPallets, clientId, orderId, items) {
+      function extractOwnAssemblePalletOverlay(localPallets, clientId, orderId, items, remotePallets) {
         if (!clientId) {
           return [];
         }
+        const remote = remotePallets || [];
         return (localPallets || []).filter((pal) => {
+          const rp = remote.find((p) => Number(p.id) === Number(pal.id));
           if (String(pal.palletEditedBy || "") === clientId) {
-            return true;
+            if (!rp) {
+              return true;
+            }
+            const lm = readPalletEditMeta(pal);
+            const rm = readPalletEditMeta(rp);
+            const localNewer =
+              (lm.ts && !rm.ts) || (lm.ts && rm.ts && lm.ts > rm.ts);
+            if (localNewer && !assembleStatesContentEqual([pal], [rp])) {
+              return true;
+            }
           }
           return (pal.slots || []).some((s) => {
             const meta = readSlotEditMeta(s);
@@ -17904,7 +17901,22 @@
               return false;
             }
             const item = items[Number(li)];
-            return slotHasMeaningfulContent(s, item);
+            if (!slotHasMeaningfulContent(s, item)) {
+              return false;
+            }
+            if (!rp) {
+              return true;
+            }
+            const rs = (rp.slots || []).find(
+              (x) => Number(normalizeSlot(x).lineIndex) === Number(li),
+            );
+            if (!rs) {
+              return true;
+            }
+            const rm = readSlotEditMeta(rs);
+            const localNewer =
+              (meta.ts && !rm.ts) || (meta.ts && rm.ts && meta.ts > rm.ts);
+            return localNewer && !assembleSlotsContentEqual(s, rs);
           });
         });
       }
@@ -17985,13 +17997,25 @@
             myClientId,
             orderId,
             items,
+            serverPallets,
+          );
+          const merged = mergeAssemblePalletLists(overlay, serverPallets, items, {
+            ...mergeCtx,
+            preferLocalOnConflict: true,
+          });
+          const stillOwn = thisClientHasEditsNotInRemote(
+            merged,
+            serverPallets,
+            items,
+            myClientId,
+            orderId,
           );
           return {
-            pallets: mergeAssemblePalletLists(overlay, serverPallets, items, mergeCtx),
+            pallets: stillOwn ? merged : serverPallets,
             revision: serverRev,
-            pushToServer: true,
+            pushToServer: stillOwn,
             serverHadContent,
-            source: "merged",
+            source: stillOwn ? "merged" : "server",
           };
         }
 
@@ -18026,13 +18050,25 @@
           myClientId,
           orderId,
           items,
+          serverPallets,
+        );
+        const merged = mergeAssemblePalletLists(overlay, serverPallets, items, {
+          ...mergeCtx,
+          preferLocalOnConflict: true,
+        });
+        const stillOwn = thisClientHasEditsNotInRemote(
+          merged,
+          serverPallets,
+          items,
+          myClientId,
+          orderId,
         );
         return {
-          pallets: mergeAssemblePalletLists(overlay, serverPallets, items, mergeCtx),
+          pallets: stillOwn ? merged : serverPallets,
           revision: serverRev,
-          pushToServer: true,
+          pushToServer: stillOwn,
           serverHadContent,
-          source: "merged",
+          source: stillOwn ? "merged" : "server",
         };
       }
 
@@ -18377,14 +18413,25 @@
         }
         let has = false;
         (localPallets || []).forEach((pal) => {
-          const rp = (remotePallets || []).find((p) => p.id === pal.id);
+          const rp = (remotePallets || []).find(
+            (p) => Number(p.id) === Number(pal.id),
+          );
           if (String(pal.palletEditedBy || "") === clientId) {
-            if (!rp || !assembleStatesContentEqual([pal], [rp])) {
+            if (!rp) {
               has = true;
+            } else {
+              const lm = readPalletEditMeta(pal);
+              const rm = readPalletEditMeta(rp);
+              // Только если локальная правка новее remote — иначе это устаревший штамп «смотрящего».
+              const localNewer =
+                (lm.ts && !rm.ts) || (lm.ts && rm.ts && lm.ts > rm.ts);
+              if (
+                localNewer &&
+                !assembleStatesContentEqual([pal], [rp])
+              ) {
+                has = true;
+              }
             }
-          }
-          if (!(remotePallets || []).some((p) => p.id === pal.id) && String(pal.palletEditedBy || "") === clientId) {
-            has = true;
           }
           (pal.slots || []).forEach((slot) => {
             const meta = readSlotEditMeta(slot);
@@ -18404,7 +18451,14 @@
                   (s) => Number(normalizeSlot(s).lineIndex) === Number(li),
                 )
               : null;
-            if (!rs || !assembleSlotsContentEqual(slot, rs)) {
+            if (!rs) {
+              has = true;
+              return;
+            }
+            const rm = readSlotEditMeta(rs);
+            const localNewer =
+              (meta.ts && !rm.ts) || (meta.ts && rm.ts && meta.ts > rm.ts);
+            if (localNewer && !assembleSlotsContentEqual(slot, rs)) {
               has = true;
             }
           });
@@ -18425,9 +18479,7 @@
           getAssembleClientId(),
         );
         const pallets = applyDefaultFirstAssemblePalletNumber(
-          sortAssemblePalletsByNumber(
-            dedupeAssemblePalletsByNumber(filtered, { preferLocalOnConflict: true }),
-          ),
+          dedupeAssemblePalletsByNumber(filtered, { preferLocalOnConflict: true }),
           items,
         );
         noteAssemblePalletIdsFromList(orderId, pallets);
@@ -18550,7 +18602,7 @@
             0,
             migratePalletRecord(localPal),
           );
-          return sortAssemblePalletsByNumber(result);
+          return result;
         }
         const target = migratePalletRecord(result[targetIdx]);
         if (focusProt.field === "palletNumber") {
@@ -18626,7 +18678,15 @@
         const items = assembleOrderSnapshot.items;
         const myClientId = getAssembleClientId();
         const focusProt = getAssembleFocusProtection();
-        if (focusProt) {
+        const pendingDelEarly = hasPendingLocalPalletDeletions(
+          assembleOrderSnapshot.id,
+          myClientId,
+          remotePallets,
+        );
+        if (
+          focusProt &&
+          (assembleDirty || assembleSavePending || pendingDelEarly)
+        ) {
           syncAssembleStateFromDom();
         }
         const remoteHas = assembleStateHasMeaningfulData(items, remotePallets);
@@ -18640,23 +18700,23 @@
           return;
         }
         syncOptionalBatchToggleFromServer(data);
-        const pendingDel = hasPendingLocalPalletDeletions(
-          orderId,
-          myClientId,
-          remotePallets,
-        );
+        const pendingDel = pendingDelEarly;
+        const hasUnsavedWork =
+          !!assembleDirty || !!assembleSavePending || pendingDel;
         const overlay = extractOwnAssemblePalletOverlay(
           assembleAllocState.pallets,
           myClientId,
           orderId,
           items,
+          remotePallets,
         );
-        let localSide = overlay.slice();
+        let localSide = hasUnsavedWork ? overlay.slice() : [];
         // Паллет с фокусом добавляем в merge только если есть свои несохранённые правки.
-        // Иначе база = remote, а защита только у активного поля (см. applyAssembleFocusProtection).
+        // Иначе база = remote (смотрящий не перебивает редактора).
         if (
           focusProt &&
-          (assembleDirty || assembleSavePending || overlay.length || pendingDel)
+          hasUnsavedWork &&
+          (overlay.length || pendingDel || assembleDirty || assembleSavePending)
         ) {
           const focusedPal = assembleAllocState.pallets[focusProt.pIdx];
           if (
@@ -18675,7 +18735,7 @@
           );
         } else {
           merged = mergeAssemblePalletLists(localSide, remotePallets, items, {
-            preferLocalOnConflict: true,
+            preferLocalOnConflict: hasUnsavedWork,
             localClientId: myClientId,
             orderId,
           });
@@ -18687,22 +18747,13 @@
         }
         merged = applyAssembleFocusProtection(
           merged,
-          focusProt,
+          hasUnsavedWork ? focusProt : null,
           assembleAllocState.pallets,
         );
-        const stillNeedsPush =
-          !!assembleDirty ||
-          !!assembleSavePending ||
-          pendingDel ||
-          thisClientHasEditsNotInRemote(
-            merged,
-            remotePallets,
-            items,
-            myClientId,
-            orderId,
-          );
+        // Пушим только при реальных локальных правках UI / удалениях — не из‑за устаревших штампов.
+        const stillNeedsPush = hasUnsavedWork;
         const changed = applyPullAssembleMerge(merged, data, stillNeedsPush, {
-          preserveFocused: !!focusProt,
+          preserveFocused: !!(hasUnsavedWork && focusProt),
         });
         if (!changed && revNewer && !focusProt) {
           mirrorAssembleDraftLocal();
@@ -19890,9 +19941,6 @@
           return;
         }
         const focusProt = getAssembleFocusProtection();
-        if (focusProt) {
-          syncAssembleStateFromDom();
-        }
         const orderId = assembleOrderSnapshot.id;
         const myClientId = getAssembleClientId();
         const items = assembleOrderSnapshot.items;
@@ -19900,29 +19948,42 @@
           data.assemble_state && Array.isArray(data.assemble_state.pallets)
             ? data.assemble_state.pallets.map((p) => migratePalletRecord(p))
             : [{ id: 1, palletNumber: "1", slots: [] }];
+        const pendingDelForSync = hasPendingLocalPalletDeletions(
+          orderId,
+          myClientId,
+          remotePallets,
+        );
+        if (
+          focusProt &&
+          (assembleDirty || assembleSavePending || pendingDelForSync)
+        ) {
+          syncAssembleStateFromDom();
+        }
         if (!locked) {
-          const pendingDel = hasPendingLocalPalletDeletions(
-            orderId,
-            myClientId,
-            remotePallets,
-          );
-          const ownUnpushed = clientHasUnpushedAssembleEdits(
-            assembleAllocState.pallets,
-            remotePallets,
-            items,
-            myClientId,
-            orderId,
-          );
-          if (pendingDel || ownUnpushed || focusProt || assembleDirty) {
+          const pendingDel = pendingDelForSync;
+          const hasUnsavedWork =
+            !!assembleDirty || !!assembleSavePending || pendingDel;
+          const ownUnpushed = hasUnsavedWork
+            ? clientHasUnpushedAssembleEdits(
+                assembleAllocState.pallets,
+                remotePallets,
+                items,
+                myClientId,
+                orderId,
+              )
+            : false;
+          if (pendingDel || ownUnpushed || (focusProt && hasUnsavedWork) || assembleDirty) {
             const overlay = extractOwnAssemblePalletOverlay(
               assembleAllocState.pallets,
               myClientId,
               orderId,
               items,
+              remotePallets,
             );
             let localSide = overlay.slice();
             if (
               focusProt &&
+              hasUnsavedWork &&
               (assembleDirty || assembleSavePending || overlay.length || pendingDel)
             ) {
               const focusedPal = assembleAllocState.pallets[focusProt.pIdx];
@@ -19939,7 +20000,7 @@
                   remotePallets,
                   items,
                   {
-                    preferLocalOnConflict: true,
+                    preferLocalOnConflict: hasUnsavedWork,
                     localClientId: myClientId,
                     orderId,
                   },
@@ -19947,23 +20008,12 @@
               : remotePallets.map((p) => migratePalletRecord(p));
             merged = applyAssembleFocusProtection(
               merged,
-              focusProt,
+              hasUnsavedWork ? focusProt : null,
               assembleAllocState.pallets,
             );
-            const stillNeedsPush =
-              ownUnpushed ||
-              pendingDel ||
-              assembleDirty ||
-              assembleSavePending ||
-              thisClientHasEditsNotInRemote(
-                merged,
-                remotePallets,
-                items,
-                myClientId,
-                orderId,
-              );
+            const stillNeedsPush = hasUnsavedWork;
             applyPullAssembleMerge(merged, data, stillNeedsPush, {
-              preserveFocused: !!focusProt,
+              preserveFocused: !!(hasUnsavedWork && focusProt),
             });
             if (stillNeedsPush) {
               flushAssembleDraftToServerIfNeeded(orderId);
@@ -19977,10 +20027,7 @@
           remotePallets,
           myClientId,
         );
-        pallets = applyDefaultFirstAssemblePalletNumber(
-          sortAssemblePalletsByNumber(pallets),
-          items,
-        );
+        pallets = applyDefaultFirstAssemblePalletNumber(pallets, items);
         if (assembleStatesContentEqual(assembleAllocState.pallets, pallets)) {
           noteAssembleServerSnapshot(data);
           syncOptionalBatchToggleFromServer(data);

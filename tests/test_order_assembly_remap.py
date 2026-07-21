@@ -1,0 +1,105 @@
+import json
+import unittest
+
+import api_server
+
+
+def item(product_id, article, name, quantity=1, unit="piece", buyer_order=""):
+    return (product_id, article, name, quantity, unit, buyer_order, None)
+
+
+class OrderAssemblyRemapTests(unittest.TestCase):
+    def test_deleting_middle_line_keeps_survivors_on_original_pallets(self):
+        old_items = [
+            item(1, "A", "Product A"),
+            item(2, "B", "Product B"),
+            item(3, "C", "Product C"),
+        ]
+        new_items = [old_items[0], old_items[2]]
+        state = {
+            "pallets": [
+                {
+                    "id": 1,
+                    "palletNumber": "1",
+                    "slots": [
+                        {"lineIndex": 0, "directQty": 10},
+                        {"lineIndex": 1, "directQty": 20},
+                    ],
+                },
+                {
+                    "id": 2,
+                    "palletNumber": "2",
+                    "slots": [{"lineIndex": 2, "directQty": 30}],
+                },
+            ]
+        }
+
+        result = json.loads(
+            api_server._remap_assemble_state_after_order_item_edit(
+                json.dumps(state), old_items, new_items
+            )
+        )
+
+        self.assertEqual(
+            result["pallets"][0]["slots"],
+            [{"lineIndex": 0, "directQty": 10}],
+        )
+        self.assertEqual(
+            result["pallets"][1]["slots"],
+            [{"lineIndex": 1, "directQty": 30}],
+        )
+
+    def test_quantity_edit_does_not_detach_slot(self):
+        old_items = [item(1, "A", "Product A", quantity=10)]
+        new_items = [item(1, "A", "Product A", quantity=25)]
+        state = {
+            "pallets": [
+                {"id": 1, "slots": [{"lineIndex": 0, "directQty": 5}]}
+            ]
+        }
+
+        result = json.loads(
+            api_server._remap_assemble_state_after_order_item_edit(
+                json.dumps(state), old_items, new_items
+            )
+        )
+
+        self.assertEqual(result["pallets"][0]["slots"][0]["lineIndex"], 0)
+
+    def test_merged_client_indices_follow_product_name_groups(self):
+        old_items = [
+            item(1, "A1", "Same product", buyer_order="1"),
+            item(1, "A1", "Same product", buyer_order="2"),
+            item(2, "B", "Other product", buyer_order="1"),
+        ]
+        new_items = [old_items[2]]
+        state = {
+            "assembly_line_indices": "merged",
+            "pallets": [
+                {
+                    "id": 1,
+                    "slots": [
+                        {"lineIndex": 0, "directQty": 10},
+                        {"lineIndex": 1, "directQty": 20},
+                    ],
+                }
+            ],
+        }
+
+        result = json.loads(
+            api_server._remap_assemble_state_after_order_item_edit(
+                json.dumps(state),
+                old_items,
+                new_items,
+                merge_by_name=True,
+            )
+        )
+
+        self.assertEqual(
+            result["pallets"][0]["slots"],
+            [{"lineIndex": 0, "directQty": 20}],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

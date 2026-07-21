@@ -17057,13 +17057,14 @@
       }
 
       function recordAssemblePalletDeletion(orderId, pal) {
+        const pid = Number(pal?.id);
         const entry = {
           at: new Date().toISOString(),
           by: getAssembleClientId(),
           palletNumber: String(pal?.palletNumber ?? "").trim(),
+          palletId: Number.isFinite(pid) && pid > 0 ? pid : null,
         };
         const m = getAssemblePalletDeletionsMap(orderId);
-        const pid = Number(pal?.id);
         if (Number.isFinite(pid) && pid > 0) {
           m.set(pid, entry);
         }
@@ -17085,6 +17086,16 @@
           if (del && del.by === clientId) {
             return true;
           }
+          // A number may be reused by a newly created pallet. Number tombstones
+          // are only a fallback for old/id-less pallet records.
+          const numberDel = m.get(
+            `n:${String(palletRef?.palletNumber ?? "").trim()}`,
+          );
+          return !!(
+            numberDel &&
+            numberDel.by === clientId &&
+            !Number(numberDel.palletId)
+          );
         }
         const pn = String(
           palletRef && typeof palletRef === "object"
@@ -17134,6 +17145,10 @@
             at: String(del.at || "").trim(),
             by: String(del.by || "").trim(),
             palletNumber: String(del.palletNumber || "").trim(),
+            palletId:
+              Number.isFinite(Number(del.palletId)) && Number(del.palletId) > 0
+                ? Number(del.palletId)
+                : null,
           };
           if (k.startsWith("n:")) {
             m.set(k, entry);
@@ -17143,7 +17158,28 @@
           if (!Number.isFinite(pid) || pid <= 0) {
             return;
           }
+          entry.palletId = pid;
           m.set(pid, entry);
+        });
+        // Upgrade number tombstones written by older versions by pairing them
+        // with their numeric tombstone.
+        m.forEach((del, key) => {
+          if (!String(key).startsWith("n:") || Number(del.palletId) > 0) {
+            return;
+          }
+          for (const [candidateKey, candidate] of m) {
+            const candidateId = Number(candidateKey);
+            if (
+              Number.isFinite(candidateId) &&
+              candidateId > 0 &&
+              candidate.by === del.by &&
+              candidate.at === del.at &&
+              candidate.palletNumber === del.palletNumber
+            ) {
+              del.palletId = candidateId;
+              break;
+            }
+          }
         });
         if (m.size) {
           assemblePalletDeletions.set(oid, m);
@@ -17160,18 +17196,20 @@
         const presentIds = new Set(
           (pallets || []).map((p) => Number(p.id)).filter((id) => id > 0),
         );
-        const presentNumbers = new Set(
-          (pallets || [])
-            .map((p) => String(p.palletNumber ?? "").trim())
-            .filter(Boolean),
-        );
         m.forEach((del, key) => {
           if (del.by !== myId) {
             return;
           }
           if (String(key).startsWith("n:")) {
             const pn = String(key).slice(2);
-            if (!presentNumbers.has(pn)) {
+            const deletedId = Number(del.palletId);
+            const oldPalletStillPresent =
+              Number.isFinite(deletedId) && deletedId > 0
+                ? presentIds.has(deletedId)
+                : (pallets || []).some(
+                    (p) => String(p.palletNumber ?? "").trim() === pn,
+                  );
+            if (!oldPalletStillPresent) {
               m.delete(key);
             }
             return;
@@ -17209,10 +17247,13 @@
           }
           if (String(key).startsWith("n:")) {
             const pn = String(key).slice(2);
+            const deletedId = Number(del.palletId);
             if (
-              (remotePallets || []).some(
-                (p) => String(p.palletNumber ?? "").trim() === pn,
-              )
+              Number.isFinite(deletedId) && deletedId > 0
+                ? (remotePallets || []).some((p) => Number(p.id) === deletedId)
+                : (remotePallets || []).some(
+                    (p) => String(p.palletNumber ?? "").trim() === pn,
+                  )
             ) {
               return true;
             }
@@ -18370,6 +18411,106 @@
         return result;
       }
 
+      function assembleItemSyncIdentity(item, mergeByName) {
+        const norm = (value) =>
+          String(value ?? "")
+            .trim()
+            .replace(/\s+/g, " ")
+            .toLowerCase();
+        if (mergeByName) {
+          return `name:${norm(item?.name)}`;
+        }
+        return JSON.stringify([
+          item?.product_id == null ? null : Number(item.product_id),
+          norm(item?.article),
+          norm(item?.name),
+          norm(item?.unit),
+          norm(item?.buyer_order),
+        ]);
+      }
+
+      function remapLocalAssemblePalletsForSyncedItems(
+        pallets,
+        oldItems,
+        newItems,
+        mergeByName,
+      ) {
+        const newIndices = new Map();
+        (newItems || []).forEach((item, idx) => {
+          const key = assembleItemSyncIdentity(item, mergeByName);
+          if (!newIndices.has(key)) {
+            newIndices.set(key, []);
+          }
+          newIndices.get(key).push(idx);
+        });
+        const used = new Map();
+        const remap = new Map();
+        (oldItems || []).forEach((item, oldIdx) => {
+          const key = assembleItemSyncIdentity(item, mergeByName);
+          const candidates = newIndices.get(key) || [];
+          const offset = used.get(key) || 0;
+          if (offset < candidates.length) {
+            remap.set(oldIdx, candidates[offset]);
+            used.set(key, offset + 1);
+          }
+        });
+        return (pallets || []).map((pal) => ({
+          ...pal,
+          slots: (pal.slots || [])
+            .map((slot) => {
+              const normalized = normalizeSlot(slot);
+              if (
+                normalized.lineIndex === "" ||
+                !Number.isFinite(Number(normalized.lineIndex))
+              ) {
+                return { ...slot };
+              }
+              const newIndex = remap.get(Number(normalized.lineIndex));
+              return newIndex == null ? null : { ...slot, lineIndex: newIndex };
+            })
+            .filter(Boolean),
+        }));
+      }
+
+      function applySyncedAssembleOrderItems(data) {
+        if (!Array.isArray(data?.items) || !assembleOrderSnapshot) {
+          return false;
+        }
+        const oldRawItems = Array.isArray(assembleOrderSnapshot.rawOrderItems)
+          ? assembleOrderSnapshot.rawOrderItems
+          : [];
+        if (JSON.stringify(oldRawItems) === JSON.stringify(data.items)) {
+          return false;
+        }
+        syncAssembleStateFromDom();
+        const client = String(data.client || assembleOrderSnapshot.client || "");
+        let newItems = data.items;
+        let sourceIndicesByMerged = null;
+        if (clientMergesAssemblyItemsByName(client)) {
+          const mergedPack = mergeAssemblyItemsForClient(client, data.items, {
+            buyer_order_mode:
+              data.buyer_order_mode || assembleOrderSnapshot.buyer_order_mode || "",
+          });
+          newItems = mergedPack.merged;
+          sourceIndicesByMerged = mergedPack.sourceIndicesByMerged;
+        }
+        if (assembleAllocState) {
+          assembleAllocState.pallets = remapLocalAssemblePalletsForSyncedItems(
+            assembleAllocState.pallets,
+            assembleOrderSnapshot.items || [],
+            newItems,
+            clientMergesAssemblyItemsByName(client),
+          );
+        }
+        assembleOrderSnapshot.client = client;
+        assembleOrderSnapshot.buyer_order_mode =
+          data.buyer_order_mode || assembleOrderSnapshot.buyer_order_mode || "";
+        assembleOrderSnapshot.rawOrderItems = data.items;
+        assembleOrderSnapshot.items = newItems;
+        assembleOrderSnapshot.assemblySourceIndicesByMerged = sourceIndicesByMerged;
+        return true;
+      }
+
       function processRemoteAssembleOrderSync(data) {
         data = normalizeAssembleSyncPayload(data);
         if (!assembleOrderSnapshot || !assembleAllocState || !data) {
@@ -18396,6 +18537,7 @@
           return;
         }
         const orderId = assembleOrderSnapshot.id;
+        const orderItemsChanged = applySyncedAssembleOrderItems(data);
         const remotePallets = extractRemoteAssemblePallets(data);
         if (!remotePallets) {
           noteAssembleServerSnapshot(data);
@@ -18492,7 +18634,7 @@
         const changed = applyPullAssembleMerge(merged, data, stillNeedsPush, {
           preserveFocused: !!focusProt,
         });
-        if (!changed && revNewer && !focusProt) {
+        if (!changed && (revNewer || orderItemsChanged) && !focusProt) {
           mirrorAssembleDraftLocal();
           renderAssemblePalletCards();
           renderAssembleSummary();
@@ -21277,8 +21419,21 @@
           return;
         }
         syncAssembleStateFromDom();
+        const deletionMap = getAssemblePalletDeletionsMap(assembleOrderSnapshot?.id);
+        const maxDeletedId = Math.max(
+          0,
+          ...Array.from(deletionMap.keys())
+            .map((key) => Number(key))
+            .filter((id) => Number.isFinite(id) && id > 0),
+        );
         const nextId =
-          assembleAllocState.pallets.reduce((m, p) => Math.max(m, p.id || 0), 0) + 1;
+          Math.max(
+            maxDeletedId,
+            assembleAllocState.pallets.reduce(
+              (m, p) => Math.max(m, Number(p.id) || 0),
+              0,
+            ),
+          ) + 1;
         const nextPalletNumber = suggestNextAssemblePalletNumber(assembleAllocState.pallets);
         assembleAllocState.pallets.push(
           stampPalletEditMeta({

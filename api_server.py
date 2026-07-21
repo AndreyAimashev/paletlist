@@ -4271,6 +4271,85 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
     ]
 
 
+def _build_order_line_index_remap(
+    old_sigs: list[tuple], new_sigs: list[tuple]
+) -> dict[int, int | None]:
+    """Сопоставление старого индекса строки заказа с новым (None — строка удалена)."""
+    remap: dict[int, int | None] = {}
+    used_new: set[int] = set()
+
+    for i, osig in enumerate(old_sigs):
+        if i < len(new_sigs) and new_sigs[i] == osig and i not in used_new:
+            remap[i] = i
+            used_new.add(i)
+
+    for i, osig in enumerate(old_sigs):
+        if i in remap:
+            continue
+        matched = False
+        for j, nsig in enumerate(new_sigs):
+            if j in used_new:
+                continue
+            if osig == nsig:
+                remap[i] = j
+                used_new.add(j)
+                matched = True
+                break
+        if not matched:
+            remap[i] = None
+
+    return remap
+
+
+def _remap_assemble_state_line_indices(
+    assemble_state_raw: str, index_remap: dict[int, int | None]
+) -> tuple[str, bool]:
+    """Пересчитать lineIndex в assemble_state после изменения позиций заказа."""
+    if not assemble_state_raw or not index_remap:
+        return assemble_state_raw, False
+    obj = _assemble_state_cell_to_api(assemble_state_raw)
+    if not obj:
+        return assemble_state_raw, False
+
+    changed = False
+    for pal in obj.get("pallets") or []:
+        if not isinstance(pal, dict):
+            continue
+        old_slots = pal.get("slots") or []
+        new_slots = []
+        for slot in old_slots:
+            if not isinstance(slot, dict):
+                continue
+            li = slot.get("lineIndex")
+            if li in ("", None):
+                new_slots.append(slot)
+                continue
+            try:
+                old_idx = int(li)
+            except (TypeError, ValueError):
+                new_slots.append(slot)
+                continue
+            if old_idx not in index_remap:
+                new_slots.append(slot)
+                continue
+            new_idx = index_remap[old_idx]
+            if new_idx is None:
+                changed = True
+                continue
+            if new_idx != old_idx:
+                slot = dict(slot)
+                slot["lineIndex"] = new_idx
+                changed = True
+            new_slots.append(slot)
+        if len(new_slots) != len(old_slots):
+            changed = True
+        pal["slots"] = new_slots
+
+    if not changed:
+        return assemble_state_raw, False
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":")), True
+
+
 def _assemble_state_has_meaningful_pallets(pallets) -> bool:
     """Пустой шаблон (один паллет без слотов) не считается сохранённой сборкой."""
     if not isinstance(pallets, list) or not pallets:
@@ -6069,7 +6148,8 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         row = cur.execute(
             """
             SELECT id, ship_date, client, assembled_percent, extra_info, assemble_state,
-                   buyer_order_mode, buyer_order, client_city, order_readiness
+                   buyer_order_mode, buyer_order, client_city, order_readiness,
+                   assemble_revision, assemble_state_updated_at
             FROM orders WHERE id = ?
             """,
             (order_id,),
@@ -6097,6 +6177,19 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         xasm = row["assemble_state"] or ""
         new_item_sigs = [_order_item_save_signature(t) for t in normalized]
         old_item_sigs = _fetch_order_item_signatures(cur, order_id)
+        assemble_remapped = False
+        if old_item_sigs != new_item_sigs and xasm:
+            index_remap = _build_order_line_index_remap(old_item_sigs, new_item_sigs)
+            xasm, assemble_remapped = _remap_assemble_state_line_indices(
+                xasm, index_remap
+            )
+        assemble_rev = max(0, int(row["assemble_revision"] or 0))
+        assemble_updated_at = (row["assemble_state_updated_at"] or "").strip()
+        if assemble_remapped:
+            assemble_rev += 1
+            assemble_updated_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
         if (
             (row["ship_date"] or "") == ship
             and _normalize_str(row["client"] or "") == client_n
@@ -6123,6 +6216,7 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
             UPDATE orders SET ship_date = ?, client = ?, names = ?, assembled_percent = ?,
               extra_info = ?, assemble_state = ?, buyer_order_mode = ?, buyer_order = ?,
               client_city = ?, order_readiness = ?,
+              assemble_revision = ?, assemble_state_updated_at = ?,
               last_edited_by = CASE WHEN ? != '' THEN ? ELSE last_edited_by END
             WHERE id = ?
             """,
@@ -6137,6 +6231,8 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
                 order_buyer_order,
                 client_city,
                 effective_readiness,
+                assemble_rev,
+                assemble_updated_at,
                 modifier,
                 modifier,
                 order_id,

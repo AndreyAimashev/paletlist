@@ -15921,6 +15921,8 @@
       let assembleKnownServerUpdatedAt = "";
       let assembleServerHadContent = false;
       let assembleDirty = false;
+      /** true пока пользователь печатает в поле — на сервер не пушим до blur */
+      let assembleAwaitingFieldCommit = false;
       let assembleSaveInFlight = false;
       let assembleSavePending = false;
       let assembleSaveRetryTimer = null;
@@ -18311,7 +18313,37 @@
       }
 
       function assembleNeedsServerPush() {
+        if (assembleAwaitingFieldCommit) {
+          return false;
+        }
         return !!assembleDirty || !!assembleSavePending;
+      }
+
+      function markAssembleDraftLocalOnly() {
+        if (isAssembleShipmentLocked()) {
+          return;
+        }
+        assembleDirty = true;
+        assembleAwaitingFieldCommit = true;
+        beginAssembleMobileNavSyncProgress();
+        clearTimeout(assembleMirrorTimer);
+        assembleMirrorTimer = setTimeout(() => {
+          assembleMirrorTimer = null;
+          mirrorAssembleDraftLocal();
+        }, 0);
+        const oid = assembleOrderSnapshot?.id;
+        setAssembleSaveUiState("debouncing", {
+          orderId: oid,
+          message: "Редактирование… сохранение после выхода из поля",
+        });
+        // Не ставим assembleSaveTimer — на сервер уйдём только по blur/change.
+        clearTimeout(assembleSaveTimer);
+        assembleSaveTimer = null;
+      }
+
+      function commitAssembleFieldAndSave(opts) {
+        assembleAwaitingFieldCommit = false;
+        saveAssembleDraft(opts);
       }
 
       function flushAssembleDraftToServerIfNeeded(orderId) {
@@ -18488,11 +18520,11 @@
         finalizeAssembleSlots();
         noteAssembleServerSnapshot(data);
         assembleServerHadContent = assembleStateHasMeaningfulData(items, pallets);
-        assembleDirty = !!needsPush;
-        if (!needsPush) {
+        assembleDirty = !!needsPush || assembleAwaitingFieldCommit;
+        if (!needsPush && !assembleAwaitingFieldCommit) {
           markAssembleSaveSucceeded();
         }
-        if (changed || needsPush || options.forceRender) {
+        if (changed || needsPush || options.forceRender || options.preserveFocused) {
           mirrorAssembleDraftLocal();
           mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
           renderAssemblePalletCards({
@@ -18501,7 +18533,7 @@
           renderAssembleSummary();
           renderAssembleAlerts();
         }
-        if (!needsPush && !assembleSaveBusy()) {
+        if (!needsPush && !assembleAwaitingFieldCommit && !assembleSaveBusy()) {
           refreshAssembleSyncUiState(assembleOrderSnapshot.id, { serverReachable: true });
         }
         return changed;
@@ -18645,6 +18677,7 @@
         syncAssembleShipmentLockFromOrder(data);
         if (isAssembleShipmentLocked()) {
           assembleDirty = false;
+          assembleAwaitingFieldCommit = false;
           assembleSavePending = false;
           assembleQueuedPayload = null;
           clearTimeout(assembleSaveTimer);
@@ -18750,8 +18783,8 @@
           hasUnsavedWork ? focusProt : null,
           assembleAllocState.pallets,
         );
-        // Пушим только при реальных локальных правках UI / удалениях — не из‑за устаревших штампов.
-        const stillNeedsPush = hasUnsavedWork;
+        // Пушим только готовые к отправке правки (не во время набора в поле).
+        const stillNeedsPush = assembleNeedsServerPush() || pendingDel;
         const changed = applyPullAssembleMerge(merged, data, stillNeedsPush, {
           preserveFocused: !!(hasUnsavedWork && focusProt),
         });
@@ -19696,11 +19729,15 @@
 
       function flushAssembleSaveNow() {
         clearTimeout(assembleSaveTimer);
+        assembleAwaitingFieldCommit = false;
         if (isAssembleShipmentLocked()) {
           assembleDirty = false;
           assembleSavePending = false;
           assembleQueuedPayload = null;
           return assembleSaveDrainPromise || Promise.resolve(true);
+        }
+        if (assembleAllocState && assembleOrderSnapshot) {
+          syncAssembleStateFromDom();
         }
         if (!assembleDirty && !assembleSavePending) {
           return assembleSaveDrainPromise || Promise.resolve(true);
@@ -20011,7 +20048,7 @@
               hasUnsavedWork ? focusProt : null,
               assembleAllocState.pallets,
             );
-            const stillNeedsPush = hasUnsavedWork;
+            const stillNeedsPush = assembleNeedsServerPush() || pendingDel;
             applyPullAssembleMerge(merged, data, stillNeedsPush, {
               preserveFocused: !!(hasUnsavedWork && focusProt),
             });
@@ -20045,6 +20082,7 @@
         }
         assembleAllocState = { pallets };
         assembleDirty = false;
+        assembleAwaitingFieldCommit = false;
         finalizeAssembleSlots();
         mirrorAssembleDraftLocal();
         mountOptionalBatchToggleForClient(assembleOrderSnapshot.client);
@@ -20447,6 +20485,7 @@
         if (isAssembleShipmentLocked()) {
           return;
         }
+        assembleAwaitingFieldCommit = false;
         assembleDirty = true;
         const immediate = !!(opts && opts.immediate);
         beginAssembleMobileNavSyncProgress();
@@ -21363,6 +21402,20 @@
         });
       }
 
+      function isAssembleTextLikeFieldInput(el) {
+        if (!el || !el.matches?.("[data-assemble-input]")) {
+          return false;
+        }
+        if (el.tagName === "SELECT") {
+          return false;
+        }
+        const type = String(el.type || "").toLowerCase();
+        if (type === "radio" || type === "checkbox") {
+          return false;
+        }
+        return true;
+      }
+
       function onAssembleFormEvent(ev) {
         const t = ev.target;
         if (!assemblePalletsRoot || !assemblePalletsRoot.contains(t)) {
@@ -21372,69 +21425,99 @@
           return;
         }
         const editHint = t.matches("[data-assemble-input]") ? assembleInputEditHint(t) : null;
-        if (t.matches("[data-assemble-input]")) {
-          if (t.dataset.field === "batchNumber") {
-            if (isAssembleLabMode()) {
-              applyLabBatchInputValidation(t);
-            }
-            if (ev.type === "blur") {
-              applyBatchNumberInputNormalization(t);
-              if (isAssembleLabMode()) {
-                applyLabBatchInputValidation(t);
-              }
-              syncAssembleStateFromDom(editHint);
-              saveAssembleDraft();
-              renderAssembleAlerts();
-              return;
-            }
-          }
-          if (
-            isAssembleUnirusMode() &&
-            (t.dataset.field === "unirusMfgDate" || t.dataset.field === "unirusExpiryDate")
-          ) {
-            applyUnirusDateInputValidation(t);
-          }
-          if (t.dataset.field === "palletNumber") {
-            syncAssembleStateFromDom(editHint);
-            saveAssembleDraft();
+        if (!t.matches("[data-assemble-input]")) {
+          return;
+        }
+        const textLike = isAssembleTextLikeFieldInput(t);
+        const field = t.dataset.field || "";
+
+        if (field === "batchNumber" && isAssembleLabMode()) {
+          applyLabBatchInputValidation(t);
+        }
+        if (
+          isAssembleUnirusMode() &&
+          (field === "unirusMfgDate" || field === "unirusExpiryDate")
+        ) {
+          applyUnirusDateInputValidation(t);
+        }
+
+        // Текстовые/числовые поля: во время ввода только локально; на сервер — по blur.
+        if (textLike && ev.type === "input") {
+          syncAssembleStateFromDom(editHint);
+          markAssembleDraftLocalOnly();
+          if (field === "palletNumber") {
             refreshAssemblePalletNumberDuplicateStyles();
             renderAssembleSummary();
             updateAssemblePalletDatalists();
             return;
           }
-          if (
-            (t.dataset.field === "mode" || t.dataset.field === "directUnit") &&
-            t.type === "radio" &&
-            !t.checked
-          ) {
-            return;
+          renderAssembleSummary();
+          renderAssembleAlerts();
+          return;
+        }
+
+        if (textLike && ev.type === "blur") {
+          if (field === "batchNumber") {
+            applyBatchNumberInputNormalization(t);
+            if (isAssembleLabMode()) {
+              applyLabBatchInputValidation(t);
+            }
           }
           syncAssembleStateFromDom(editHint);
-          saveAssembleDraft();
-          if (t.dataset.field === "slotSource") {
-            finalizeAssembleSlots();
-            window.setTimeout(() => {
-              renderAssemblePalletCards();
-              renderAssembleSummary();
-              renderAssembleAlerts();
-              saveAssembleStructuralChange();
-            }, 0);
+          commitAssembleFieldAndSave({ immediate: true });
+          if (field === "palletNumber") {
+            refreshAssemblePalletNumberDuplicateStyles();
+            renderAssembleSummary();
+            updateAssemblePalletDatalists();
+            renderAssembleAlerts();
             return;
           }
           renderAssembleSummary();
           renderAssembleAlerts();
-          if (t.dataset.field === "mode") {
-            const row = t.closest("[data-assemble-slot-row]");
-            if (row) {
-              const direct = row.querySelector(".assemble-direct-panel");
-              const rows = row.querySelector(".assemble-rows-panel");
-              const isRows = t.value === "rows";
-              if (direct) {
-                direct.hidden = isRows;
-              }
-              if (rows) {
-                rows.hidden = !isRows;
-              }
+          return;
+        }
+
+        // change у textLike обычно дублирует blur — не шлём повторно, если уже ждём/отправили.
+        if (textLike && ev.type === "change") {
+          return;
+        }
+
+        if (
+          (field === "mode" || field === "directUnit") &&
+          t.type === "radio" &&
+          !t.checked
+        ) {
+          return;
+        }
+
+        // select / radio — сразу после выбора
+        syncAssembleStateFromDom(editHint);
+        commitAssembleFieldAndSave(
+          field === "slotSource" ? { immediate: true } : undefined,
+        );
+        if (field === "slotSource") {
+          finalizeAssembleSlots();
+          window.setTimeout(() => {
+            renderAssemblePalletCards();
+            renderAssembleSummary();
+            renderAssembleAlerts();
+            saveAssembleStructuralChange();
+          }, 0);
+          return;
+        }
+        renderAssembleSummary();
+        renderAssembleAlerts();
+        if (field === "mode") {
+          const row = t.closest("[data-assemble-slot-row]");
+          if (row) {
+            const direct = row.querySelector(".assemble-direct-panel");
+            const rows = row.querySelector(".assemble-rows-panel");
+            const isRows = t.value === "rows";
+            if (direct) {
+              direct.hidden = isRows;
+            }
+            if (rows) {
+              rows.hidden = !isRows;
             }
           }
         }
@@ -21664,6 +21747,7 @@
         assembleKnownServerUpdatedAt = String(data.assemble_state_updated_at || "").trim();
         assembleServerHadContent = picked.serverHadContent;
         assembleDirty = false;
+        assembleAwaitingFieldCommit = false;
         hideAssemblePresenceHint();
         void postAssemblePresenceHeartbeat(orderId).then((p) => {
           if (p && assembleOrderSnapshot && assembleOrderSnapshot.id === orderId) {

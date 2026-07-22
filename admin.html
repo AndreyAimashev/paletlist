@@ -18756,9 +18756,95 @@
        * База = remote. Локально оставляем только:
        * - tombstone-удаления паллетов;
        * - паллеты, которые этот клиент только что создал и их ещё нет на сервере;
+       * - слоты с более новым локальным штампом (пока save не дошёл — иначе mode/qty откатываются);
        * - значение активного поля при наборе (focusProt).
        * Без prefer-local merge целых паллетов — иначе устройства блокируют друг друга.
        */
+      function localAssembleSlotIsStampNewer(localSlot, remoteSlot) {
+        if (!localSlot) {
+          return false;
+        }
+        if (!remoteSlot) {
+          return true;
+        }
+        const lm = readSlotEditMeta(localSlot);
+        const rm = readSlotEditMeta(remoteSlot);
+        if (lm.ts && rm.ts) {
+          return lm.ts > rm.ts;
+        }
+        return !!(lm.ts && !rm.ts);
+      }
+
+      function applyStampNewerLocalSlotsOntoRemote(remotePallets, localPallets) {
+        const localById = new Map();
+        (localPallets || []).forEach((p) => {
+          const id = Number(p?.id);
+          if (id > 0) {
+            localById.set(id, p);
+          }
+        });
+        return (remotePallets || []).map((rp) => {
+          const lp = localById.get(Number(rp.id));
+          if (!lp) {
+            return migratePalletRecord(rp);
+          }
+          const remoteSlots = Array.isArray(rp.slots) ? rp.slots : [];
+          const localSlots = Array.isArray(lp.slots) ? lp.slots : [];
+          const usedLocal = new Set();
+          const mergedSlots = remoteSlots.map((rs, idx) => {
+            const rNorm = normalizeSlot(rs);
+            let liMatch = -1;
+            if (rNorm.lineIndex !== "" && Number.isFinite(Number(rNorm.lineIndex))) {
+              liMatch = localSlots.findIndex((s, j) => {
+                if (usedLocal.has(j)) {
+                  return false;
+                }
+                return Number(normalizeSlot(s).lineIndex) === Number(rNorm.lineIndex);
+              });
+            }
+            if (liMatch < 0 && localSlots[idx] && !usedLocal.has(idx)) {
+              liMatch = idx;
+            }
+            if (liMatch < 0) {
+              return attachSlotEditMetaFromRaw(normalizeSlot(rs), rs);
+            }
+            usedLocal.add(liMatch);
+            const ls = localSlots[liMatch];
+            if (
+              localAssembleSlotIsStampNewer(ls, rs) &&
+              !assembleSlotsContentEqual(ls, rs)
+            ) {
+              return attachSlotEditMetaFromRaw(normalizeSlot(ls), ls);
+            }
+            return attachSlotEditMetaFromRaw(normalizeSlot(rs), rs);
+          });
+          localSlots.forEach((ls, j) => {
+            if (usedLocal.has(j)) {
+              return;
+            }
+            const meta = readSlotEditMeta(ls);
+            if (!meta.ts && !slotHasMeaningfulContent(ls, null)) {
+              return;
+            }
+            // Локальный слот, которого ещё нет на remote (новая строка до ACK).
+            mergedSlots.push(attachSlotEditMetaFromRaw(normalizeSlot(ls), ls));
+          });
+          const out = {
+            id: rp.id,
+            palletNumber: rp.palletNumber,
+            slots: mergedSlots,
+            palletEditedAt: rp.palletEditedAt,
+            palletEditedBy: rp.palletEditedBy,
+          };
+          if (palletNumberChangedWithNewerLocalStamp(lp, rp)) {
+            out.palletNumber = lp.palletNumber;
+            out.palletEditedAt = lp.palletEditedAt;
+            out.palletEditedBy = lp.palletEditedBy;
+          }
+          return migratePalletRecord(out);
+        });
+      }
+
       function buildRemoteWinsAssemblePallets(remotePallets, focusProt) {
         const orderId = assembleOrderSnapshot?.id;
         const myClientId = getAssembleClientId();
@@ -18768,12 +18854,12 @@
           (remotePallets || []).map((p) => migratePalletRecord(p)),
           myClientId,
         );
-        const keepLocalOnly =
+        const keepLocalPending =
           !!assembleDirty ||
           !!assembleSavePending ||
           !!assembleAwaitingFieldCommit ||
           hasPendingLocalPalletDeletions(orderId, myClientId, remotePallets || []);
-        if (keepLocalOnly && assembleAllocState) {
+        if (keepLocalPending && assembleAllocState) {
           const remoteIds = new Set(
             pallets.map((p) => Number(p.id)).filter((id) => id > 0),
           );
@@ -18793,6 +18879,11 @@
             pallets.push(migratePalletRecord(lp));
             remoteIds.add(id);
           });
+          // Пока локальный save не подтверждён — не откатываем mode/qty со старого remote.
+          pallets = applyStampNewerLocalSlotsOntoRemote(
+            pallets,
+            assembleAllocState.pallets,
+          );
         }
         if (focusProt && assembleAwaitingFieldCommit && assembleAllocState) {
           pallets = applyAssembleFocusProtection(
@@ -21435,7 +21526,10 @@
             const shouldStamp =
               editHint &&
               editHint.pIdx === pIdx &&
-              (editHint.sIdx === sIdx || editHint.field === "slotSource");
+              (editHint.sIdx === sIdx ||
+                editHint.field === "slotSource" ||
+                editHint.field === "mode" ||
+                editHint.field === "directUnit");
             newSlots.push(preserveOrStampAssembleSlot(prevSlot, slot, shouldStamp));
           });
           // Если из‑за selective-sync строк в DOM меньше, чем в state — сохраняем хвост state.
@@ -21541,11 +21635,10 @@
           return;
         }
 
-        // select / radio — сразу после выбора
+        // select / radio — сразу после выбора (immediate, иначе при плохой сети
+        // remote-wins успевает вернуть старый mode до завершения debounce-save).
         syncAssembleStateFromDom(editHint);
-        commitAssembleFieldAndSave(
-          field === "slotSource" ? { immediate: true } : undefined,
-        );
+        commitAssembleFieldAndSave({ immediate: true });
         if (field === "slotSource") {
           finalizeAssembleSlots();
           window.setTimeout(() => {

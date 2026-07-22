@@ -18823,11 +18823,18 @@
               return;
             }
             const meta = readSlotEditMeta(ls);
-            if (!meta.ts && !slotHasMeaningfulContent(ls, null)) {
+            const ns = normalizeSlot(ls);
+            const item =
+              ns.lineIndex !== "" &&
+              Number.isFinite(Number(ns.lineIndex)) &&
+              assembleOrderSnapshot?.items
+                ? assembleOrderSnapshot.items[Number(ns.lineIndex)]
+                : null;
+            if (!meta.ts && !slotHasMeaningfulContent(ls, item)) {
               return;
             }
             // Локальный слот, которого ещё нет на remote (новая строка до ACK).
-            mergedSlots.push(attachSlotEditMetaFromRaw(normalizeSlot(ls), ls));
+            mergedSlots.push(attachSlotEditMetaFromRaw(ns, ls));
           });
           const out = {
             id: rp.id,

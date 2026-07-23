@@ -2872,26 +2872,29 @@ def _secrets_match(provided: str | None, expected: str) -> bool:
     return secrets.compare_digest(a, b)
 
 
+def _read_ip_list(path: Path) -> list[str]:
+    out: list[str] = []
+    if not path.is_file():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and _is_valid_ipv4(line) and line not in out:
+            out.append(line)
+    return out
+
+
 def allow_ssh_ip(ip: str) -> dict:
-    """Разрешить SSH с IP (UFW), сохранив закреплённые адреса."""
+    """Разрешить SSH с IP как владельцу (root+SFTP). Audit-IP не трогаем."""
     ip = (ip or "").strip()
     if not _is_valid_ipv4(ip):
         return {"error": "validation", "message": "Некорректный IPv4-адрес."}
     if ip in ("0.0.0.0", "127.0.0.1"):
         return {"error": "validation", "message": "Этот адрес нельзя добавлять."}
 
-    pinned_path = Path("/etc/paletlist/ssh-pinned-ips.txt")
-    pinned: list[str] = []
-    if pinned_path.is_file():
-        for line in pinned_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and _is_valid_ipv4(line):
-                if line not in pinned:
-                    pinned.append(line)
-    allowed = list(pinned)
-    if ip not in allowed:
-        allowed.append(ip)
-    allowed_set = set(allowed)
+    conf_dir = Path("/etc/paletlist")
+    owner_path = conf_dir / "ssh-owner-ips.txt"
+    audit_path = conf_dir / "ssh-audit-ips.txt"
+    apply_script = Path("/usr/local/sbin/paletlist-ssh-apply-acl")
 
     def _run(args: list[str]) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -2903,32 +2906,58 @@ def allow_ssh_ip(ip: str) -> dict:
         )
 
     try:
-        # Add needed IPs first (safe even if previous SSH rules were wiped).
-        for addr in allowed:
-            proc = _run(
-                [
-                    "ufw",
-                    "allow",
-                    "from",
-                    addr,
-                    "to",
-                    "any",
-                    "port",
-                    "22",
-                    "proto",
-                    "tcp",
-                    "comment",
-                    "SSH allowed",
-                ]
-            )
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        owners = _read_ip_list(owner_path)
+        audits = _read_ip_list(audit_path)
+        # Unlock script always grants owner rights (your PC), never audit-only.
+        if ip in audits:
+            audits = [a for a in audits if a != ip]
+            audit_path.write_text("\n".join(audits) + ("\n" if audits else ""), encoding="utf-8")
+            os.chmod(audit_path, 0o600)
+        if ip not in owners:
+            owners.append(ip)
+            owner_path.write_text("\n".join(owners) + "\n", encoding="utf-8")
+            os.chmod(owner_path, 0o600)
+
+        allowed = list(dict.fromkeys(owners + audits))
+        allowed_set = set(allowed)
+
+        if apply_script.is_file():
+            proc = _run(["bash", str(apply_script)])
             if proc.returncode != 0:
-                detail = (proc.stderr or proc.stdout or "").strip().lower()
-                if "existing" not in detail and "skipping" not in detail:
-                    return {
-                        "error": "firewall",
-                        "message": (proc.stderr or proc.stdout or "").strip()
-                        or f"Не удалось добавить {addr}",
-                    }
+                return {
+                    "error": "firewall",
+                    "message": (proc.stderr or proc.stdout or "").strip()
+                    or "Не удалось применить SSH ACL",
+                }
+        else:
+            for addr in allowed:
+                proc = _run(
+                    [
+                        "ufw",
+                        "allow",
+                        "from",
+                        addr,
+                        "to",
+                        "any",
+                        "port",
+                        "22",
+                        "proto",
+                        "tcp",
+                        "comment",
+                        "SSH allowed",
+                    ]
+                )
+                if proc.returncode != 0:
+                    detail = (proc.stderr or proc.stdout or "").strip().lower()
+                    if "existing" not in detail and "skipping" not in detail:
+                        return {
+                            "error": "firewall",
+                            "message": (proc.stderr or proc.stdout or "").strip()
+                            or f"Не удалось добавить {addr}",
+                        }
+            _run(["ufw", "allow", "80/tcp"])
+            _run(["ufw", "allow", "443/tcp"])
 
         # Remove only stale SSH source IPs not in allow-list.
         for _ in range(40):
@@ -2950,9 +2979,6 @@ def allow_ssh_ip(ip: str) -> dict:
             if stale_num is None:
                 break
             _run(["ufw", "--force", "delete", str(stale_num)])
-
-        _run(["ufw", "allow", "80/tcp"])
-        _run(["ufw", "allow", "443/tcp"])
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"error": "firewall", "message": f"Не удалось обновить UFW: {exc}"}
 
@@ -2960,7 +2986,9 @@ def allow_ssh_ip(ip: str) -> dict:
         "ok": True,
         "allowed_ip": ip,
         "ssh_ips": allowed,
-        "message": f"SSH разрешён для {ip}. Можно подключаться.",
+        "owner_ips": owners,
+        "audit_ips": audits,
+        "message": f"SSH (владелец) разрешён для {ip}. Можно подключаться.",
     }
 
 

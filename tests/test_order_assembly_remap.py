@@ -110,6 +110,53 @@ class OrderAssemblyRemapTests(unittest.TestCase):
         self.assertEqual(result["pallets"][1]["slots"][0]["batchNumber"], "KEEP2")
         self.assertEqual(result["pallets"][0]["palletNumber"], "1")
 
+    def test_rigla_pid_assigned_on_edit_keeps_all_slots(self):
+        """Как у Ригла: у части строк не было product_id; при сохранении pid появился,
+        имя могло смениться на канон из номенклатуры — слоты всех строк должны остаться.
+        """
+        old_items = [
+            item(None, "FA1", "Салфетка excel имя 1", quantity=10, unit="piece"),
+            item(None, "FA2", "Салфетка excel имя 2", quantity=5, unit="piece"),
+            item(
+                99,
+                "FA135",
+                "FA 135х185 №20 2022 — Салфетка спиртовая (ШТ)",
+                quantity=8,
+                unit="piece",
+            ),
+        ]
+        new_items = [
+            item(11, "FA1", "Салфетка канон 1", quantity=12, unit="set"),
+            item(22, "FA2", "Салфетка канон 2", quantity=7, unit="set"),
+            item(
+                99,
+                "FA135",
+                "FA 135х185 №20 2022 — Салфетка спиртовая (ШТ)",
+                quantity=9,
+                unit="set",
+            ),
+        ]
+        state = {
+            "pallets": [
+                {
+                    "id": 1,
+                    "palletNumber": "1",
+                    "slots": [
+                        {"lineIndex": 0, "directQty": "2", "batchNumber": "A"},
+                        {"lineIndex": 1, "directQty": "1", "batchNumber": "B"},
+                        {"lineIndex": 2, "directQty": "3", "batchNumber": "C"},
+                    ],
+                }
+            ]
+        }
+        result = json.loads(
+            api_server._remap_assemble_state_after_order_item_edit(
+                json.dumps(state), old_items, new_items
+            )
+        )
+        batches = [s["batchNumber"] for s in result["pallets"][0]["slots"]]
+        self.assertEqual(batches, ["A", "B", "C"])
+
     def test_quantity_edit_preserves_slots_when_article_name_drift(self):
         """product_id совпадает — сборка не сбрасывается из‑за пустого article/name."""
         old_items = [item(1, "A", "Product A", quantity=10)]

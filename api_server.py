@@ -4299,24 +4299,41 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
     ]
 
 
-def _assemble_item_identity(signature: tuple) -> tuple:
-    """Стабильный ключ позиции без количества и единицы учёта.
+def _assemble_item_match_keys(signature: tuple) -> list[tuple]:
+    """Ключи сопоставления позиции (несколько) — qty/unit не входят.
 
-    Qty/unit/total можно менять в редакторе заказа — слоты сборки должны
-    остаться привязанными к той же номенклатуре (product_id / имя).
+    Нужно несколько ключей: при правке заказа часто появляется product_id
+    и/или каноническое имя из номенклатуры, а в assemble_state остаются
+    слоты со старыми индексами строк без pid / с «excel»-именем.
     """
     pid, article, name, _qty, _unit, line_buyer, _total_qty = signature
     buyer_n = _normalize_str(line_buyer).casefold()
+    art_n = _normalize_str(article).casefold()
+    name_n = _normalize_str(name).casefold()
+    keys: list[tuple] = []
     if pid is not None:
         try:
-            return ("id", int(pid), buyer_n)
+            keys.append(("id", int(pid), buyer_n))
         except (TypeError, ValueError):
             pass
+    if art_n or name_n:
+        keys.append(("text", art_n, name_n, buyer_n))
+    if art_n:
+        keys.append(("article", art_n, buyer_n))
+    if name_n:
+        keys.append(("name", name_n, buyer_n))
+    return keys
+
+
+def _assemble_item_identity(signature: tuple) -> tuple:
+    """Основной ключ позиции для сравнения наборов (без qty/unit)."""
+    keys = _assemble_item_match_keys(signature)
+    if keys:
+        return keys[0]
+    pid, article, name, _qty, _unit, line_buyer, _total_qty = signature
     return (
-        "text",
-        _normalize_str(article).casefold(),
-        _normalize_str(name).casefold(),
-        buyer_n,
+        "empty",
+        _normalize_str(line_buyer).casefold(),
     )
 
 
@@ -4347,6 +4364,25 @@ def _assemble_effective_item_identities(
     return merged
 
 
+def _assemble_lines_compatible(old_sig: tuple, new_sig: tuple) -> bool:
+    """Та же номенклатура: пересечение ключей pid/артикул/имя (buyer учтён в ключах)."""
+    old_keys = set(_assemble_item_match_keys(old_sig))
+    new_keys = set(_assemble_item_match_keys(new_sig))
+    return bool(old_keys and new_keys and (old_keys & new_keys))
+
+
+def _order_lines_are_inplace_edits(
+    old_signatures: list[tuple], new_signatures: list[tuple]
+) -> bool:
+    """Те же строки в том же порядке — менялись только qty/unit/total (или появился pid)."""
+    if len(old_signatures) != len(new_signatures) or not old_signatures:
+        return False
+    return all(
+        _assemble_lines_compatible(o, n)
+        for o, n in zip(old_signatures, new_signatures)
+    )
+
+
 def _order_item_index_remap(
     old_signatures: list[tuple],
     new_signatures: list[tuple],
@@ -4354,24 +4390,59 @@ def _order_item_index_remap(
     merge_by_name: bool = False,
 ) -> dict[int, int]:
     """Старый lineIndex сборки → новый; отсутствующие ключи — удалённые позиции."""
-    old_items = _assemble_effective_item_identities(
-        old_signatures, merge_by_name=merge_by_name
-    )
-    new_items = _assemble_effective_item_identities(
-        new_signatures, merge_by_name=merge_by_name
-    )
-    new_indices: dict[tuple, list[int]] = {}
-    for idx, identity in enumerate(new_items):
-        new_indices.setdefault(identity, []).append(idx)
-    used_by_identity: dict[tuple, int] = {}
+    if merge_by_name:
+        old_items = _assemble_effective_item_identities(
+            old_signatures, merge_by_name=True
+        )
+        new_items = _assemble_effective_item_identities(
+            new_signatures, merge_by_name=True
+        )
+        new_indices: dict[tuple, list[int]] = {}
+        for idx, identity in enumerate(new_items):
+            new_indices.setdefault(identity, []).append(idx)
+        used_by_identity: dict[tuple, int] = {}
+        remap: dict[int, int] = {}
+        for old_idx, identity in enumerate(old_items):
+            candidates = new_indices.get(identity) or []
+            offset = used_by_identity.get(identity, 0)
+            if offset >= len(candidates):
+                continue
+            remap[old_idx] = candidates[offset]
+            used_by_identity[identity] = offset + 1
+        return remap
+
+    # Не merged: сопоставляем по любому общему ключу (id / article / name).
+    new_by_key: dict[tuple, list[int]] = {}
+    for idx, sig in enumerate(new_signatures):
+        for key in _assemble_item_match_keys(sig):
+            new_by_key.setdefault(key, []).append(idx)
+    used_new: set[int] = set()
     remap: dict[int, int] = {}
-    for old_idx, identity in enumerate(old_items):
-        candidates = new_indices.get(identity) or []
-        offset = used_by_identity.get(identity, 0)
-        if offset >= len(candidates):
-            continue
-        remap[old_idx] = candidates[offset]
-        used_by_identity[identity] = offset + 1
+
+    for old_idx, osig in enumerate(old_signatures):
+        matched = None
+        for key in _assemble_item_match_keys(osig):
+            for cand in new_by_key.get(key) or []:
+                if cand in used_new:
+                    continue
+                matched = cand
+                break
+            if matched is not None:
+                break
+        if matched is not None:
+            remap[old_idx] = matched
+            used_new.add(matched)
+
+    # Fallback: правка qty/unit на месте — сохранить индексы 1:1.
+    if _order_lines_are_inplace_edits(old_signatures, new_signatures):
+        for i in range(len(old_signatures)):
+            if i not in remap and i not in used_new:
+                remap[i] = i
+                used_new.add(i)
+            elif i not in remap and i < len(new_signatures) and i not in used_new:
+                remap[i] = i
+                used_new.add(i)
+
     return remap
 
 
@@ -4382,17 +4453,25 @@ def _remap_assemble_state_after_order_item_edit(
     *,
     merge_by_name: bool = False,
 ) -> str:
-    """Сохранить слоты паллет при правке qty/перестановке/удалении строк заказа."""
+    """Сохранить слоты паллет при правке qty/unit/перестановке/удалении строк заказа."""
     state = _assemble_state_cell_to_api(state_cell)
     if not isinstance(state, dict):
         return state_cell or ""
+
+    # Те же позиции по месту (только qty/unit/pid) — сборку не трогаем.
+    if not merge_by_name and _order_lines_are_inplace_edits(
+        old_signatures, new_signatures
+    ):
+        if isinstance(state_cell, str) and state_cell:
+            return state_cell
+        return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+
     old_eff = _assemble_effective_item_identities(
         old_signatures, merge_by_name=merge_by_name
     )
     new_eff = _assemble_effective_item_identities(
         new_signatures, merge_by_name=merge_by_name
     )
-    # Только qty/total той же номенклатуры в том же порядке — сборку не трогаем.
     if old_eff == new_eff:
         if isinstance(state_cell, str) and state_cell:
             return state_cell
@@ -4882,7 +4961,11 @@ def _parse_item_total_order_quantity(raw: dict, lab_client: bool) -> float | Non
 
 
 def _resolve_normalized_product_ids(normalized, cur, *, allow_unresolved: bool = False):
-    """Подставляет product_id и канонические article/name из БД, если id не был передан."""
+    """Подставляет product_id; article/name из номенклатуры — только если пустые.
+
+    Не перезаписываем уже заданные article/name каноном из products: иначе при
+    правке qty/unit remap сборки не узнаёт excel-имена и сбрасывает слоты.
+    """
     out = []
     for pid, article, name, qty, unit, buyer_order, line_total_qty in normalized:
         if pid is None:
@@ -4897,30 +4980,21 @@ def _resolve_normalized_product_ids(normalized, cur, *, allow_unresolved: bool =
                     "error": "validation",
                     "message": "Для позиций без привязки к номенклатуре выберите товар в поле «Наименование» из подсказки или приведите название к точному совпадению с номенклатурой.",
                 }
+            pid = rid
+        if not article or not name:
             row = cur.execute(
                 "SELECT article, name FROM products WHERE id = ?",
-                (rid,),
+                (pid,),
             ).fetchone()
             if not row:
                 return None, {
                     "error": "validation",
                     "message": "Товар не найден в номенклатуре.",
                 }
-            article = _normalize_str(row["article"])
-            name = _normalize_str(row["name"])
-            pid = rid
-        else:
-            # Если в форме потерялись article/name, но product_id есть — восстановить из номенклатуры.
-            if not article or not name:
-                row = cur.execute(
-                    "SELECT article, name FROM products WHERE id = ?",
-                    (pid,),
-                ).fetchone()
-                if row:
-                    if not article:
-                        article = _normalize_str(row["article"])
-                    if not name:
-                        name = _normalize_str(row["name"])
+            if not article:
+                article = _normalize_str(row["article"])
+            if not name:
+                name = _normalize_str(row["name"])
         if not name and not article:
             return None, {
                 "error": "validation",

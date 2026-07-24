@@ -4300,20 +4300,22 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
 
 
 def _assemble_item_identity(signature: tuple) -> tuple:
-    """Стабильный ключ позиции без количества (qty/total можно менять)."""
-    pid, article, name, _qty, unit, line_buyer, _total_qty = signature
-    unit_n = _normalize_str(unit).casefold()
+    """Стабильный ключ позиции без количества и единицы учёта.
+
+    Qty/unit/total можно менять в редакторе заказа — слоты сборки должны
+    остаться привязанными к той же номенклатуре (product_id / имя).
+    """
+    pid, article, name, _qty, _unit, line_buyer, _total_qty = signature
     buyer_n = _normalize_str(line_buyer).casefold()
     if pid is not None:
         try:
-            return ("id", int(pid), unit_n, buyer_n)
+            return ("id", int(pid), buyer_n)
         except (TypeError, ValueError):
             pass
     return (
         "text",
         _normalize_str(article).casefold(),
         _normalize_str(name).casefold(),
-        unit_n,
         buyer_n,
     )
 

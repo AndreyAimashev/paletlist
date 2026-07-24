@@ -68,6 +68,48 @@ class OrderAssemblyRemapTests(unittest.TestCase):
         self.assertEqual(result["pallets"][0]["slots"][0]["directQty"], 5)
         self.assertEqual(result["pallets"][0]["slots"][0]["batchNumber"], "BN")
 
+    def test_unit_and_quantity_edit_keeps_slots(self):
+        """Ригла и др.: смена qty + штуки→наборы не должна очищать товары на паллетах."""
+        old_items = [item(1, "A", "Product A", quantity=10, unit="piece")]
+        new_items = [item(1, "A", "Product A", quantity=25, unit="set")]
+        state = {
+            "pallets": [
+                {
+                    "id": 1,
+                    "palletNumber": "1",
+                    "slots": [
+                        {
+                            "lineIndex": 0,
+                            "directQty": "3",
+                            "batchNumber": "KEEP",
+                            "mode": "direct",
+                            "directUnit": "box",
+                        }
+                    ],
+                },
+                {
+                    "id": 2,
+                    "palletNumber": "2",
+                    "slots": [
+                        {
+                            "lineIndex": 0,
+                            "directQty": "1",
+                            "batchNumber": "KEEP2",
+                        }
+                    ],
+                },
+            ]
+        }
+        result = json.loads(
+            api_server._remap_assemble_state_after_order_item_edit(
+                json.dumps(state), old_items, new_items
+            )
+        )
+        self.assertEqual(len(result["pallets"]), 2)
+        self.assertEqual(result["pallets"][0]["slots"][0]["batchNumber"], "KEEP")
+        self.assertEqual(result["pallets"][1]["slots"][0]["batchNumber"], "KEEP2")
+        self.assertEqual(result["pallets"][0]["palletNumber"], "1")
+
     def test_quantity_edit_preserves_slots_when_article_name_drift(self):
         """product_id совпадает — сборка не сбрасывается из‑за пустого article/name."""
         old_items = [item(1, "A", "Product A", quantity=10)]

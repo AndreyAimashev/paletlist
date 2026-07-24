@@ -16127,6 +16127,17 @@
           /* ignore */
         }
         assemblePalletDeletions.delete(oid);
+        // Не дать старому PATCH сборки перезаписать remap после правки позиций.
+        clearTimeout(assembleSaveTimer);
+        assembleSaveTimer = null;
+        clearTimeout(assembleMirrorTimer);
+        assembleMirrorTimer = null;
+        if (assembleQueuedPayload && Number(assembleQueuedPayload.orderId) === oid) {
+          assembleQueuedPayload = null;
+        }
+        assembleDirty = false;
+        assembleSavePending = false;
+        assembleAwaitingFieldCommit = false;
         const assembleOpenForOrder =
           !!assembleWorkspace &&
           assembleWorkspace.classList.contains("visible") &&
@@ -22920,6 +22931,27 @@
         return "";
       }
 
+      /** Достаёт article/name из dataset или из текста поля поиска («арт — имя»). */
+      function readOrderItemRowArticleName(row) {
+        let article = String(row?.dataset?.article || "").trim();
+        let name = String(row?.dataset?.name || "").trim();
+        if (article || name) {
+          return { article, name };
+        }
+        const input = row?.querySelector?.(".order-item-search");
+        const raw = String(input?.value || "").trim();
+        if (!raw) {
+          return { article: "", name: "" };
+        }
+        const sep = raw.indexOf(" — ");
+        if (sep >= 0) {
+          article = raw.slice(0, sep).trim();
+          name = raw.slice(sep + 3).trim();
+          return { article, name };
+        }
+        return { article: "", name: raw };
+      }
+
       function orderShipDateStorageToInput(ship) {
         const s = String(ship || "").trim();
         const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(s);
@@ -23047,10 +23079,11 @@
         const client = newOrderClient ? String(newOrderClient.value || "").trim() : "";
         const rows = [...newOrderItems.querySelectorAll(".order-item-row")];
         const items = rows.map((r) => {
+          const { article, name } = readOrderItemRowArticleName(r);
           const rowPayload = {
             product_id: String(r.querySelector(".order-item-product-id")?.value || "").trim(),
-            article: String(r.dataset.article || "").trim(),
-            name: String(r.dataset.name || "").trim(),
+            article,
+            name,
             quantity: normalizeOrderItemSnapshotValue(
               r.querySelector(".order-item-qty")?.value,
             ),
@@ -23377,10 +23410,11 @@
           return;
         }
         const items = rows.map((r) => {
+          const { article, name } = readOrderItemRowArticleName(r);
           const rowPayload = {
             product_id: r.querySelector(".order-item-product-id").value,
-            article: r.dataset.article || "",
-            name: r.dataset.name || "",
+            article,
+            name,
             quantity: r.querySelector(".order-item-qty").value,
             unit: r.querySelector(".order-item-unit").value,
           };

@@ -2072,7 +2072,7 @@ def _batches_export_pdf_draw_row(
     return h_row
 
 
-class _OrdersBatchesExportPdf(FPDF):
+class _OrdersBatchesExportPdf(FPDF if FPDF is not None else object):
     _FOOTER_H_MM = 10.0
 
     def footer(self) -> None:
@@ -4299,102 +4299,146 @@ def _fetch_order_item_signatures(cur, order_id: int) -> list[tuple]:
     ]
 
 
-def _order_item_identity_key(sig: tuple) -> tuple:
-    """Ключ позиции без количества — для remap при правке qty/total."""
-    pid, article, name, _qty, unit, line_buyer, _total = sig
-    return (pid, article or "", name or "", unit or "", line_buyer or "")
+def _assemble_item_identity(signature: tuple) -> tuple:
+    """Стабильный ключ позиции без количества (qty/total можно менять)."""
+    pid, article, name, _qty, unit, line_buyer, _total_qty = signature
+    unit_n = _normalize_str(unit).casefold()
+    buyer_n = _normalize_str(line_buyer).casefold()
+    if pid is not None:
+        try:
+            return ("id", int(pid), unit_n, buyer_n)
+        except (TypeError, ValueError):
+            pass
+    return (
+        "text",
+        _normalize_str(article).casefold(),
+        _normalize_str(name).casefold(),
+        unit_n,
+        buyer_n,
+    )
 
 
-def _build_order_line_index_remap(
-    old_sigs: list[tuple], new_sigs: list[tuple]
-) -> dict[int, int | None]:
-    """Сопоставление старого индекса строки заказа с новым (None — строка удалена)."""
-    remap: dict[int, int | None] = {}
-    used_new: set[int] = set()
+def _assemble_merge_name_key(signature: tuple) -> str:
+    _pid, _article, name, _qty, _unit, _buyer, _total = signature
+    return _normalize_str(name).casefold()
 
-    for i, osig in enumerate(old_sigs):
-        if i < len(new_sigs) and new_sigs[i] == osig and i not in used_new:
-            remap[i] = i
-            used_new.add(i)
 
-    for i, osig in enumerate(old_sigs):
-        if i in remap:
+def _assemble_effective_item_identities(
+    signatures: list[tuple], *, merge_by_name: bool
+) -> list[tuple]:
+    """Индексы сборки: raw или merged-by-name (Дрогери/ЛАБ)."""
+    if not merge_by_name:
+        return [_assemble_item_identity(sig) for sig in signatures]
+    merged: list[tuple] = []
+    seen: set[tuple] = set()
+    for idx, sig in enumerate(signatures):
+        name_key = _assemble_merge_name_key(sig)
+        key: tuple
+        if name_key:
+            key = ("name", name_key)
+        else:
+            key = ("line", idx, _assemble_item_identity(sig))
+        if key in seen:
             continue
-        matched = False
-        for j, nsig in enumerate(new_sigs):
-            if j in used_new:
-                continue
-            if osig == nsig:
-                remap[i] = j
-                used_new.add(j)
-                matched = True
-                break
-        if not matched:
-            remap[i] = None
+        seen.add(key)
+        merged.append(key)
+    return merged
 
-    # Смена qty/total той же номенклатуры: не сбрасывать слоты сборки.
-    for i, osig in enumerate(old_sigs):
-        if remap.get(i) is not None:
+
+def _order_item_index_remap(
+    old_signatures: list[tuple],
+    new_signatures: list[tuple],
+    *,
+    merge_by_name: bool = False,
+) -> dict[int, int]:
+    """Старый lineIndex сборки → новый; отсутствующие ключи — удалённые позиции."""
+    old_items = _assemble_effective_item_identities(
+        old_signatures, merge_by_name=merge_by_name
+    )
+    new_items = _assemble_effective_item_identities(
+        new_signatures, merge_by_name=merge_by_name
+    )
+    new_indices: dict[tuple, list[int]] = {}
+    for idx, identity in enumerate(new_items):
+        new_indices.setdefault(identity, []).append(idx)
+    used_by_identity: dict[tuple, int] = {}
+    remap: dict[int, int] = {}
+    for old_idx, identity in enumerate(old_items):
+        candidates = new_indices.get(identity) or []
+        offset = used_by_identity.get(identity, 0)
+        if offset >= len(candidates):
             continue
-        oid = _order_item_identity_key(osig)
-        for j, nsig in enumerate(new_sigs):
-            if j in used_new:
-                continue
-            if _order_item_identity_key(nsig) == oid:
-                remap[i] = j
-                used_new.add(j)
-                break
-
+        remap[old_idx] = candidates[offset]
+        used_by_identity[identity] = offset + 1
     return remap
 
 
-def _remap_assemble_state_line_indices(
-    assemble_state_raw: str, index_remap: dict[int, int | None]
-) -> tuple[str, bool]:
-    """Пересчитать lineIndex в assemble_state после изменения позиций заказа."""
-    if not assemble_state_raw or not index_remap:
-        return assemble_state_raw, False
-    obj = _assemble_state_cell_to_api(assemble_state_raw)
-    if not obj:
-        return assemble_state_raw, False
+def _remap_assemble_state_after_order_item_edit(
+    state_cell,
+    old_signatures: list[tuple],
+    new_signatures: list[tuple],
+    *,
+    merge_by_name: bool = False,
+) -> str:
+    """Сохранить слоты паллет при правке qty/перестановке/удалении строк заказа."""
+    state = _assemble_state_cell_to_api(state_cell)
+    if not isinstance(state, dict):
+        return state_cell or ""
+    old_eff = _assemble_effective_item_identities(
+        old_signatures, merge_by_name=merge_by_name
+    )
+    new_eff = _assemble_effective_item_identities(
+        new_signatures, merge_by_name=merge_by_name
+    )
+    # Только qty/total той же номенклатуры в том же порядке — сборку не трогаем.
+    if old_eff == new_eff:
+        if isinstance(state_cell, str) and state_cell:
+            return state_cell
+        return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
 
-    changed = False
-    for pal in obj.get("pallets") or []:
-        if not isinstance(pal, dict):
+    remap = _order_item_index_remap(
+        old_signatures, new_signatures, merge_by_name=merge_by_name
+    )
+    pallets = state.get("pallets")
+    if not isinstance(pallets, list):
+        return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+    for pallet in pallets:
+        if not isinstance(pallet, dict):
             continue
-        old_slots = pal.get("slots") or []
-        new_slots = []
-        for slot in old_slots:
-            if not isinstance(slot, dict):
-                continue
-            li = slot.get("lineIndex")
-            if li in ("", None):
-                new_slots.append(slot)
-                continue
-            try:
-                old_idx = int(li)
-            except (TypeError, ValueError):
-                new_slots.append(slot)
-                continue
-            if old_idx not in index_remap:
-                new_slots.append(slot)
-                continue
-            new_idx = index_remap[old_idx]
-            if new_idx is None:
-                changed = True
-                continue
-            if new_idx != old_idx:
+        slots = pallet.get("slots")
+        if isinstance(slots, list):
+            remapped_slots = []
+            for slot in slots:
+                if not isinstance(slot, dict):
+                    remapped_slots.append(slot)
+                    continue
+                raw_index = slot.get("lineIndex")
+                if raw_index in ("", None):
+                    remapped_slots.append(slot)
+                    continue
+                try:
+                    old_index = int(raw_index)
+                except (TypeError, ValueError):
+                    remapped_slots.append(slot)
+                    continue
+                if old_index not in remap:
+                    continue
                 slot = dict(slot)
-                slot["lineIndex"] = new_idx
-                changed = True
-            new_slots.append(slot)
-        if len(new_slots) != len(old_slots):
-            changed = True
-        pal["slots"] = new_slots
-
-    if not changed:
-        return assemble_state_raw, False
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":")), True
+                slot["lineIndex"] = remap[old_index]
+                remapped_slots.append(slot)
+            pallet["slots"] = remapped_slots
+        legacy_lines = pallet.get("lines")
+        if isinstance(legacy_lines, dict):
+            remapped_lines = {}
+            for raw_index, allocation in legacy_lines.items():
+                try:
+                    old_index = int(raw_index)
+                except (TypeError, ValueError):
+                    continue
+                if old_index in remap:
+                    remapped_lines[str(remap[old_index])] = allocation
+            pallet["lines"] = remapped_lines
+    return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
 
 
 def _assemble_state_has_meaningful_pallets(pallets) -> bool:
@@ -4863,6 +4907,18 @@ def _resolve_normalized_product_ids(normalized, cur, *, allow_unresolved: bool =
             article = _normalize_str(row["article"])
             name = _normalize_str(row["name"])
             pid = rid
+        else:
+            # Если в форме потерялись article/name, но product_id есть — восстановить из номенклатуры.
+            if not article or not name:
+                row = cur.execute(
+                    "SELECT article, name FROM products WHERE id = ?",
+                    (pid,),
+                ).fetchone()
+                if row:
+                    if not article:
+                        article = _normalize_str(row["article"])
+                    if not name:
+                        name = _normalize_str(row["name"])
         if not name and not article:
             return None, {
                 "error": "validation",
@@ -4937,11 +4993,7 @@ def _normalize_order_items_body(body: dict, *, allow_zero_quantity: bool = False
                 "error": "validation",
                 "message": "Для каждой позиции укажите наименование или выберите товар из подсказки.",
             }
-        if pid is not None and not name and not article:
-            return {
-                "error": "validation",
-                "message": "Для позиции не указано наименование.",
-            }
+        # product_id без name/article допустим — канонические поля подставит _resolve_normalized_product_ids.
         line_buyer = _normalize_str(raw.get("buyer_order") or "")
         if lab_client and buyer_order_mode == "multiple":
             if not line_buyer:
@@ -6226,8 +6278,23 @@ def update_order_with_items(order_id: int, body: dict, *, modified_by: str = "")
         old_item_sigs = _fetch_order_item_signatures(cur, order_id)
         items_changed = old_item_sigs != new_item_sigs
         if items_changed and xasm:
-            index_remap = _build_order_line_index_remap(old_item_sigs, new_item_sigs)
-            xasm, _ = _remap_assemble_state_line_indices(xasm, index_remap)
+            merge_by_name = _is_drogeri_retail_client(client_n) or _is_lab_industries_client(
+                client_n
+            )
+            # Для клиентов со сборкой по merged-индексам: не маппить raw lineIndex.
+            uses_merged = False
+            st_obj = _assemble_state_cell_to_api(xasm)
+            if isinstance(st_obj, dict):
+                uses_merged = (
+                    str(st_obj.get("assembly_line_indices") or "").strip().lower()
+                    == "merged"
+                )
+            xasm = _remap_assemble_state_after_order_item_edit(
+                xasm,
+                old_item_sigs,
+                new_item_sigs,
+                merge_by_name=merge_by_name or uses_merged,
+            )
         assemble_rev = max(0, int(row["assemble_revision"] or 0))
         assemble_updated_at = (row["assemble_state_updated_at"] or "").strip()
         # Bump revision on any item change so clients drop stale local drafts.

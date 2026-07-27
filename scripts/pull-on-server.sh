@@ -16,6 +16,13 @@ git checkout main
 git pull --ff-only origin main
 echo "Deployed: $(git log -1 --oneline)"
 
+# One-shot: сброс банов входа (login_guard.json), если в репозитории есть маркер.
+if [ -f .clear_login_guard_once ]; then
+  rm -f login_guard.json login_guard.json.tmp
+  rm -f .clear_login_guard_once
+  echo "Cleared login_guard.json (one-shot unlock)"
+fi
+
 grep -q "build_blank_arnest_unirus_pallet_sheets_pdf" api_server.py || {
   echo "api_server.py: нет генератора PDF паллетных листов" >&2
   exit 1

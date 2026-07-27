@@ -170,6 +170,10 @@ def _is_ssh_allow_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/ssh-allow"
 
 
+def _is_login_guard_clear_path(path: str) -> bool:
+    return _norm_api_path(path) == "/api/login-guard/clear"
+
+
 def _is_unique_clients_list_path(path: str) -> bool:
     return _norm_api_path(path) == "/api/unique-clients"
 
@@ -408,6 +412,55 @@ def login_guard_clear_success(ip: str, login: str) -> None:
         if login_key:
             data["logins"].pop(login_key, None)
         _login_guard_save(data)
+
+
+def login_guard_clear_all() -> dict:
+    """Сбросить все баны и счётчики неудачных попыток входа."""
+    with _LOGIN_GUARD_LOCK:
+        data = _login_guard_load()
+        ip_count = len(data.get("ips") or {})
+        login_count = len(data.get("logins") or {})
+        _login_guard_save({"ips": {}, "logins": {}})
+        try:
+            if _LOGIN_GUARD_PATH.is_file():
+                _LOGIN_GUARD_PATH.unlink()
+        except OSError:
+            pass
+        for tmp in (
+            _LOGIN_GUARD_PATH.with_suffix(".json.tmp"),
+            BASE_DIR / "login_guard.json.tmp",
+        ):
+            try:
+                if tmp.is_file():
+                    tmp.unlink()
+            except OSError:
+                pass
+    return {
+        "ok": True,
+        "cleared_ips": ip_count,
+        "cleared_logins": login_count,
+        "message": "Блокировки входа сброшены.",
+    }
+
+
+def _login_guard_apply_oneshot_clear() -> None:
+    """Если в каталоге приложения есть маркер — сбросить баны и удалить маркер."""
+    marker = BASE_DIR / ".clear_login_guard_once"
+    if not marker.is_file():
+        return
+    try:
+        result = login_guard_clear_all()
+        print(
+            "login_guard one-shot clear:",
+            f"ips={result.get('cleared_ips')}",
+            f"logins={result.get('cleared_logins')}",
+            flush=True,
+        )
+    finally:
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def resolve_auth_session(token: str | None) -> dict | None:
@@ -8446,6 +8499,27 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, result)
             return
+        if _is_login_guard_clear_path(path):
+            # Тот же секрет, что для деплоя / SSH-allow (или сессия админа ниже).
+            secret = _ssh_allow_secret() or _deploy_secret()
+            provided = self._bearer_token()
+            if secret and provided and _secrets_match(provided, secret):
+                try:
+                    self._read_json_body()
+                except json.JSONDecodeError:
+                    pass
+                self._send_json(200, login_guard_clear_all())
+                return
+            if not self._ensure_authenticated():
+                return
+            if not self._require_admin():
+                return
+            try:
+                self._read_json_body()
+            except json.JSONDecodeError:
+                pass
+            self._send_json(200, login_guard_clear_all())
+            return
         if not self._ensure_authenticated():
             return
         if _is_database_restore_path(path):
@@ -9193,6 +9267,7 @@ def main():
 
 
 init_db()
+_login_guard_apply_oneshot_clear()
 
 if __name__ == "__main__":
     main()

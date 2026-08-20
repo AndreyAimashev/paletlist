@@ -3162,10 +3162,13 @@ def _ensure_ssh_alt_port(port: int = 2222) -> str | None:
             "\n".join(
                 [
                     "[Socket]",
-                    "# Reset inherited ListenStream, then bind both ports.",
+                    "# Reset inherited ListenStream, then bind IPv4+IPv6 on both ports.",
                     "ListenStream=",
-                    "ListenStream=22",
-                    f"ListenStream={port}",
+                    "ListenStream=0.0.0.0:22",
+                    "ListenStream=[::]:22",
+                    f"ListenStream=0.0.0.0:{port}",
+                    f"ListenStream=[::]:{port}",
+                    "BindIPv6Only=ipv6-only",
                     "",
                 ]
             ),

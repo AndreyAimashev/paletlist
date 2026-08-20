@@ -3113,9 +3113,66 @@ def _stable_owner_cidr_for(ip: str) -> str | None:
     return None
 
 
-def _iptables_allow_ssh_from(addr: str) -> None:
-    """Дублируем UFW правилом iptables (на случай, если ufw reload «теряет» CIDR)."""
-    # Удалить дубликат, если уже есть, затем вставить в начало INPUT.
+def _ensure_ssh_alt_port(port: int = 2222) -> str | None:
+    """Дублировать SSH на доп. порту (если ISP/фильтр режет :22)."""
+    sshd = Path("/etc/ssh/sshd_config")
+    if not sshd.is_file():
+        return "Не найден /etc/ssh/sshd_config"
+    text = sshd.read_text(encoding="utf-8", errors="replace")
+    marker = f"Port {port}"
+    # Уже есть uncommented Port 2222
+    has_alt = any(
+        ln.strip() == marker for ln in text.splitlines() if not ln.strip().startswith("#")
+    )
+    if not has_alt:
+        # Добавим рядом с основным Port / в конец перед ACL-блоком
+        lines = text.splitlines()
+        out: list[str] = []
+        inserted = False
+        for ln in lines:
+            out.append(ln)
+            if (not inserted) and re.match(r"^Port\s+22\s*$", ln.strip()):
+                out.append(marker)
+                inserted = True
+        if not inserted:
+            # перед ACL или в конец
+            acl_idx = next(
+                (i for i, ln in enumerate(out) if "# BEGIN ssh address ACL" in ln), None
+            )
+            if acl_idx is None:
+                out.append(marker)
+            else:
+                out.insert(acl_idx, marker)
+        sshd.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return None
+
+
+def _ufw_allow_port_from(addr: str, port: int, comment: str) -> str | None:
+    proc = _ufw_run(
+        [
+            "ufw",
+            "allow",
+            "from",
+            addr,
+            "to",
+            "any",
+            "port",
+            str(port),
+            "proto",
+            "tcp",
+            "comment",
+            comment,
+        ]
+    )
+    if proc.returncode == 0:
+        return None
+    detail = (proc.stderr or proc.stdout or "").strip().lower()
+    if "existing" in detail or "skipping" in detail:
+        return None
+    return (proc.stderr or proc.stdout or "").strip() or f"Не удалось добавить {addr}:{port}"
+
+
+def _iptables_allow_port_from(addr: str, port: int) -> None:
     _ufw_run(
         [
             "iptables",
@@ -3126,7 +3183,7 @@ def _iptables_allow_ssh_from(addr: str) -> None:
             "-s",
             addr,
             "--dport",
-            "22",
+            str(port),
             "-j",
             "ACCEPT",
         ]
@@ -3142,7 +3199,7 @@ def _iptables_allow_ssh_from(addr: str) -> None:
             "-s",
             addr,
             "--dport",
-            "22",
+            str(port),
             "-j",
             "ACCEPT",
         ]
@@ -3190,49 +3247,68 @@ def allow_ssh_ip(ip: str) -> dict:
         allowed = list(dict.fromkeys(owners + audits))
         _write_ip_list(pin_path, allowed)
 
+        alt_port = 2222
+        alt_err = _ensure_ssh_alt_port(alt_port)
+        if alt_err:
+            return {"error": "firewall", "message": alt_err}
+
         for addr in allowed:
             err = _ufw_allow_ssh_from(addr)
             if err:
                 return {"error": "firewall", "message": err}
+            _iptables_allow_port_from(addr, 22)
+        # Доп. порт SSH — на случай фильтрации :22 по пути до сервера.
+        for addr in owners:
+            err = _ufw_allow_port_from(addr, alt_port, "SSH alt owner")
+            if err:
+                return {"error": "firewall", "message": err}
+            _iptables_allow_port_from(addr, alt_port)
+
         _ufw_run(["ufw", "allow", "80/tcp"])
         _ufw_run(["ufw", "allow", "443/tcp"])
         # На части хостов правило появляется только после reload.
         _ufw_run(["ufw", "reload"])
+        # После reload снова закрепить iptables ACCEPT.
+        for addr in allowed:
+            _iptables_allow_port_from(addr, 22)
+        for addr in owners:
+            _iptables_allow_port_from(addr, alt_port)
         _prune_stale_ssh_ufw(allowed)
 
         acl_err = _apply_sshd_address_acl(owners, audits)
         ufw_status = (_ufw_run(["ufw", "status", "numbered"]).stdout or "")[:4000]
-        listen22 = (_ufw_run(["bash", "-lc", "ss -tlnp | grep -E ':22\\b' || true"]).stdout or "").strip()
+        listen_ssh = (
+            _ufw_run(
+                ["bash", "-lc", "ss -tlnp | grep -E ':(22|2222)\\b' || true"]
+            ).stdout
+            or ""
+        ).strip()
 
+        result = {
+            "ok": True,
+            "allowed_ip": ip,
+            "ssh_ips": allowed,
+            "owner_ips": owners,
+            "audit_ips": audits,
+            "ufw_status": ufw_status,
+            "listen_ssh": listen_ssh,
+            "ssh_port": 22,
+            "ssh_alt_port": alt_port,
+            "message": (
+                f"SSH (владелец) разрешён для {ip}. "
+                f"Подключение: ssh -p {alt_port} -i ~/.ssh/paletlist_ed25519 root@HOST "
+                f"(порт {alt_port}, если :22 недоступен)."
+            ),
+        }
         if acl_err:
-            # UFW уже открыт — SSH по сети должен работать; ACL сообщаем отдельно.
-            return {
-                "ok": True,
-                "warning": acl_err,
-                "allowed_ip": ip,
-                "ssh_ips": allowed,
-                "owner_ips": owners,
-                "audit_ips": audits,
-                "ufw_status": ufw_status,
-                "listen22": listen22,
-                "message": (
-                    f"SSH в UFW открыт для владельца ({ip}). "
-                    f"Предупреждение sshd: {acl_err}"
-                ),
-            }
+            result["warning"] = acl_err
+            result["message"] = (
+                f"SSH в UFW открыт для владельца ({ip}), порты 22/{alt_port}. "
+                f"Предупреждение sshd: {acl_err}"
+            )
+        return result
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"error": "firewall", "message": f"Не удалось обновить UFW: {exc}"}
-
-    return {
-        "ok": True,
-        "allowed_ip": ip,
-        "ssh_ips": allowed,
-        "owner_ips": owners,
-        "audit_ips": audits,
-        "ufw_status": ufw_status,
-        "listen22": listen22,
-        "message": f"SSH (владелец) разрешён для {ip}. Можно подключаться.",
-    }
 
 
 def start_background_deploy() -> dict:

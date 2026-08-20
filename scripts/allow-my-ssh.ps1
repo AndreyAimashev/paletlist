@@ -54,5 +54,6 @@ public class TrustAll : ICertificatePolicy {
 
 Write-Host ($resp | ConvertTo-Json -Compress)
 Write-Host ""
-Write-Host "OK. Now connect:"
+Write-Host "OK. Now connect (try alt port if 22 is filtered):"
+Write-Host "  ssh -p 2222 -i `$env:USERPROFILE\.ssh\paletlist_ed25519 root@$ServerHost"
 Write-Host "  ssh -i `$env:USERPROFILE\.ssh\paletlist_ed25519 root@$ServerHost"

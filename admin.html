@@ -6513,6 +6513,11 @@
                 <p class="server-status-metric__value" data-field="db-value">—</p>
                 <p class="server-status-metric__hint" data-field="db-hint"></p>
               </article>
+              <article class="server-status-metric" data-metric="online-ips">
+                <p class="server-status-metric__label">Онлайн IP</p>
+                <p class="server-status-metric__value" data-field="online-ips-value">—</p>
+                <p class="server-status-metric__hint" data-field="online-ips-hint"></p>
+              </article>
             </div>
             <div class="server-status-section">
               <h3 class="server-status-section__title">Сервисы</h3>
@@ -8415,6 +8420,7 @@
         const uptimeCard = root.querySelector('[data-metric="uptime"]');
         const loadCard = root.querySelector('[data-metric="load"]');
         const dbCard = root.querySelector('[data-metric="db"]');
+        const onlineIpsCard = root.querySelector('[data-metric="online-ips"]');
 
         const cpuValue = root.querySelector('[data-field="cpu-value"]');
         const cpuHint = root.querySelector('[data-field="cpu-hint"]');
@@ -8515,6 +8521,31 @@
         if (dbCard) {
           dbCard.classList.remove("is-ok", "is-warn", "is-bad");
           dbCard.classList.add(db.exists ? "is-ok" : "is-bad");
+        }
+
+        const onlineIpsValue = root.querySelector('[data-field="online-ips-value"]');
+        const onlineIpsHint = root.querySelector('[data-field="online-ips-hint"]');
+        const onlineIps = data.online_ips || {};
+        const recentHttp = onlineIps.recent_http || {};
+        const established = onlineIps.established || {};
+        const recentCount = Number(recentHttp.count);
+        const establishedCount = Number(established.count);
+        const recentList = Array.isArray(recentHttp.ips) ? recentHttp.ips : [];
+        if (onlineIpsValue) {
+          onlineIpsValue.textContent = Number.isFinite(recentCount) ? String(recentCount) : "—";
+        }
+        if (onlineIpsHint) {
+          const shown = recentList.slice(0, 6).join(", ");
+          const extra = recentList.length > 6 ? ` +${recentList.length - 6}` : "";
+          const conn =
+            Number.isFinite(establishedCount) && establishedCount >= 0
+              ? `TCP ${establishedCount}`
+              : "";
+          onlineIpsHint.textContent = [shown + extra, conn].filter(Boolean).join(" · ") || "за 5 мин";
+        }
+        if (onlineIpsCard) {
+          onlineIpsCard.classList.remove("is-ok", "is-warn", "is-bad");
+          onlineIpsCard.classList.add(recentCount > 0 ? "is-ok" : "is-warn");
         }
 
         if (serverStatusServicesBody) {

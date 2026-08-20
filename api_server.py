@@ -2972,6 +2972,8 @@ def allow_ssh_ip(ip: str) -> dict:
             owner_path.write_text("\n".join(owners) + "\n", encoding="utf-8")
             os.chmod(owner_path, 0o600)
 
+        _ensure_sshd_privsep_dir()
+
         allowed = list(dict.fromkeys(owners + audits))
         allowed_set = set(allowed)
 
@@ -3216,6 +3218,154 @@ def _listening_ports_summary() -> list[dict]:
     return ports[:40]
 
 
+def _ensure_sshd_privsep_dir() -> None:
+    """sshd не стартует без /run/sshd (после перезагрузки каталог может пропасть)."""
+    path = Path("/run/sshd")
+    try:
+        path.mkdir(mode=0o755, exist_ok=True)
+    except OSError:
+        return
+
+
+def _normalize_peer_ip(host: str) -> str:
+    h = (host or "").strip().strip("[]")
+    if h.lower().startswith("::ffff:"):
+        h = h[7:]
+    return h
+
+
+def _is_loopback_ip(ip: str) -> bool:
+    if not ip:
+        return True
+    lowered = ip.lower()
+    if lowered in ("127.0.0.1", "::1", "0.0.0.0", "*", "localhost"):
+        return True
+    return lowered.startswith("127.")
+
+
+def _ss_host_port(addr: str) -> tuple[str, int] | None:
+    raw = (addr or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("["):
+        end = raw.find("]")
+        if end < 0 or end + 2 >= len(raw) or raw[end + 1] != ":":
+            return None
+        host = raw[1:end]
+        port_s = raw[end + 2 :]
+    else:
+        host, sep, port_s = raw.rpartition(":")
+        if not sep:
+            return None
+    try:
+        port = int(port_s)
+    except ValueError:
+        return None
+    return _normalize_peer_ip(host), port
+
+
+def _established_remote_ips() -> dict:
+    """Уникальные удалённые IP с ESTABLISHED TCP (без loopback)."""
+    ips_all: set[str] = set()
+    ips_http: set[str] = set()
+    http_ports = {80, 443}
+    try:
+        proc = subprocess.run(
+            ["ss", "-tnH", "state", "established"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        lines = (proc.stdout or "").splitlines()
+    except (OSError, subprocess.TimeoutExpired):
+        lines = []
+    for line in lines:
+        parts = line.split()
+        addrs = [p for p in parts if ":" in p]
+        if len(addrs) < 2:
+            continue
+        local = _ss_host_port(addrs[-2])
+        peer = _ss_host_port(addrs[-1])
+        if not peer:
+            continue
+        ip = peer[0]
+        if _is_loopback_ip(ip):
+            continue
+        ips_all.add(ip)
+        if local and local[1] in http_ports:
+            ips_http.add(ip)
+    all_sorted = sorted(ips_all)
+    http_sorted = sorted(ips_http)
+    return {
+        "count": len(all_sorted),
+        "ips": all_sorted[:80],
+        "http_count": len(http_sorted),
+        "http_ips": http_sorted[:80],
+    }
+
+
+_NGINX_ACCESS_LOGS = (
+    Path("/var/log/nginx/access.log"),
+    Path("/var/log/nginx/paletlist.access.log"),
+)
+_NGINX_LINE_RE = re.compile(r"^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]")
+_RECENT_ONLINE_WINDOW_SEC = 300
+
+
+def _recent_http_client_ips(window_sec: int = _RECENT_ONLINE_WINDOW_SEC) -> dict:
+    """Уникальные IP из access.log nginx за последние window_sec секунд."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now.timestamp() - int(window_sec)
+    ips: set[str] = set()
+    log_used = None
+    for path in _NGINX_ACCESS_LOGS:
+        if not path.is_file():
+            continue
+        try:
+            size = path.stat().st_size
+            max_bytes = 750_000
+            with path.open("rb") as fh:
+                if size > max_bytes:
+                    fh.seek(size - max_bytes)
+                    fh.readline()
+                raw = fh.read()
+            text = raw.decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        log_used = str(path)
+        for line in text.splitlines():
+            m = _NGINX_LINE_RE.match(line)
+            if not m:
+                continue
+            ip = _normalize_peer_ip(m.group(1))
+            if _is_loopback_ip(ip):
+                continue
+            try:
+                ts = datetime.datetime.strptime(m.group(2), "%d/%b/%Y:%H:%M:%S %z")
+            except ValueError:
+                continue
+            if ts.timestamp() >= cutoff:
+                ips.add(ip)
+        break
+    ordered = sorted(ips)
+    return {
+        "window_seconds": int(window_sec),
+        "count": len(ordered),
+        "ips": ordered[:80],
+        "log": log_used,
+    }
+
+
+def _online_ips_snapshot() -> dict:
+    established = _established_remote_ips()
+    recent = _recent_http_client_ips()
+    return {
+        "established": established,
+        "recent_http": recent,
+    }
+
+
 def _disk_usage_for(path: str) -> dict | None:
     try:
         usage = shutil.disk_usage(path)
@@ -3325,6 +3475,7 @@ def collect_server_status() -> dict:
             _systemctl_state("ssh"),
         ],
         "listening_ports": _listening_ports_summary(),
+        "online_ips": _online_ips_snapshot(),
         "database": _database_status_snapshot(),
         "process_count": _process_count(),
     }

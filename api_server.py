@@ -3149,6 +3149,37 @@ def _ensure_ssh_alt_port(port: int = 2222) -> str | None:
         head.insert(insert_at, marker)
         new_lines = head + tail
     sshd.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    # Ubuntu: ssh.socket (socket activation) слушает только то, что в unit —
+    # Port в sshd_config сам по себе доп. порт не открывает.
+    drop_in = Path("/etc/systemd/system/ssh.socket.d")
+    try:
+        drop_in.mkdir(parents=True, exist_ok=True)
+        override = drop_in / "paletlist-alt-port.conf"
+        override.write_text(
+            "\n".join(
+                [
+                    "[Socket]",
+                    "# Reset inherited ListenStream, then bind both ports.",
+                    "ListenStream=",
+                    "ListenStream=22",
+                    f"ListenStream={port}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        _ufw_run(["systemctl", "daemon-reload"])
+        # restart socket so it binds 2222
+        for args in (
+            ["systemctl", "restart", "ssh.socket"],
+            ["systemctl", "restart", "ssh"],
+            ["systemctl", "restart", "sshd.socket"],
+            ["systemctl", "restart", "sshd"],
+        ):
+            _ufw_run(args)
+    except OSError as exc:
+        return f"Не удалось настроить ssh.socket: {exc}"
     return None
 
 

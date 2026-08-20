@@ -3113,6 +3113,42 @@ def _stable_owner_cidr_for(ip: str) -> str | None:
     return None
 
 
+def _iptables_allow_ssh_from(addr: str) -> None:
+    """Дублируем UFW правилом iptables (на случай, если ufw reload «теряет» CIDR)."""
+    # Удалить дубликат, если уже есть, затем вставить в начало INPUT.
+    _ufw_run(
+        [
+            "iptables",
+            "-D",
+            "INPUT",
+            "-p",
+            "tcp",
+            "-s",
+            addr,
+            "--dport",
+            "22",
+            "-j",
+            "ACCEPT",
+        ]
+    )
+    _ufw_run(
+        [
+            "iptables",
+            "-I",
+            "INPUT",
+            "1",
+            "-p",
+            "tcp",
+            "-s",
+            addr,
+            "--dport",
+            "22",
+            "-j",
+            "ACCEPT",
+        ]
+    )
+
+
 def allow_ssh_ip(ip: str) -> dict:
     """Разрешить SSH с IP как владельцу (root+SFTP). Audit-IP не трогаем."""
     ip = (ip or "").strip()
@@ -3160,9 +3196,14 @@ def allow_ssh_ip(ip: str) -> dict:
                 return {"error": "firewall", "message": err}
         _ufw_run(["ufw", "allow", "80/tcp"])
         _ufw_run(["ufw", "allow", "443/tcp"])
+        # На части хостов правило появляется только после reload.
+        _ufw_run(["ufw", "reload"])
         _prune_stale_ssh_ufw(allowed)
 
         acl_err = _apply_sshd_address_acl(owners, audits)
+        ufw_status = (_ufw_run(["ufw", "status", "numbered"]).stdout or "")[:4000]
+        listen22 = (_ufw_run(["bash", "-lc", "ss -tlnp | grep -E ':22\\b' || true"]).stdout or "").strip()
+
         if acl_err:
             # UFW уже открыт — SSH по сети должен работать; ACL сообщаем отдельно.
             return {
@@ -3172,6 +3213,8 @@ def allow_ssh_ip(ip: str) -> dict:
                 "ssh_ips": allowed,
                 "owner_ips": owners,
                 "audit_ips": audits,
+                "ufw_status": ufw_status,
+                "listen22": listen22,
                 "message": (
                     f"SSH в UFW открыт для владельца ({ip}). "
                     f"Предупреждение sshd: {acl_err}"
@@ -3186,6 +3229,8 @@ def allow_ssh_ip(ip: str) -> dict:
         "ssh_ips": allowed,
         "owner_ips": owners,
         "audit_ips": audits,
+        "ufw_status": ufw_status,
+        "listen22": listen22,
         "message": f"SSH (владелец) разрешён для {ip}. Можно подключаться.",
     }
 

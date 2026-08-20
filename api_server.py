@@ -3058,7 +3058,7 @@ def _apply_sshd_address_acl(owners: list[str], audits: list[str]) -> str | None:
     out.append("# END ssh address ACL")
     out.append("")
     sshd.write_text("\n".join(out), encoding="utf-8")
-    return _reload_ssh_daemon()
+    return None
 
 
 def _ufw_source_allowed(src: str, allowed: list[str]) -> bool:
@@ -3114,36 +3114,41 @@ def _stable_owner_cidr_for(ip: str) -> str | None:
 
 
 def _ensure_ssh_alt_port(port: int = 2222) -> str | None:
-    """Дублировать SSH на доп. порту (если ISP/фильтр режет :22)."""
+    """Дублировать SSH на доп. порту (если фильтр режет :22). Только вне Match."""
     sshd = Path("/etc/ssh/sshd_config")
     if not sshd.is_file():
         return "Не найден /etc/ssh/sshd_config"
-    text = sshd.read_text(encoding="utf-8", errors="replace")
     marker = f"Port {port}"
-    # Уже есть uncommented Port 2222
-    has_alt = any(
-        ln.strip() == marker for ln in text.splitlines() if not ln.strip().startswith("#")
+    lines = sshd.read_text(encoding="utf-8", errors="replace").splitlines()
+    # Убрать все Port <alt> — могли оказаться внутри Match.
+    cleaned = [ln for ln in lines if ln.strip() != marker]
+    # Первая строка Match (глобально) — Port должен быть строго выше.
+    match_idx = next(
+        (i for i, ln in enumerate(cleaned) if re.match(r"^Match\b", ln.strip())),
+        len(cleaned),
     )
-    if not has_alt:
-        # Добавим рядом с основным Port / в конец перед ACL-блоком
-        lines = text.splitlines()
-        out: list[str] = []
-        inserted = False
-        for ln in lines:
-            out.append(ln)
-            if (not inserted) and re.match(r"^Port\s+22\s*$", ln.strip()):
-                out.append(marker)
-                inserted = True
-        if not inserted:
-            # перед ACL или в конец
-            acl_idx = next(
-                (i for i, ln in enumerate(out) if "# BEGIN ssh address ACL" in ln), None
-            )
-            if acl_idx is None:
-                out.append(marker)
+    head = cleaned[:match_idx]
+    tail = cleaned[match_idx:]
+    # Уже есть в head?
+    if any(ln.strip() == marker for ln in head):
+        new_lines = head + tail
+    else:
+        insert_at = None
+        for i, ln in enumerate(head):
+            if re.match(r"^Port\s+\d+\s*$", ln.strip()):
+                insert_at = i + 1
+        if insert_at is None:
+            # После блока комментариев в начале файла
+            insert_at = 0
+            for i, ln in enumerate(head):
+                if ln.strip() and not ln.strip().startswith("#"):
+                    insert_at = i
+                    break
             else:
-                out.insert(acl_idx, marker)
-        sshd.write_text("\n".join(out) + "\n", encoding="utf-8")
+                insert_at = len(head)
+        head.insert(insert_at, marker)
+        new_lines = head + tail
+    sshd.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     return None
 
 
@@ -3248,16 +3253,21 @@ def allow_ssh_ip(ip: str) -> dict:
         _write_ip_list(pin_path, allowed)
 
         alt_port = 2222
-        alt_err = _ensure_ssh_alt_port(alt_port)
-        if alt_err:
-            return {"error": "firewall", "message": alt_err}
+        # Сначала вытащить Port из Match (если сломали ранее), потом ACL, потом reload.
+        fix_err = _ensure_ssh_alt_port(alt_port)
+        if fix_err:
+            return {"error": "firewall", "message": fix_err}
+        acl_err = _apply_sshd_address_acl(owners, audits)
+        _ensure_ssh_alt_port(alt_port)
+        reload_err = _reload_ssh_daemon()
+        if reload_err:
+            acl_err = f"{acl_err}; {reload_err}" if acl_err else reload_err
 
         for addr in allowed:
             err = _ufw_allow_ssh_from(addr)
             if err:
                 return {"error": "firewall", "message": err}
             _iptables_allow_port_from(addr, 22)
-        # Доп. порт SSH — на случай фильтрации :22 по пути до сервера.
         for addr in owners:
             err = _ufw_allow_port_from(addr, alt_port, "SSH alt owner")
             if err:
@@ -3266,16 +3276,13 @@ def allow_ssh_ip(ip: str) -> dict:
 
         _ufw_run(["ufw", "allow", "80/tcp"])
         _ufw_run(["ufw", "allow", "443/tcp"])
-        # На части хостов правило появляется только после reload.
         _ufw_run(["ufw", "reload"])
-        # После reload снова закрепить iptables ACCEPT.
         for addr in allowed:
             _iptables_allow_port_from(addr, 22)
         for addr in owners:
             _iptables_allow_port_from(addr, alt_port)
         _prune_stale_ssh_ufw(allowed)
 
-        acl_err = _apply_sshd_address_acl(owners, audits)
         ufw_status = (_ufw_run(["ufw", "status", "numbered"]).stdout or "")[:4000]
         listen_ssh = (
             _ufw_run(

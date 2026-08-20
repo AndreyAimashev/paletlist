@@ -3107,9 +3107,11 @@ def _stable_owner_cidr_for(ip: str) -> str | None:
     if not _is_valid_ipv4(ip):
         return None
     a, b, c, _d = (int(x) for x in ip.split("."))
-    # Известный динамический выход пользователя (CGNAT/ротация в /24)
+    # Известные динамические выходы пользователя (CGNAT/ротация в /24)
     if (a, b, c) == (196, 61, 180):
         return "196.61.180.0/24"
+    if (a, b, c) == (31, 148, 13):
+        return "31.148.13.0/24"
     return None
 
 

@@ -2915,6 +2915,40 @@ def _is_valid_ipv4(ip: str) -> bool:
         return False
 
 
+def _is_valid_ipv4_or_cidr(value: str) -> bool:
+    raw = (value or "").strip()
+    if not raw:
+        return False
+    if "/" not in raw:
+        return _is_valid_ipv4(raw)
+    ip_part, _, prefix = raw.partition("/")
+    if not _is_valid_ipv4(ip_part):
+        return False
+    try:
+        bits = int(prefix)
+    except ValueError:
+        return False
+    return 0 <= bits <= 32
+
+
+def _ip_in_cidr(ip: str, cidr: str) -> bool:
+    """Проверка IPv4 ∈ CIDR (или точное совпадение адреса)."""
+    if not _is_valid_ipv4(ip):
+        return False
+    cidr = (cidr or "").strip()
+    if "/" not in cidr:
+        return ip == cidr
+    if not _is_valid_ipv4_or_cidr(cidr):
+        return False
+    net, _, prefix_s = cidr.partition("/")
+    prefix = int(prefix_s)
+    def _to_int(addr: str) -> int:
+        a, b, c, d = (int(x) for x in addr.split("."))
+        return (a << 24) | (b << 16) | (c << 8) | d
+    mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF if prefix else 0
+    return (_to_int(ip) & mask) == (_to_int(net) & mask)
+
+
 def _secrets_match(provided: str | None, expected: str) -> bool:
     if not expected or not provided:
         return False
@@ -2931,109 +2965,218 @@ def _read_ip_list(path: Path) -> list[str]:
         return out
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#") and _is_valid_ipv4(line) and line not in out:
+        if line and not line.startswith("#") and _is_valid_ipv4_or_cidr(line) and line not in out:
             out.append(line)
     return out
+
+
+def _write_ip_list(path: Path, items: list[str]) -> None:
+    path.write_text("\n".join(items) + ("\n" if items else ""), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _ufw_run(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
+
+
+def _ufw_allow_ssh_from(addr: str) -> str | None:
+    proc = _ufw_run(
+        [
+            "ufw",
+            "allow",
+            "from",
+            addr,
+            "to",
+            "any",
+            "port",
+            "22",
+            "proto",
+            "tcp",
+            "comment",
+            "SSH allowed",
+        ]
+    )
+    if proc.returncode == 0:
+        return None
+    detail = (proc.stderr or proc.stdout or "").strip().lower()
+    if "existing" in detail or "skipping" in detail:
+        return None
+    return (proc.stderr or proc.stdout or "").strip() or f"Не удалось добавить {addr}"
+
+
+def _reload_ssh_daemon() -> str | None:
+    """Перечитать sshd. На Ubuntu unit обычно называется ssh, не sshd."""
+    _ensure_sshd_privsep_dir()
+    test = _ufw_run(["sshd", "-t"])
+    if test.returncode != 0:
+        return (test.stderr or test.stdout or "").strip() or "sshd -t failed"
+    for unit in ("ssh", "sshd"):
+        proc = _ufw_run(["systemctl", "reload", unit])
+        if proc.returncode == 0:
+            return None
+    # last resort: restart
+    for unit in ("ssh", "sshd"):
+        proc = _ufw_run(["systemctl", "restart", unit])
+        if proc.returncode == 0:
+            return None
+    return "Не удалось перезагрузить службу SSH (ssh/sshd)."
+
+
+def _apply_sshd_address_acl(owners: list[str], audits: list[str]) -> str | None:
+    """Прописать Match Address в sshd_config: audit=SFTP-only, owner=root+SFTP."""
+    sshd = Path("/etc/ssh/sshd_config")
+    if not sshd.is_file():
+        return "Не найден /etc/ssh/sshd_config"
+    text = sshd.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        if "# BEGIN ssh address ACL" in line:
+            skipping = True
+            continue
+        if "# END ssh address ACL" in line:
+            skipping = False
+            continue
+        if not skipping:
+            out.append(line)
+    while out and out[-1].strip() == "":
+        out.pop()
+    out.append("")
+    out.append("# BEGIN ssh address ACL")
+    if audits:
+        out.append("# Audit IPs: only security-audit (SFTP). No root.")
+        out.append(f"Match Address {','.join(audits)}")
+        out.append("    AllowUsers security-audit")
+    if owners:
+        out.append("# Owner IPs: root (key) + security-audit")
+        out.append(f"Match Address {','.join(owners)}")
+        out.append("    AllowUsers root security-audit")
+    out.append("# END ssh address ACL")
+    out.append("")
+    sshd.write_text("\n".join(out), encoding="utf-8")
+    return _reload_ssh_daemon()
+
+
+def _ufw_source_allowed(src: str, allowed: list[str]) -> bool:
+    """src из ufw status — IP или CIDR — покрыт allow-list."""
+    src = (src or "").strip()
+    if not src:
+        return False
+    if src in allowed:
+        return True
+    if _is_valid_ipv4(src):
+        return any(_ip_in_cidr(src, entry) for entry in allowed)
+    return False
+
+
+def _prune_stale_ssh_ufw(allowed: list[str]) -> None:
+    allowed_set = set(allowed)
+    for _ in range(40):
+        status = _ufw_run(["ufw", "status", "numbered"])
+        stale_num = None
+        for line in (status.stdout or "").splitlines():
+            m = re.match(r"^\[\s*(\d+)\]\s+22/tcp\b(.*)$", line.strip())
+            if not m:
+                continue
+            rest = m.group(2)
+            # CIDR or single IP in UFW line
+            cidr_match = re.search(
+                r"\b(\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?)\b", rest
+            )
+            src = cidr_match.group(1) if cidr_match else None
+            if src and not _ufw_source_allowed(src, allowed):
+                stale_num = int(m.group(1))
+                break
+            if not src and "Anywhere" in rest:
+                stale_num = int(m.group(1))
+                break
+            if src and src not in allowed_set and not _ufw_source_allowed(src, allowed):
+                stale_num = int(m.group(1))
+                break
+        if stale_num is None:
+            break
+        _ufw_run(["ufw", "--force", "delete", str(stale_num)])
+
+
+def _stable_owner_cidr_for(ip: str) -> str | None:
+    """Для динамических ISP-адресов закрепить /24, чтобы SSH не отваливался."""
+    if not _is_valid_ipv4(ip):
+        return None
+    a, b, c, _d = (int(x) for x in ip.split("."))
+    # Известный динамический выход пользователя (CGNAT/ротация в /24)
+    if (a, b, c) == (196, 61, 180):
+        return "196.61.180.0/24"
+    return None
 
 
 def allow_ssh_ip(ip: str) -> dict:
     """Разрешить SSH с IP как владельцу (root+SFTP). Audit-IP не трогаем."""
     ip = (ip or "").strip()
-    if not _is_valid_ipv4(ip):
-        return {"error": "validation", "message": "Некорректный IPv4-адрес."}
-    if ip in ("0.0.0.0", "127.0.0.1"):
+    if not _is_valid_ipv4(ip) and not _is_valid_ipv4_or_cidr(ip):
+        return {"error": "validation", "message": "Некорректный IPv4-адрес или CIDR."}
+    if ip in ("0.0.0.0", "127.0.0.1", "0.0.0.0/0"):
         return {"error": "validation", "message": "Этот адрес нельзя добавлять."}
 
     conf_dir = Path("/etc/paletlist")
     owner_path = conf_dir / "ssh-owner-ips.txt"
     audit_path = conf_dir / "ssh-audit-ips.txt"
-    apply_script = Path("/usr/local/sbin/paletlist-ssh-apply-acl")
-
-    def _run(args: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+    pin_path = conf_dir / "ssh-pinned-ips.txt"
 
     try:
         conf_dir.mkdir(parents=True, exist_ok=True)
         owners = _read_ip_list(owner_path)
         audits = _read_ip_list(audit_path)
-        # Unlock script always grants owner rights (your PC), never audit-only.
-        if ip in audits:
-            audits = [a for a in audits if a != ip]
-            audit_path.write_text("\n".join(audits) + ("\n" if audits else ""), encoding="utf-8")
-            os.chmod(audit_path, 0o600)
-        if ip not in owners:
-            owners.append(ip)
-            owner_path.write_text("\n".join(owners) + "\n", encoding="utf-8")
-            os.chmod(owner_path, 0o600)
 
-        _ensure_sshd_privsep_dir()
+        # Точный IP убрать из audit, если вдруг там был.
+        if _is_valid_ipv4(ip):
+            audits = [a for a in audits if a != ip]
+            stable = _stable_owner_cidr_for(ip)
+            entries_to_add = [stable] if stable else [ip]
+            # Убрать одиночные адреса из той же /24, если закрепили CIDR.
+            if stable:
+                owners = [o for o in owners if not (_is_valid_ipv4(o) and _ip_in_cidr(o, stable))]
+            for entry in entries_to_add:
+                if entry and entry not in owners:
+                    owners.append(entry)
+        else:
+            # Явный CIDR
+            audits = [a for a in audits if a != ip]
+            if ip not in owners:
+                owners.append(ip)
+
+        _write_ip_list(owner_path, owners)
+        _write_ip_list(audit_path, audits)
 
         allowed = list(dict.fromkeys(owners + audits))
-        allowed_set = set(allowed)
+        _write_ip_list(pin_path, allowed)
 
-        if apply_script.is_file():
-            proc = _run(["bash", str(apply_script)])
-            if proc.returncode != 0:
-                return {
-                    "error": "firewall",
-                    "message": (proc.stderr or proc.stdout or "").strip()
-                    or "Не удалось применить SSH ACL",
-                }
-        else:
-            for addr in allowed:
-                proc = _run(
-                    [
-                        "ufw",
-                        "allow",
-                        "from",
-                        addr,
-                        "to",
-                        "any",
-                        "port",
-                        "22",
-                        "proto",
-                        "tcp",
-                        "comment",
-                        "SSH allowed",
-                    ]
-                )
-                if proc.returncode != 0:
-                    detail = (proc.stderr or proc.stdout or "").strip().lower()
-                    if "existing" not in detail and "skipping" not in detail:
-                        return {
-                            "error": "firewall",
-                            "message": (proc.stderr or proc.stdout or "").strip()
-                            or f"Не удалось добавить {addr}",
-                        }
-            _run(["ufw", "allow", "80/tcp"])
-            _run(["ufw", "allow", "443/tcp"])
+        for addr in allowed:
+            err = _ufw_allow_ssh_from(addr)
+            if err:
+                return {"error": "firewall", "message": err}
+        _ufw_run(["ufw", "allow", "80/tcp"])
+        _ufw_run(["ufw", "allow", "443/tcp"])
+        _prune_stale_ssh_ufw(allowed)
 
-        # Remove only stale SSH source IPs not in allow-list.
-        for _ in range(40):
-            status = _run(["ufw", "status", "numbered"])
-            stale_num = None
-            for line in (status.stdout or "").splitlines():
-                m = re.match(r"^\[\s*(\d+)\]\s+22/tcp\b(.*)$", line.strip())
-                if not m:
-                    continue
-                rest = m.group(2)
-                ip_match = re.search(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", rest)
-                src_ip = ip_match.group(1) if ip_match else None
-                if src_ip and src_ip not in allowed_set:
-                    stale_num = int(m.group(1))
-                    break
-                if not src_ip and "Anywhere" in rest:
-                    stale_num = int(m.group(1))
-                    break
-            if stale_num is None:
-                break
-            _run(["ufw", "--force", "delete", str(stale_num)])
+        acl_err = _apply_sshd_address_acl(owners, audits)
+        if acl_err:
+            # UFW уже открыт — SSH по сети должен работать; ACL сообщаем отдельно.
+            return {
+                "ok": True,
+                "warning": acl_err,
+                "allowed_ip": ip,
+                "ssh_ips": allowed,
+                "owner_ips": owners,
+                "audit_ips": audits,
+                "message": (
+                    f"SSH в UFW открыт для владельца ({ip}). "
+                    f"Предупреждение sshd: {acl_err}"
+                ),
+            }
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"error": "firewall", "message": f"Не удалось обновить UFW: {exc}"}
 

@@ -45,6 +45,10 @@ if [ -f requirements.txt ]; then
   python3 -m pip install --break-system-packages -r requirements.txt || true
 fi
 
+if [ -f "$APP_DIR/scripts/paletlist-ssh-apply-acl.sh" ]; then
+  install -m 755 "$APP_DIR/scripts/paletlist-ssh-apply-acl.sh" /usr/local/sbin/paletlist-ssh-apply-acl
+fi
+
 if command -v nginx >/dev/null 2>&1; then
   systemctl reload nginx || true
 fi

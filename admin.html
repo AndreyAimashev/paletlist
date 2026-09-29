@@ -20592,6 +20592,31 @@
         );
       }
 
+      function buildOrdersListVisibleSignature(rows) {
+        const list = Array.isArray(rows) ? rows : getOrdersRowsForDisplay();
+        return list
+          .map((o) =>
+            [
+              o.id,
+              o.ship_date || "",
+              o.client || "",
+              o.client_city || "",
+              Math.round(Number(o.assembled_percent) || 0),
+              o.order_readiness || "",
+              o.assemble_revision || 0,
+              o.chat_has_messages ? 1 : 0,
+              o.chat_has_unread ? 1 : 0,
+              o.lab_sscc_shipped ? 1 : 0,
+              o.last_edited_by || "",
+              o.last_assembled_by || "",
+              o.extra_info || "",
+              o.import_skipped_lines || 0,
+              Array.isArray(o.items) ? o.items.length : 0,
+            ].join("\t"),
+          )
+          .join("\n");
+      }
+
       function applyOrdersListToUi(enriched, opts) {
         const append = !!(opts && opts.append);
         const wraps = [];
@@ -20723,19 +20748,54 @@
           if (gen !== ordersListLoadGen) {
             return;
           }
-          const enriched = await enrichOrdersListRows(rows);
+          // Тихий poll: не пересчитываем % по локальным паллетам — иначе таблица
+          // перерисовывается каждую секунду и hover «мигает».
+          const enriched = quiet
+            ? rows.map((o) => {
+                const prev = cachedOrdersListRows.find((r) => Number(r.id) === Number(o.id));
+                const pallets = getAssemblePalletsFromOrderOrStorage(o, o.id);
+                const assemble_pallet_count = pallets
+                  ? pallets.length
+                  : prev && prev.assemble_pallet_count != null
+                    ? prev.assemble_pallet_count
+                    : 0;
+                return {
+                  ...(prev || {}),
+                  ...o,
+                  items:
+                    Array.isArray(o.items) && o.items.length
+                      ? o.items
+                      : prev && Array.isArray(prev.items)
+                        ? prev.items
+                        : o.items || [],
+                  assemble_pallet_count,
+                };
+              })
+            : await enrichOrdersListRows(rows);
           if (gen !== ordersListLoadGen) {
             return;
           }
           const merged = mergeOrderReadinessFromServer(enriched);
+          const oldVisibleSig = buildOrdersListVisibleSignature();
           if (append) {
             const seen = new Set(cachedOrdersListRows.map((r) => Number(r.id)));
             const add = merged.filter((r) => !seen.has(Number(r.id)));
             cachedOrdersListRows = cachedOrdersListRows.concat(add);
             pruneOrderMonitoringDetailCache(cachedOrdersListRows);
+          } else if (quiet && cachedOrdersListRows.length > merged.length) {
+            // Обновляем только «окно» опроса, хвост догруженных страниц сохраняем.
+            cachedOrdersListRows = merged.concat(
+              cachedOrdersListRows.slice(merged.length),
+            );
+            pruneOrderMonitoringDetailCache(cachedOrdersListRows);
           } else {
             cachedOrdersListRows = merged;
             pruneOrderMonitoringDetailCache(merged);
+          }
+          const newVisibleSig = buildOrdersListVisibleSignature();
+          if (quiet && !append && oldVisibleSig === newVisibleSig) {
+            syncOrdersFilteredCount();
+            return;
           }
           applyOrdersListToUi(merged, { append });
         } catch (error) {

@@ -12646,7 +12646,12 @@
       }
 
       const ORDERS_NAMES_UNIT_STORAGE = "paletlist_orders_names_unit";
+      const ORDERS_PAGE_SIZE = 40;
       let cachedOrdersListRows = [];
+      let ordersListTotal = 0;
+      let ordersListHasMore = false;
+      let ordersListLoading = false;
+      let ordersListLoadGen = 0;
       let ordersSortKey = null;
       let ordersSortDir = "asc";
       let ordersFilterShipFrom = "";
@@ -13178,7 +13183,11 @@
       }
 
       function syncOrdersFilteredCount() {
-        const text = formatOrdersFilteredCountText(getOrdersRowsForDisplay().length);
+        const shown = getOrdersRowsForDisplay().length;
+        let text = formatOrdersFilteredCountText(shown);
+        if (ordersListTotal > 0 && (ordersListHasMore || cachedOrdersListRows.length < ordersListTotal)) {
+          text = `${shown} из ${ordersListTotal}`;
+        }
         document.querySelectorAll(".orders-filtered-count").forEach((el) => {
           el.textContent = text;
         });
@@ -14388,6 +14397,7 @@
         } else if (currentStage === "orders") {
           renderOrdersTable();
         }
+        ensureOrdersListFilledForFilters();
       }
 
       function renderOrdersTable() {
@@ -14454,6 +14464,15 @@
           })
           .join("");
         syncOrdersFilterShipInputs();
+        // Если таблица не заполняет viewport — подгрузить ещё порцию.
+        requestAnimationFrame(() => {
+          const wrap = ordersWorkspace
+            ? ordersWorkspace.querySelector(".orders-table-wrap")
+            : null;
+          if (wrap && wrap.scrollHeight <= wrap.clientHeight + 40) {
+            maybeLoadMoreOrdersOnScroll(wrap);
+          }
+        });
       }
 
       function formatOrderMonitoringPctCell(orderRow) {
@@ -20491,96 +20510,189 @@
         };
       }
 
+      async function enrichOrdersListRows(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        return Promise.all(
+          list.map(async (o) => {
+            const pallets = getAssemblePalletsFromOrderOrStorage(o, o.id);
+            const assemble_pallet_count = pallets ? pallets.length : 0;
+            if (!pallets || !pallets.length) {
+              return { ...o, assemble_pallet_count };
+            }
+            let items = Array.isArray(o.items) && o.items.length ? o.items : null;
+            if (!items) {
+              let detailRes;
+              try {
+                detailRes = await fetch(`/api/orders/${o.id}`);
+              } catch (e) {
+                return { ...o, assemble_pallet_count };
+              }
+              if (!detailRes.ok) {
+                return { ...o, assemble_pallet_count };
+              }
+              let data;
+              try {
+                data = await detailRes.json();
+              } catch (e) {
+                return { ...o, assemble_pallet_count };
+              }
+              items = Array.isArray(data.items) ? data.items : [];
+            }
+            if (!items.length) {
+              return { ...o, assemble_pallet_count };
+            }
+            const pct = computeAssembledPercentForOrder(o.client || "", items, pallets, {
+              buyer_order_mode: o.buyer_order_mode,
+            });
+            return {
+              ...o,
+              assembled_percent: pct,
+              assemble_pallet_count,
+              items: Array.isArray(o.items) && o.items.length ? o.items : items,
+            };
+          }),
+        );
+      }
+
+      function applyOrdersListToUi(enriched) {
+        mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
+        mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
+        syncOrdersFilteredCount();
+        if (currentStage === "orders") {
+          if (!isOrderChatModalOpen()) {
+            renderOrdersTable();
+          } else if (ordersTableBody) {
+            ordersTableBody
+              .querySelectorAll('button[data-order-action="chat"]')
+              .forEach((btn) => {
+                const oid = Number(btn.dataset.orderId);
+                const row = enriched.find((o) => o.id === oid);
+                if (!row) {
+                  return;
+                }
+                syncOrderChatButtonEl(btn, row);
+              });
+          }
+        } else if (currentStage === "order_monitoring") {
+          if (!isOrderChatModalOpen()) {
+            renderOrderMonitoringTable();
+          } else if (orderMonitoringTableBody) {
+            orderMonitoringTableBody
+              .querySelectorAll('button[data-order-action="chat"]')
+              .forEach((btn) => {
+                const oid = Number(btn.dataset.orderId);
+                const row = enriched.find((o) => o.id === oid);
+                if (!row) {
+                  return;
+                }
+                syncOrderChatButtonEl(btn, row);
+              });
+          }
+        }
+      }
+
+      function setOrdersListLoadingHint(on) {
+        const bodies = [ordersTableBody, orderMonitoringTableBody].filter(Boolean);
+        for (const body of bodies) {
+          let tip = body.querySelector("tr[data-orders-loading-more]");
+          if (!on) {
+            if (tip) {
+              tip.remove();
+            }
+            continue;
+          }
+          if (tip) {
+            continue;
+          }
+          const cols = body === orderMonitoringTableBody ? 7 : 6;
+          tip = document.createElement("tr");
+          tip.dataset.ordersLoadingMore = "1";
+          tip.innerHTML = `<td colspan="${cols}" class="muted">Загрузка заказов…</td>`;
+          body.appendChild(tip);
+        }
+      }
+
       async function loadOrders(opts) {
         const quiet = !!(opts && opts.quiet);
+        const append = !!(opts && opts.append);
+        if (ordersListLoading) {
+          if (append) {
+            return;
+          }
+        }
+        if (append && !ordersListHasMore) {
+          return;
+        }
+        const gen = append ? ordersListLoadGen : ++ordersListLoadGen;
+        ordersListLoading = true;
+        if (append) {
+          setOrdersListLoadingHint(true);
+        }
         try {
-          const res = await fetch("/api/orders", { cache: "no-store" });
+          const offset = append ? cachedOrdersListRows.length : 0;
+          const limit = append
+            ? ORDERS_PAGE_SIZE
+            : quiet && cachedOrdersListRows.length > ORDERS_PAGE_SIZE
+              ? Math.min(100, cachedOrdersListRows.length)
+              : ORDERS_PAGE_SIZE;
+          const res = await fetch(
+            `/api/orders?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
+            { cache: "no-store" },
+          );
           if (!res.ok) {
             throw new Error("API error");
           }
-          let rows = await res.json();
-          if (!Array.isArray(rows)) {
-            rows = [];
+          const payload = await res.json();
+          let rows = [];
+          if (Array.isArray(payload)) {
+            rows = payload;
+            ordersListTotal = rows.length;
+            ordersListHasMore = false;
+          } else {
+            rows = Array.isArray(payload.orders) ? payload.orders : [];
+            ordersListTotal = Math.max(0, Number(payload.total) || 0);
+            ordersListHasMore = !!payload.has_more;
           }
-          const enriched = await Promise.all(
-            rows.map(async (o) => {
-              const pallets = getAssemblePalletsFromOrderOrStorage(o, o.id);
-              const assemble_pallet_count = pallets ? pallets.length : 0;
-              if (!pallets || !pallets.length) {
-                return { ...o, assemble_pallet_count };
-              }
-              let items = Array.isArray(o.items) && o.items.length ? o.items : null;
-              if (!items) {
-                let detailRes;
-                try {
-                  detailRes = await fetch(`/api/orders/${o.id}`);
-                } catch (e) {
-                  return { ...o, assemble_pallet_count };
-                }
-                if (!detailRes.ok) {
-                  return { ...o, assemble_pallet_count };
-                }
-                let data;
-                try {
-                  data = await detailRes.json();
-                } catch (e) {
-                  return { ...o, assemble_pallet_count };
-                }
-                items = Array.isArray(data.items) ? data.items : [];
-              }
-              if (!items.length) {
-                return { ...o, assemble_pallet_count };
-              }
-              const pct = computeAssembledPercentForOrder(o.client || "", items, pallets, {
-                buyer_order_mode: o.buyer_order_mode,
-              });
-              return {
-                ...o,
-                assembled_percent: pct,
-                assemble_pallet_count,
-                items: Array.isArray(o.items) && o.items.length ? o.items : items,
-              };
-            }),
-          );
-          cachedOrdersListRows = mergeOrderReadinessFromServer(enriched);
-          pruneOrderMonitoringDetailCache(enriched);
-          mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
-          mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
-          syncOrdersFilteredCount();
-          if (currentStage === "orders") {
-            if (!isOrderChatModalOpen()) {
-              renderOrdersTable();
-            } else if (ordersTableBody) {
-              ordersTableBody
-                .querySelectorAll('button[data-order-action="chat"]')
-                .forEach((btn) => {
-                  const oid = Number(btn.dataset.orderId);
-                  const row = enriched.find((o) => o.id === oid);
-                  if (!row) {
-                    return;
-                  }
-                  syncOrderChatButtonEl(btn, row);
-                });
-            }
-          } else if (currentStage === "order_monitoring") {
-            if (!isOrderChatModalOpen()) {
-              renderOrderMonitoringTable();
-            } else if (orderMonitoringTableBody) {
-              orderMonitoringTableBody
-                .querySelectorAll('button[data-order-action="chat"]')
-                .forEach((btn) => {
-                  const oid = Number(btn.dataset.orderId);
-                  const row = enriched.find((o) => o.id === oid);
-                  if (!row) {
-                    return;
-                  }
-                  syncOrderChatButtonEl(btn, row);
-                });
-            }
+          if (gen !== ordersListLoadGen) {
+            return;
+          }
+          const enriched = await enrichOrdersListRows(rows);
+          if (gen !== ordersListLoadGen) {
+            return;
+          }
+          const merged = mergeOrderReadinessFromServer(enriched);
+          if (append) {
+            const seen = new Set(cachedOrdersListRows.map((r) => Number(r.id)));
+            const add = merged.filter((r) => !seen.has(Number(r.id)));
+            cachedOrdersListRows = cachedOrdersListRows.concat(add);
+            pruneOrderMonitoringDetailCache(cachedOrdersListRows);
+          } else {
+            cachedOrdersListRows = merged;
+            pruneOrderMonitoringDetailCache(merged);
+          }
+          applyOrdersListToUi(merged);
+          // Под фильтры: если на экране мало строк, а на сервере ещё есть — подтянуть ещё.
+          const autofillDepth = Number((opts && opts.autofillDepth) || 0);
+          if (
+            ordersListHasMore &&
+            autofillDepth < 8 &&
+            getOrdersRowsForDisplay().length < ORDERS_PAGE_SIZE &&
+            cachedOrdersListRows.length < ordersListTotal
+          ) {
+            ordersListLoading = false;
+            setOrdersListLoadingHint(false);
+            await loadOrders({
+              append: true,
+              quiet: true,
+              autofillDepth: autofillDepth + 1,
+            });
+            return;
           }
         } catch (error) {
-          if (!quiet) {
+          if (!quiet && !append) {
             cachedOrdersListRows = [];
+            ordersListTotal = 0;
+            ordersListHasMore = false;
             if (ordersTableBody) {
               ordersTableBody.innerHTML =
                 "<tr><td colspan=\"6\" class=\"muted\">Не удалось загрузить заказы.</td></tr>";
@@ -20591,7 +20703,31 @@
             }
             syncOrdersSortIndicators();
           }
+        } finally {
+          ordersListLoading = false;
+          setOrdersListLoadingHint(false);
         }
+      }
+
+      function maybeLoadMoreOrdersOnScroll(wrap) {
+        if (!wrap || ordersListLoading || !ordersListHasMore) {
+          return;
+        }
+        const remain = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+        if (remain < 160) {
+          void loadOrders({ append: true, quiet: true });
+        }
+      }
+
+      function ensureOrdersListFilledForFilters() {
+        if (
+          ordersListLoading ||
+          !ordersListHasMore ||
+          getOrdersRowsForDisplay().length >= Math.min(ORDERS_PAGE_SIZE, 20)
+        ) {
+          return;
+        }
+        void loadOrders({ append: true, quiet: true });
       }
 
       function finalizeAssembleSlots() {
@@ -22833,6 +22969,25 @@
           ordersTableWrap.addEventListener("scroll", hideOrdersImportSkippedFloatingTip, {
             passive: true,
           });
+          ordersTableWrap.addEventListener(
+            "scroll",
+            () => {
+              maybeLoadMoreOrdersOnScroll(ordersTableWrap);
+            },
+            { passive: true },
+          );
+        }
+        const omWrap = orderMonitoringWorkspace
+          ? orderMonitoringWorkspace.querySelector(".orders-table-wrap")
+          : null;
+        if (omWrap) {
+          omWrap.addEventListener(
+            "scroll",
+            () => {
+              maybeLoadMoreOrdersOnScroll(omWrap);
+            },
+            { passive: true },
+          );
         }
       }
 

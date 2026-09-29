@@ -7132,20 +7132,40 @@ def delete_order(order_id: int) -> dict:
     return {"error": "not_found", "message": "Заказ не найден."}
 
 
-def fetch_orders(session: dict | None = None):
+def fetch_orders(
+    session: dict | None = None,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+):
+    """Список заказов. limit/offset — постранично; без limit — все (совместимость)."""
+    offset = max(0, int(offset or 0))
+    page_limit: int | None = None
+    if limit is not None:
+        try:
+            page_limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            page_limit = 40
+
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         _lab_sscc_sync_all_unshipped_seq_starts(cur)
-        rows = cur.execute(
-            """
+        total = int(cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0] or 0)
+        sql = """
             SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
                    client_city, lab_sscc_seq_start, lab_sscc_shipped, order_readiness,
                    assemble_revision, assemble_state_updated_at,
                    last_edited_by, last_assembled_by, last_modified_by
             FROM orders ORDER BY id DESC
             """
-        ).fetchall()
+        if page_limit is not None:
+            rows = cur.execute(
+                sql + " LIMIT ? OFFSET ?",
+                (page_limit, offset),
+            ).fetchall()
+        else:
+            rows = cur.execute(sql).fetchall()
         ids = [int(r["id"]) for r in rows]
         messages_map = _order_chat_has_messages_map(cur, ids) if ids else {}
         unread_map = _order_chat_unread_map(cur, session, ids) if session else {}
@@ -7218,7 +7238,15 @@ def fetch_orders(session: dict | None = None):
                 **extra_fields,
             }
         )
-    return out
+    if page_limit is None:
+        return out
+    return {
+        "orders": out,
+        "total": total,
+        "limit": page_limit,
+        "offset": offset,
+        "has_more": offset + len(out) < total,
+    }
 
 
 def fetch_nomenclature():
@@ -8887,7 +8915,28 @@ class ApiHandler(BaseHTTPRequestHandler):
         if _is_orders_list_path(path):
             if not self._ensure_path_permissions(path, "GET"):
                 return
-            self._send_json(200, fetch_orders(session=self._auth_session))
+            qs = parse_qs(parsed.query)
+            limit_raw = (qs.get("limit") or [None])[0]
+            offset_raw = (qs.get("offset") or ["0"])[0]
+            if limit_raw is not None and str(limit_raw).strip() != "":
+                try:
+                    limit_val = int(limit_raw)
+                except (TypeError, ValueError):
+                    limit_val = 40
+                try:
+                    offset_val = int(offset_raw)
+                except (TypeError, ValueError):
+                    offset_val = 0
+                self._send_json(
+                    200,
+                    fetch_orders(
+                        session=self._auth_session,
+                        limit=limit_val,
+                        offset=offset_val,
+                    ),
+                )
+            else:
+                self._send_json(200, fetch_orders(session=self._auth_session))
             return
         if _is_users_list_path(path):
             if not self._require_users_manager():

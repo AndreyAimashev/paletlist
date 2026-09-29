@@ -7132,11 +7132,49 @@ def delete_order(order_id: int) -> dict:
     return {"error": "not_found", "message": "Заказ не найден."}
 
 
+def _parse_ship_date_to_day(raw: str) -> int | None:
+    """День отгрузки как YYYYMMDD (int) для сравнения диапазонов."""
+    s = (raw or "").strip()
+    if not s or s == "—":
+        return None
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return y * 10000 + mo * 100 + d
+        return None
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return y * 10000 + mo * 100 + d
+        return None
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{2})$", s)
+    if m:
+        d, mo, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        y = 2000 + yy if yy < 70 else 1900 + yy
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return y * 10000 + mo * 100 + d
+        return None
+    return None
+
+
+def _parse_filter_day_param(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    return _parse_ship_date_to_day(s)
+
+
 def fetch_orders(
     session: dict | None = None,
     *,
     limit: int | None = None,
     offset: int = 0,
+    ship_from: str | None = None,
+    ship_to: str | None = None,
 ):
     """Список заказов. limit/offset — постранично; без limit — все (совместимость)."""
     offset = max(0, int(offset or 0))
@@ -7147,25 +7185,68 @@ def fetch_orders(
         except (TypeError, ValueError):
             page_limit = 40
 
+    from_day = _parse_filter_day_param(ship_from)
+    to_day = _parse_filter_day_param(ship_to)
+    if from_day is not None and to_day is not None and from_day > to_day:
+        from_day, to_day = to_day, from_day
+    date_filter = from_day is not None or to_day is not None
+
     with DB_LOCK:
         con = get_connection()
         cur = con.cursor()
         _lab_sscc_sync_all_unshipped_seq_starts(cur)
-        total = int(cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0] or 0)
-        sql = """
-            SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
-                   client_city, lab_sscc_seq_start, lab_sscc_shipped, order_readiness,
-                   assemble_revision, assemble_state_updated_at,
-                   last_edited_by, last_assembled_by, last_modified_by
-            FROM orders ORDER BY id DESC
-            """
-        if page_limit is not None:
-            rows = cur.execute(
-                sql + " LIMIT ? OFFSET ?",
-                (page_limit, offset),
+
+        if date_filter:
+            id_rows = cur.execute(
+                "SELECT id, ship_date FROM orders ORDER BY id DESC"
             ).fetchall()
+            matched_ids: list[int] = []
+            for ir in id_rows:
+                day = _parse_ship_date_to_day(ir["ship_date"] or "")
+                if day is None:
+                    continue
+                if from_day is not None and day < from_day:
+                    continue
+                if to_day is not None and day > to_day:
+                    continue
+                matched_ids.append(int(ir["id"]))
+            total = len(matched_ids)
+            if page_limit is not None:
+                page_ids = matched_ids[offset : offset + page_limit]
+            else:
+                page_ids = matched_ids
+            rows = []
+            if page_ids:
+                placeholders = ",".join("?" * len(page_ids))
+                raw_rows = cur.execute(
+                    f"""
+                    SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
+                           client_city, lab_sscc_seq_start, lab_sscc_shipped, order_readiness,
+                           assemble_revision, assemble_state_updated_at,
+                           last_edited_by, last_assembled_by, last_modified_by
+                    FROM orders WHERE id IN ({placeholders})
+                    """,
+                    page_ids,
+                ).fetchall()
+                by_id = {int(r["id"]): r for r in raw_rows}
+                rows = [by_id[i] for i in page_ids if i in by_id]
         else:
-            rows = cur.execute(sql).fetchall()
+            total = int(cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0] or 0)
+            sql = """
+                SELECT id, ship_date, client, assembled_percent, names, extra_info, assemble_state,
+                       client_city, lab_sscc_seq_start, lab_sscc_shipped, order_readiness,
+                       assemble_revision, assemble_state_updated_at,
+                       last_edited_by, last_assembled_by, last_modified_by
+                FROM orders ORDER BY id DESC
+                """
+            if page_limit is not None:
+                rows = cur.execute(
+                    sql + " LIMIT ? OFFSET ?",
+                    (page_limit, offset),
+                ).fetchall()
+            else:
+                rows = cur.execute(sql).fetchall()
+
         ids = [int(r["id"]) for r in rows]
         messages_map = _order_chat_has_messages_map(cur, ids) if ids else {}
         unread_map = _order_chat_unread_map(cur, session, ids) if session else {}
@@ -8918,6 +8999,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             limit_raw = (qs.get("limit") or [None])[0]
             offset_raw = (qs.get("offset") or ["0"])[0]
+            ship_from = (qs.get("ship_from") or [None])[0]
+            ship_to = (qs.get("ship_to") or [None])[0]
             if limit_raw is not None and str(limit_raw).strip() != "":
                 try:
                     limit_val = int(limit_raw)
@@ -8933,10 +9016,19 @@ class ApiHandler(BaseHTTPRequestHandler):
                         session=self._auth_session,
                         limit=limit_val,
                         offset=offset_val,
+                        ship_from=ship_from,
+                        ship_to=ship_to,
                     ),
                 )
             else:
-                self._send_json(200, fetch_orders(session=self._auth_session))
+                self._send_json(
+                    200,
+                    fetch_orders(
+                        session=self._auth_session,
+                        ship_from=ship_from,
+                        ship_to=ship_to,
+                    ),
+                )
             return
         if _is_users_list_path(path):
             if not self._require_users_manager():

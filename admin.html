@@ -14010,8 +14010,56 @@
         }
         ordersFilterInputTimer = setTimeout(() => {
           ordersFilterInputTimer = null;
-          renderActiveOrdersListTable();
+          if (ordersShipDateFilterReadyForServer()) {
+            void loadOrders();
+          } else {
+            renderActiveOrdersListTable();
+          }
         }, 220);
+      }
+
+      function ordersShipDateFilterReadyForServer() {
+        if (isMobileLayout()) {
+          const mobileVal = ordersFilterShipMobile.trim();
+          return !mobileVal || isCompleteOrdersFilterDate(mobileVal);
+        }
+        const fromVal = ordersFilterShipFrom.trim();
+        const toVal = ordersFilterShipTo.trim();
+        if (!fromVal && !toVal) {
+          return true;
+        }
+        if (fromVal && !isCompleteOrdersFilterDate(fromVal)) {
+          return false;
+        }
+        if (toVal && !isCompleteOrdersFilterDate(toVal)) {
+          return false;
+        }
+        return true;
+      }
+
+      function getOrdersListShipDateQuery() {
+        /** @type {{ ship_from?: string, ship_to?: string }} */
+        const q = {};
+        if (!ordersShipDateFilterReadyForServer()) {
+          return q;
+        }
+        if (isMobileLayout()) {
+          const mobileVal = ordersFilterShipMobile.trim();
+          if (mobileVal && isCompleteOrdersFilterDate(mobileVal)) {
+            q.ship_from = mobileVal;
+            q.ship_to = mobileVal;
+          }
+          return q;
+        }
+        const fromVal = ordersFilterShipFrom.trim();
+        const toVal = ordersFilterShipTo.trim();
+        if (fromVal && isCompleteOrdersFilterDate(fromVal)) {
+          q.ship_from = fromVal;
+        }
+        if (toVal && isCompleteOrdersFilterDate(toVal)) {
+          q.ship_to = toVal;
+        }
+        return q;
       }
 
       function countAssemblePalletsInOrder(order) {
@@ -14397,7 +14445,6 @@
         } else if (currentStage === "orders") {
           renderOrdersTable();
         }
-        ensureOrdersListFilledForFilters();
       }
 
       function renderOrdersTable() {
@@ -14464,15 +14511,6 @@
           })
           .join("");
         syncOrdersFilterShipInputs();
-        // Если таблица не заполняет viewport — подгрузить ещё порцию.
-        requestAnimationFrame(() => {
-          const wrap = ordersWorkspace
-            ? ordersWorkspace.querySelector(".orders-table-wrap")
-            : null;
-          if (wrap && wrap.scrollHeight <= wrap.clientHeight + 40) {
-            maybeLoadMoreOrdersOnScroll(wrap);
-          }
-        });
       }
 
       function formatOrderMonitoringPctCell(orderRow) {
@@ -20554,7 +20592,22 @@
         );
       }
 
-      function applyOrdersListToUi(enriched) {
+      function applyOrdersListToUi(enriched, opts) {
+        const append = !!(opts && opts.append);
+        const wraps = [];
+        if (ordersWorkspace) {
+          const w = ordersWorkspace.querySelector(".orders-table-wrap");
+          if (w) {
+            wraps.push(w);
+          }
+        }
+        if (orderMonitoringWorkspace) {
+          const w = orderMonitoringWorkspace.querySelector(".orders-table-wrap");
+          if (w) {
+            wraps.push(w);
+          }
+        }
+        const scrollBefore = wraps.map((w) => w.scrollTop);
         mergeOrdersExtraInfoFilterOnLoad(collectOrdersExtraInfoFilterValues());
         mergeOrdersClientFilterOnLoad(collectOrdersClientFilterValues());
         syncOrdersFilteredCount();
@@ -20588,6 +20641,11 @@
                 syncOrderChatButtonEl(btn, row);
               });
           }
+        }
+        if (append) {
+          wraps.forEach((w, i) => {
+            w.scrollTop = scrollBefore[i] || 0;
+          });
         }
       }
 
@@ -20635,10 +20693,19 @@
             : quiet && cachedOrdersListRows.length > ORDERS_PAGE_SIZE
               ? Math.min(100, cachedOrdersListRows.length)
               : ORDERS_PAGE_SIZE;
-          const res = await fetch(
-            `/api/orders?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
-            { cache: "no-store" },
-          );
+          const params = new URLSearchParams();
+          params.set("limit", String(limit));
+          params.set("offset", String(offset));
+          const shipQ = getOrdersListShipDateQuery();
+          if (shipQ.ship_from) {
+            params.set("ship_from", shipQ.ship_from);
+          }
+          if (shipQ.ship_to) {
+            params.set("ship_to", shipQ.ship_to);
+          }
+          const res = await fetch(`/api/orders?${params.toString()}`, {
+            cache: "no-store",
+          });
           if (!res.ok) {
             throw new Error("API error");
           }
@@ -20670,24 +20737,7 @@
             cachedOrdersListRows = merged;
             pruneOrderMonitoringDetailCache(merged);
           }
-          applyOrdersListToUi(merged);
-          // Под фильтры: если на экране мало строк, а на сервере ещё есть — подтянуть ещё.
-          const autofillDepth = Number((opts && opts.autofillDepth) || 0);
-          if (
-            ordersListHasMore &&
-            autofillDepth < 8 &&
-            getOrdersRowsForDisplay().length < ORDERS_PAGE_SIZE &&
-            cachedOrdersListRows.length < ordersListTotal
-          ) {
-            ordersListLoading = false;
-            setOrdersListLoadingHint(false);
-            await loadOrders({
-              append: true,
-              quiet: true,
-              autofillDepth: autofillDepth + 1,
-            });
-            return;
-          }
+          applyOrdersListToUi(merged, { append });
         } catch (error) {
           if (!quiet && !append) {
             cachedOrdersListRows = [];
@@ -20717,17 +20767,6 @@
         if (remain < 160) {
           void loadOrders({ append: true, quiet: true });
         }
-      }
-
-      function ensureOrdersListFilledForFilters() {
-        if (
-          ordersListLoading ||
-          !ordersListHasMore ||
-          getOrdersRowsForDisplay().length >= Math.min(ORDERS_PAGE_SIZE, 20)
-        ) {
-          return;
-        }
-        void loadOrders({ append: true, quiet: true });
       }
 
       function finalizeAssembleSlots() {
